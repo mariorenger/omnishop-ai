@@ -60,6 +60,44 @@ docker compose exec api python -m scripts.test_isolation   # ADR-008 RLS checks
 - **Audit log** on privileged actions; **encrypted-at-rest** helper for channel
   credentials (R-17).
 
+## Milestone 1.1 additions (multi-provider + file ingestion + settings UI)
+
+- **Choose your LLM** (ADR-007): providers behind one seam — **Anthropic
+  (Claude)**, **OpenAI**, **Google Gemini**, and **vLLM / local (any
+  OpenAI-compatible server: Ollama, LM Studio, Together, Groq…)** via a single
+  OpenAI-compatible adapter + the Anthropic SDK. Resolution precedence:
+  **platform default → tenant override (if allowed) → env/stub**.
+- **Tenant self-serve vs admin control:** org admins set their own LLM/OCR in
+  **Settings** (with a **Test connection** button); the **platform admin** sets
+  the global default, toggles whether tenants may override, sets the platform
+  **embedding** model, and can edit any tenant's LLM. API keys are **encrypted at
+  rest**; a key field left blank keeps the existing key.
+- **Embeddings stay platform-managed** (deliberate — see the push-back note
+  below): one embedding space for the shared pgvector column; still swappable to
+  OpenAI-compatible/Gemini at the platform level, output **fit to `EMBEDDING_DIM`**.
+- **File upload, many types:** txt/md/csv/json/html, **PDF, DOCX, PPTX, XLSX**,
+  and **images** — extracted to text and embedded. Digital PDFs use the text
+  layer; scanned PDFs/images route through OCR.
+- **Flexible OCR** behind `OCRProvider`: **tesseract** (local; image bundles
+  `tesseract-ocr-vie/eng` + poppler), **vlm** (transcribe via the org's
+  vision-capable LLM — swap the OCR model just by changing the LLM config), or
+  **disabled**. All degrade gracefully if a backend is missing.
+- **Verified end-to-end** (real Postgres+pgvector+RLS+Redis, plus real Tesseract
+  OCR): settings CRUD + policy gate (tenant PUT → 403 when disabled), provider
+  test, embedding dim, docx upload → worker embed → AI retrieval, and parsing of
+  docx/xlsx/pptx/html/csv/json + image OCR.
+
+### Push-back the design took (why it's built this way)
+
+- **Not per-vendor adapters:** OpenAI, vLLM, local servers and **Gemini** all
+  speak the OpenAI Chat Completions shape, so one `OpenAICompatibleLLM` covers
+  them (Gemini via its OpenAI-compatible endpoint). Less code, easy to extend.
+- **Embeddings are NOT tenant-selectable:** mixing embedding models per tenant in
+  one shared vector column breaks similarity and forces full re-embedding on
+  change. Tenants choose the **answer LLM**; embeddings are a platform decision.
+- **"All file types" is bounded** to a practical, high-value set; unknown types
+  fall back to a UTF-8 text attempt, else a clear error — no silent garbage.
+
 ## How it maps to the milestones
 
 | Milestone | Status here |

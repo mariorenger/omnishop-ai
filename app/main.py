@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .errors import new_correlation_id
 from .modules import (admin, auth, billing, channel, conversation, knowledge,
-                      product, tenant, usage)
+                      product, settings, tenant, usage)
 
 app = FastAPI(title="OmniShop AI", version="0.1.0")
 
@@ -29,7 +29,7 @@ def health():
 
 
 for r in (auth.router, tenant.router, billing.router, usage.router, channel.router,
-          knowledge.router, product.router, conversation.router, admin.router):
+          knowledge.router, product.router, conversation.router, admin.router, settings.router):
     app.include_router(r)
 
 
@@ -43,7 +43,8 @@ if os.path.isdir(_static_dir):
 def _startup():
     # Best-effort DB readiness wait (does not crash under --reload if DB is slow).
     try:
-        from .db import wait_ready
+        from .db import run_migrations, wait_ready
         wait_ready(30)
+        run_migrations()
     except Exception as e:  # noqa: BLE001
-        print(f"[api] startup: database not ready yet: {e}", flush=True)
+        print(f"[api] startup: database not ready / migration deferred: {e}", flush=True)

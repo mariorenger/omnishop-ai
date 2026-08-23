@@ -5,235 +5,314 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>OmniShop AI — Dashboard</title>
 <style>
-  :root{--bg:#0f172a;--panel:#111827;--card:#1f2937;--line:#334155;--fg:#e5e7eb;--muted:#94a3b8;--accent:#6366f1;--ok:#22c55e;--warn:#f59e0b}
+  :root{
+    --bg:#0b1020;--bg2:#0f1629;--panel:#131b33;--card:#182140;--card2:#1e2a52;
+    --line:#2a3763;--fg:#eef2ff;--muted:#93a0c8;--accent:#6d7cff;--accent2:#8b5cf6;
+    --ok:#34d399;--warn:#fbbf24;--bad:#f87171;--radius:14px;
+  }
   *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg)}
-  a{color:var(--accent)}
-  header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
-  header h1{font-size:16px;margin:0;font-weight:700}
-  header .sp{flex:1}
-  select,input,textarea,button{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-  button{background:var(--accent);border:none;cursor:pointer;font-weight:600}
-  button.sec{background:var(--card);border:1px solid var(--line)}
-  button:hover{filter:brightness(1.08)}
-  .wrap{max-width:1080px;margin:0 auto;padding:20px}
-  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-  .tabs button{background:var(--card);border:1px solid var(--line)}
-  .tabs button.active{background:var(--accent);border-color:var(--accent)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  html,body{height:100%}
+  body{margin:0;font-family:"Segoe UI",system-ui,Roboto,Helvetica,Arial,sans-serif;background:
+    radial-gradient(1200px 600px at 80% -10%,rgba(109,124,255,.15),transparent),
+    radial-gradient(900px 500px at -10% 110%,rgba(139,92,246,.12),transparent),var(--bg);color:var(--fg)}
+  a{color:var(--accent);text-decoration:none}
+  button,input,select,textarea{font:inherit;color:var(--fg)}
+  input,select,textarea{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  textarea{resize:vertical}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 5px;font-weight:600;letter-spacing:.02em}
+  button{background:linear-gradient(180deg,var(--accent),#5a68e6);border:none;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;transition:.15s;width:auto}
+  button:hover{filter:brightness(1.1);transform:translateY(-1px)}
+  button.sec{background:var(--card2);border:1px solid var(--line)}
+  button.ghost{background:transparent;border:1px solid var(--line)}
+  button.danger{background:transparent;border:1px solid var(--bad);color:var(--bad)}
+  .card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+  .card h3{margin:0 0 4px;font-size:16px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 12px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .grid{display:grid;gap:10px}
-  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+  .row.top{align-items:flex-start}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
   .muted{color:var(--muted)}
+  .err{color:var(--bad);font-size:13px;min-height:16px;margin-top:8px}
+  .okmsg{color:var(--ok);font-size:13px;min-height:16px;margin-top:8px}
   table{width:100%;border-collapse:collapse}
-  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
-  .pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
-  .pill.ai{color:#a5b4fc}.pill.needs_human{color:var(--warn);border-color:var(--warn)}.pill.human{color:var(--ok)}
-  .center{max-width:400px;margin:8vh auto}
-  .err{color:#fca5a5;font-size:13px;min-height:18px}
-  code{background:#0b1220;padding:2px 6px;border-radius:6px}
-  pre{background:#0b1220;padding:12px;border-radius:8px;overflow:auto;font-size:12px}
-  .msg{padding:8px 12px;border-radius:10px;margin:6px 0;max-width:80%}
-  .msg.customer{background:#0b1220;margin-left:auto}
-  .msg.ai{background:#312e81}.msg.agent{background:#14532d}.msg.system{background:#3f2d0b}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .pill{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-weight:600}
+  .pill.ai,.pill.connected,.pill.ready,.pill.active{color:#a5b4fc;border-color:#3b4a86}
+  .pill.needs_human,.pill.pending,.pill.processing{color:var(--warn);border-color:#5a4a1e}
+  .pill.human{color:var(--ok);border-color:#1e5a44}
+  .pill.error,.pill.closed{color:var(--bad);border-color:#5a2323}
+  code{background:#0a0f20;padding:2px 7px;border-radius:6px;font-size:12px}
+  pre{background:#0a0f20;border:1px solid var(--line);padding:12px;border-radius:10px;overflow:auto;font-size:12px}
+  .msg{padding:9px 13px;border-radius:12px;margin:6px 0;max-width:82%;font-size:14px;line-height:1.45;white-space:pre-wrap}
+  .msg.customer{background:#0a0f20;margin-left:auto;border:1px solid var(--line)}
+  .msg.ai{background:linear-gradient(180deg,#31307e,#2a2a63)}
+  .msg.agent{background:linear-gradient(180deg,#155e43,#124e39)}
+  .msg.system{background:#4a3410;border:1px solid #6b4d18;font-size:13px}
+  /* layout */
+  #app{min-height:100vh}
+  .shell{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+  @media(max-width:800px){.shell{grid-template-columns:1fr}.side{position:sticky;top:0;z-index:5}}
+  .side{background:linear-gradient(180deg,var(--panel),var(--bg2));border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:4px}
+  .brand{font-weight:800;font-size:18px;padding:6px 10px 14px;display:flex;align-items:center;gap:8px}
+  .brand small{font-weight:600;color:var(--muted);font-size:11px}
+  .nav{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;color:var(--muted);font-weight:600;font-size:14px}
+  .nav:hover{background:var(--card)}
+  .nav.active{background:linear-gradient(90deg,rgba(109,124,255,.25),transparent);color:var(--fg);border:1px solid var(--line)}
+  .nav .ic{width:20px;text-align:center}
+  .main{display:flex;flex-direction:column;min-width:0}
+  .topbar{display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--line);background:rgba(15,22,41,.7);backdrop-filter:blur(6px);position:sticky;top:0;z-index:4}
+  .topbar select{width:auto;min-width:140px}
+  .content{padding:22px;max-width:960px;width:100%}
+  .center{max-width:420px;margin:9vh auto;padding:0 16px}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .kpi .b{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:12px;padding:14px}
+  .kpi .n{font-size:22px;font-weight:800}.kpi .l{color:var(--muted);font-size:12px;margin-top:2px}
+  .tag{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:2px 8px;font-size:12px;margin:2px 4px 2px 0}
+  .drop{border:1.5px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--muted);cursor:pointer}
+  .drop:hover{border-color:var(--accent);color:var(--fg)}
 </style>
 </head>
-<body>
-<div id="app"></div>
+<body><div id="app"></div>
 <script>
-const API = "";
-let state = { token:null, user:null, orgs:[], org:null, shops:[], shop:null, tab:"products" };
-
-function saveAuth(){ localStorage.setItem("omni", JSON.stringify({token:state.token, org:state.org && state.org.id})); }
-function loadAuth(){ try{ return JSON.parse(localStorage.getItem("omni")||"{}"); }catch(e){ return {}; } }
-
-async function api(path, opts={}){
-  const h = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
-  if(state.token) h["Authorization"] = "Bearer "+state.token;
-  if(state.org) h["X-Org-Id"] = state.org.id;
-  const res = await fetch(API+path, Object.assign({}, opts, {headers:h}));
-  if(!res.ok){ let d; try{d=await res.json();}catch(e){d={detail:res.statusText};} throw new Error(d.detail||("HTTP "+res.status)); }
-  return res.status===204 ? null : res.json();
+let state={token:null,user:null,orgs:[],org:null,shops:[],shop:null,tab:"products"};
+function saveAuth(){localStorage.setItem("omni",JSON.stringify({token:state.token,org:state.org&&state.org.id,tab:state.tab}));}
+function loadAuth(){try{return JSON.parse(localStorage.getItem("omni")||"{}");}catch(e){return{};}}
+async function api(path,opts={}){
+  const h=Object.assign({"Content-Type":"application/json"},opts.headers||{});
+  if(state.token)h["Authorization"]="Bearer "+state.token;
+  if(state.org)h["X-Org-Id"]=state.org.id;
+  const res=await fetch(path,Object.assign({},opts,{headers:h}));
+  if(!res.ok){let d;try{d=await res.json();}catch(e){d={detail:res.statusText};}throw new Error(d.detail||("HTTP "+res.status));}
+  return res.status===204?null:res.json();
 }
-const el = (t,a={},...c)=>{const e=document.createElement(t);for(const k in a){if(k==="on")for(const ev in a.on)e.addEventListener(ev,a.on[ev]);else if(k==="html")e.innerHTML=a[k];else e.setAttribute(k,a[k]);}c.flat().forEach(x=>e.appendChild(typeof x==="string"?document.createTextNode(x):x));return e;};
+async function apiForm(path,formData){
+  const h={};if(state.token)h["Authorization"]="Bearer "+state.token;if(state.org)h["X-Org-Id"]=state.org.id;
+  const res=await fetch(path,{method:"POST",headers:h,body:formData});
+  if(!res.ok){let d;try{d=await res.json();}catch(e){d={detail:res.statusText};}throw new Error(d.detail||("HTTP "+res.status));}
+  return res.json();
+}
+const el=(t,a={},...c)=>{const e=document.createElement(t);for(const k in a){if(k==="on")for(const ev in a.on)e.addEventListener(ev,a.on[ev]);else if(k==="html")e.innerHTML=a[k];else if(a[k]!==false&&a[k]!=null)e.setAttribute(k,a[k]);}c.flat().forEach(x=>{if(x==null||x===false)return;e.appendChild(typeof x==="string"?document.createTextNode(x):x);});return e;};
 
 // ---------- auth ----------
 function authView(){
-  const app = document.getElementById("app");
-  app.innerHTML="";
-  const err = el("div",{class:"err"});
-  const email = el("input",{placeholder:"email",value:""});
-  const pass = el("input",{type:"password",placeholder:"mật khẩu (≥8)"});
-  const org = el("input",{placeholder:"tên workspace (khi đăng ký)"});
-  const doLogin=async()=>{ err.textContent=""; try{ const d=await api("/api/auth/login",{method:"POST",body:JSON.stringify({email:email.value,password:pass.value})}); afterAuth(d);}catch(e){err.textContent=e.message;} };
-  const doSignup=async()=>{ err.textContent=""; try{ const d=await api("/api/auth/signup",{method:"POST",body:JSON.stringify({email:email.value,password:pass.value,org_name:org.value})}); afterAuth(d);}catch(e){err.textContent=e.message;} };
-  app.appendChild(el("div",{class:"center"},
-    el("div",{class:"card"},
-      el("h1",{},"OmniShop AI"),
-      el("p",{class:"muted"},"Đăng nhập hoặc tạo tài khoản để bắt đầu."),
-      el("label",{},"Email"), email,
-      el("label",{},"Mật khẩu"), pass,
-      el("label",{},"Workspace (đăng ký mới)"), org,
-      el("div",{class:"row",style:"margin-top:12px"}, el("button",{on:{click:doLogin}},"Đăng nhập"), el("button",{class:"sec",on:{click:doSignup}},"Đăng ký")),
-      err
-    )));
+  const app=document.getElementById("app");app.innerHTML="";
+  const err=el("div",{class:"err"});
+  const email=el("input",{placeholder:"email"}),pass=el("input",{type:"password",placeholder:"mật khẩu (≥8)"}),org=el("input",{placeholder:"tên workspace (khi đăng ký)"});
+  const doLogin=async()=>{err.textContent="";try{afterAuth(await api("/api/auth/login",{method:"POST",body:JSON.stringify({email:email.value,password:pass.value})}));}catch(e){err.textContent=e.message;}};
+  const doSignup=async()=>{err.textContent="";try{afterAuth(await api("/api/auth/signup",{method:"POST",body:JSON.stringify({email:email.value,password:pass.value,org_name:org.value})}));}catch(e){err.textContent=e.message;}};
+  app.appendChild(el("div",{class:"center"},el("div",{class:"card"},
+    el("div",{class:"brand"},"🛍️ OmniShop AI"),
+    el("p",{class:"sub"},"Nền tảng chatbot AI đa kênh cho cửa hàng. Đăng nhập hoặc tạo tài khoản."),
+    el("label",{},"Email"),email,el("label",{},"Mật khẩu"),pass,el("label",{},"Workspace (đăng ký mới)"),org,
+    el("div",{class:"row",style:"margin-top:14px"},el("button",{on:{click:doLogin}},"Đăng nhập"),el("button",{class:"sec",on:{click:doSignup}},"Đăng ký")),
+    err,el("p",{class:"muted",style:"margin-top:14px;font-size:12px"},"Demo: demo@omnishop.local / demo12345"))));
 }
-function afterAuth(d){ state.token=d.token; state.user=d.user; state.orgs=d.orgs||[]; state.org=state.orgs[0]||null; saveAuth(); boot(); }
+function afterAuth(d){state.token=d.token;state.user=d.user;state.orgs=d.orgs||[];state.org=state.orgs[0]||null;saveAuth();boot();}
 
 // ---------- shell ----------
 async function boot(){
-  if(!state.token){ authView(); return; }
-  try{ const me=await api("/api/auth/me"); state.user=me.user; state.orgs=me.orgs; }
-  catch(e){ state.token=null; saveAuth(); authView(); return; }
-  const saved=loadAuth();
-  state.org = state.orgs.find(o=>o.id===saved.org) || state.orgs[0] || null;
-  if(state.org){ try{ state.shops=await api("/api/shops"); }catch(e){ state.shops=[]; } state.shop=state.shops[0]||null; }
+  if(!state.token){authView();return;}
+  try{const me=await api("/api/auth/me");state.user=me.user;state.orgs=me.orgs;}
+  catch(e){state.token=null;saveAuth();authView();return;}
+  const saved=loadAuth();state.org=state.orgs.find(o=>o.id===saved.org)||state.orgs[0]||null;
+  if(saved.tab)state.tab=saved.tab;
+  if(state.org){try{state.shops=await api("/api/shops");}catch(e){state.shops=[];}state.shop=state.shops[0]||null;}
   render();
 }
-
 function render(){
-  const app=document.getElementById("app"); app.innerHTML="";
+  const app=document.getElementById("app");app.innerHTML="";
+  const isAdmin=state.user&&state.user.is_platform_admin;
+  const tabs=[["products","🧦","Sản phẩm"],["knowledge","📚","Kiến thức"],["channels","🔌","Kênh & Widget"],
+    ["inbox","💬","Hộp thư"],["usage","📊","Sử dụng"],["plan","💳","Gói"],["settings","⚙️","Cài đặt AI"]];
+  if(isAdmin)tabs.push(["admin","🛡️","Quản trị nền tảng"]);
+  const side=el("div",{class:"side"},el("div",{class:"brand"},"🛍️ OmniShop",el("small",{}," AI")),
+    ...tabs.map(([t,ic,lb])=>el("div",{class:"nav "+(state.tab===t?"active":""),on:{click:()=>{state.tab=t;saveAuth();render();}}},el("span",{class:"ic"},ic),lb)));
   const orgSel=el("select",{on:{change:async e=>{state.org=state.orgs.find(o=>o.id===e.target.value);saveAuth();state.shops=await api("/api/shops");state.shop=state.shops[0]||null;render();}}},
-    ...state.orgs.map(o=>el("option",{value:o.id,...(state.org&&o.id===state.org.id?{selected:"1"}:{})},o.name)));
+    ...state.orgs.map(o=>el("option",{value:o.id,selected:state.org&&o.id===state.org.id},o.name)));
   const shopSel=el("select",{on:{change:e=>{state.shop=state.shops.find(s=>s.id===e.target.value);render();}}},
-    ...state.shops.map(s=>el("option",{value:s.id,...(state.shop&&s.id===state.shop.id?{selected:"1"}:{})},s.name)),
-    ...(state.shops.length?[]:[el("option",{},"(chưa có shop)")]));
-  app.appendChild(el("header",{},
-    el("h1",{},"🛍️ OmniShop AI"),
-    el("span",{class:"muted"},"Org:"), orgSel,
-    el("span",{class:"muted"},"Shop:"), shopSel,
-    el("span",{class:"sp"}),
-    el("span",{class:"muted"}, state.user?state.user.email:""),
-    el("button",{class:"sec",on:{click:()=>{state.token=null;saveAuth();authView();}}},"Đăng xuất")));
-  const wrap=el("div",{class:"wrap"});
-  const tabs=["products","knowledge","channels","inbox","usage","plan"];
-  const labels={products:"Sản phẩm",knowledge:"Kiến thức",channels:"Kênh & Widget",inbox:"Hộp thư",usage:"Sử dụng",plan:"Gói"};
-  wrap.appendChild(el("div",{class:"tabs"},...tabs.map(t=>el("button",{class:state.tab===t?"active":"",on:{click:()=>{state.tab=t;render();}}},labels[t]))));
-  const body=el("div",{id:"body"}); wrap.appendChild(body); app.appendChild(wrap);
-  if(!state.shop && state.tab!=="plan"){ body.appendChild(shopSetup()); return; }
-  ({products:tabProducts,knowledge:tabKnowledge,channels:tabChannels,inbox:tabInbox,usage:tabUsage,plan:tabPlan}[state.tab])(body);
+    ...state.shops.map(s=>el("option",{value:s.id,selected:state.shop&&s.id===state.shop.id},s.name)),...(state.shops.length?[]:[el("option",{},"(chưa có shop)")]));
+  const top=el("div",{class:"topbar"},el("span",{class:"muted"},"Org"),orgSel,el("span",{class:"muted"},"Shop"),shopSel,
+    el("span",{style:"flex:1"}),el("span",{class:"muted",style:"font-size:13px"},state.user?state.user.email:""),
+    el("button",{class:"ghost",on:{click:()=>{state.token=null;saveAuth();authView();}}},"Đăng xuất"));
+  const content=el("div",{class:"content",id:"content"});
+  const main=el("div",{class:"main"},top,content);
+  app.appendChild(el("div",{class:"shell"},side,main));
+  const needShop=!state.shop&&!["plan","settings","admin"].includes(state.tab);
+  if(needShop){content.appendChild(shopSetup());return;}
+  ({products:tabProducts,knowledge:tabKnowledge,channels:tabChannels,inbox:tabInbox,usage:tabUsage,plan:tabPlan,settings:tabSettings,admin:tabAdmin}[state.tab])(content);
 }
-
 function shopSetup(){
-  const name=el("input",{placeholder:"Tên cửa hàng"});
-  const err=el("div",{class:"err"});
-  return el("div",{class:"card"}, el("h3",{},"Tạo cửa hàng đầu tiên"),
-    el("p",{class:"muted"},"Bạn cần một cửa hàng để thêm sản phẩm, kiến thức và bật chatbot."),
-    el("label",{},"Tên cửa hàng"), name,
-    el("div",{style:"margin-top:10px"}, el("button",{on:{click:async()=>{try{await api("/api/shops",{method:"POST",body:JSON.stringify({name:name.value||"Cửa hàng của tôi"})});state.shops=await api("/api/shops");state.shop=state.shops[0];render();}catch(e){err.textContent=e.message;}}}},"Tạo cửa hàng")), err);
+  const name=el("input",{placeholder:"Tên cửa hàng"}),err=el("div",{class:"err"});
+  return el("div",{class:"card"},el("h3",{},"Tạo cửa hàng đầu tiên"),el("p",{class:"sub"},"Bạn cần một cửa hàng để thêm sản phẩm, kiến thức và bật chatbot."),
+    el("label",{},"Tên cửa hàng"),name,el("div",{style:"margin-top:12px"},el("button",{on:{click:async()=>{try{await api("/api/shops",{method:"POST",body:JSON.stringify({name:name.value||"Cửa hàng của tôi"})});state.shops=await api("/api/shops");state.shop=state.shops[0];render();}catch(e){err.textContent=e.message;}}}},"Tạo cửa hàng")),err);
 }
 
 // ---------- products ----------
-async function tabProducts(body){
-  const list=el("div",{},"Đang tải…");
-  const name=el("input",{placeholder:"Tên sản phẩm"}), price=el("input",{placeholder:"Giá",type:"number"}), desc=el("textarea",{placeholder:"Mô tả"});
-  const variants=el("input",{placeholder:"Biến thể: Size M:10, Size L:3 (tên:tồn kho, phẩy ngăn cách)"});
-  const err=el("div",{class:"err"});
-  const add=async()=>{ err.textContent="";
-    const vs=(variants.value||"").split(",").map(s=>s.trim()).filter(Boolean).map(s=>{const [n,st]=s.split(":");return {name:(n||"").trim(),stock:parseInt(st||"0")||0};});
-    try{ await api("/api/products",{method:"POST",body:JSON.stringify({shop_id:state.shop.id,name:name.value,price:price.value?parseFloat(price.value):null,description:desc.value,variants:vs})}); name.value="";price.value="";desc.value="";variants.value=""; load(); }catch(e){err.textContent=e.message;} };
-  const load=async()=>{ try{ const ps=await api("/api/products?shop_id="+state.shop.id); list.innerHTML="";
-    if(!ps.length) list.appendChild(el("p",{class:"muted"},"Chưa có sản phẩm."));
-    else{ const t=el("table",{},el("tr",{},el("th",{},"Tên"),el("th",{},"Giá"),el("th",{},"Biến thể")));
-      ps.forEach(p=>t.appendChild(el("tr",{},el("td",{},p.name),el("td",{},p.price!=null?(p.price+" "+p.currency):"—"),el("td",{},(p.variants||[]).map(v=>v.name+" ("+v.stock+")").join(", ")||"—"))));
-      list.appendChild(t);} }catch(e){list.innerHTML="";list.appendChild(el("div",{class:"err"},e.message));} };
-  body.appendChild(el("div",{class:"card"},el("h3",{},"Thêm sản phẩm"),
-    el("label",{},"Tên"),name,el("div",{class:"row"},el("div",{},el("label",{},"Giá (VND)"),price)),
-    el("label",{},"Mô tả"),desc,el("label",{},"Biến thể / tồn kho"),variants,
-    el("div",{style:"margin-top:10px"},el("button",{on:{click:add}},"Lưu sản phẩm")),err));
-  body.appendChild(el("div",{class:"card"},el("h3",{},"Sản phẩm"),list)); load();
+async function tabProducts(c){
+  const list=el("div",{},el("p",{class:"muted"},"Đang tải…"));
+  const name=el("input",{placeholder:"Tên sản phẩm"}),price=el("input",{type:"number",placeholder:"Giá (VND)"}),desc=el("textarea",{placeholder:"Mô tả",style:"min-height:70px"}),variants=el("input",{placeholder:"Biến thể: Size M:10, Size L:3"}),err=el("div",{class:"err"});
+  const add=async()=>{err.textContent="";const vs=(variants.value||"").split(",").map(s=>s.trim()).filter(Boolean).map(s=>{const[n,st]=s.split(":");return{name:(n||"").trim(),stock:parseInt(st||"0")||0};});
+    try{await api("/api/products",{method:"POST",body:JSON.stringify({shop_id:state.shop.id,name:name.value,price:price.value?parseFloat(price.value):null,description:desc.value,variants:vs})});name.value=price.value=desc.value=variants.value="";load();}catch(e){err.textContent=e.message;}};
+  const load=async()=>{try{const ps=await api("/api/products?shop_id="+state.shop.id);list.innerHTML="";
+    if(!ps.length){list.appendChild(el("p",{class:"muted"},"Chưa có sản phẩm."));return;}
+    const t=el("table",{},el("tr",{},el("th",{},"Tên"),el("th",{},"Giá"),el("th",{},"Biến thể / tồn kho")));
+    ps.forEach(p=>t.appendChild(el("tr",{},el("td",{},el("strong",{},p.name),el("div",{class:"muted",style:"font-size:12px"},(p.description||"").slice(0,60))),el("td",{},p.price!=null?p.price.toLocaleString()+" "+p.currency:"—"),el("td",{},(p.variants||[]).map(v=>el("span",{class:"tag"},v.name+" · "+v.stock))))));
+    list.appendChild(t);}catch(e){list.innerHTML="";list.appendChild(el("div",{class:"err"},e.message));}};
+  c.appendChild(el("div",{class:"card"},el("h3",{},"Thêm sản phẩm"),el("p",{class:"sub"},"AI sẽ dùng dữ liệu này để trả lời về giá, tồn kho, biến thể."),
+    el("label",{},"Tên"),name,el("div",{class:"grid2"},el("div",{},el("label",{},"Giá"),price),el("div",{},el("label",{},"Biến thể / tồn kho"),variants)),el("label",{},"Mô tả"),desc,
+    el("div",{style:"margin-top:12px"},el("button",{on:{click:add}},"💾 Lưu sản phẩm")),err));
+  c.appendChild(el("div",{class:"card"},el("h3",{},"Danh sách sản phẩm"),list));load();
 }
 
 // ---------- knowledge ----------
-async function tabKnowledge(body){
-  const list=el("div",{},"Đang tải…");
-  const title=el("input",{placeholder:"Tiêu đề (vd: Chính sách đổi trả)"}), text=el("textarea",{placeholder:"Dán nội dung kiến thức ở đây…",style:"min-height:120px"});
-  const err=el("div",{class:"err"});
-  const add=async()=>{err.textContent="";try{await api("/api/knowledge/documents",{method:"POST",body:JSON.stringify({shop_id:state.shop.id,title:title.value,text:text.value})});title.value="";text.value="";load();}catch(e){err.textContent=e.message;}};
+async function tabKnowledge(c){
+  const list=el("div",{},el("p",{class:"muted"},"Đang tải…"));
+  const title=el("input",{placeholder:"Tiêu đề (vd: Chính sách đổi trả)"}),text=el("textarea",{placeholder:"Dán nội dung…",style:"min-height:110px"}),err=el("div",{class:"err"}),ok=el("div",{class:"okmsg"});
+  const addText=async()=>{err.textContent="";ok.textContent="";try{await api("/api/knowledge/documents",{method:"POST",body:JSON.stringify({shop_id:state.shop.id,title:title.value,text:text.value})});title.value=text.value="";ok.textContent="Đã thêm, đang tạo embedding…";load();}catch(e){err.textContent=e.message;}};
+  const fileInput=el("input",{type:"file",style:"display:none",on:{change:async e=>{const f=e.target.files[0];if(!f)return;err.textContent="";ok.textContent="Đang trích xuất & xử lý: "+f.name+" …";
+    const fd=new FormData();fd.append("shop_id",state.shop.id);fd.append("file",f);
+    try{const r=await apiForm("/api/knowledge/upload",fd);ok.textContent="Đã tải "+f.name+" ("+r.extracted_chars+" ký tự, "+r.chunks+" đoạn).";load();}catch(ex){err.textContent=ex.message;ok.textContent="";}e.target.value="";}}});
+  const drop=el("div",{class:"drop",on:{click:()=>fileInput.click()}},"📎 Bấm để tải file (PDF, DOCX, PPTX, XLSX, CSV, HTML, TXT, ảnh…). Ảnh & PDF scan sẽ chạy OCR.");
   const load=async()=>{try{const ds=await api("/api/knowledge/documents?shop_id="+state.shop.id);list.innerHTML="";
-    if(!ds.length)list.appendChild(el("p",{class:"muted"},"Chưa có tài liệu."));
-    else{const t=el("table",{},el("tr",{},el("th",{},"Tiêu đề"),el("th",{},"Trạng thái"),el("th",{},"Đoạn")));
-      ds.forEach(d=>t.appendChild(el("tr",{},el("td",{},d.title),el("td",{},d.status),el("td",{},String(d.chunks)))));list.appendChild(t);
-      if(ds.some(d=>d.status!=="ready")) setTimeout(load,2000);}}catch(e){list.innerHTML="";list.appendChild(el("div",{class:"err"},e.message));}};
-  body.appendChild(el("div",{class:"card"},el("h3",{},"Thêm kiến thức"),el("label",{},"Tiêu đề"),title,el("label",{},"Nội dung"),text,
-    el("p",{class:"muted"},"Nội dung sẽ được cắt đoạn và tạo embedding (chạy nền)."),
-    el("div",{},el("button",{on:{click:add}},"Tải lên")),err));
-  body.appendChild(el("div",{class:"card"},el("h3",{},"Tài liệu"),list));load();
+    if(!ds.length){list.appendChild(el("p",{class:"muted"},"Chưa có tài liệu."));return;}
+    const t=el("table",{},el("tr",{},el("th",{},"Tiêu đề"),el("th",{},"Nguồn"),el("th",{},"Trạng thái"),el("th",{},"Đoạn")));
+    ds.forEach(d=>t.appendChild(el("tr",{},el("td",{},d.title),el("td",{class:"muted"},d.source||"text"),el("td",{},el("span",{class:"pill "+d.status},d.status)),el("td",{},String(d.chunks)))));
+    list.appendChild(t);if(ds.some(d=>d.status!=="ready"&&d.status!=="error"))setTimeout(load,2000);
+  }catch(e){list.innerHTML="";list.appendChild(el("div",{class:"err"},e.message));}};
+  c.appendChild(el("div",{class:"card"},el("h3",{},"Tải tài liệu"),el("p",{class:"sub"},"Nhập text hoặc tải file. Nội dung được cắt đoạn và tạo embedding (chạy nền)."),
+    drop,fileInput,el("div",{style:"height:12px"}),el("label",{},"Hoặc nhập tiêu đề + nội dung"),title,el("div",{style:"height:8px"}),text,
+    el("div",{style:"margin-top:12px"},el("button",{on:{click:addText}},"➕ Thêm text")),ok,err));
+  c.appendChild(el("div",{class:"card"},el("h3",{},"Tài liệu"),list));load();
 }
 
 // ---------- channels ----------
-async function tabChannels(body){
-  const list=el("div",{},"Đang tải…");
-  const err=el("div",{class:"err"});
+async function tabChannels(c){
+  const list=el("div",{},el("p",{class:"muted"},"Đang tải…")),err=el("div",{class:"err"});
   const create=async()=>{err.textContent="";try{await api("/api/channels",{method:"POST",body:JSON.stringify({shop_id:state.shop.id,kind:"website",name:"Website widget"})});load();}catch(e){err.textContent=e.message;}};
   const load=async()=>{try{const cs=await api("/api/channels?shop_id="+state.shop.id);list.innerHTML="";
-    if(!cs.length)list.appendChild(el("p",{class:"muted"},"Chưa có kênh nào. Tạo widget website để nhúng vào trang của bạn."));
-    cs.forEach(c=>{const url=location.origin+"/widget.html?key="+c.public_key;
-      const snippet='<iframe src="'+url+'" style="border:0;width:380px;height:560px"></iframe>';
-      list.appendChild(el("div",{class:"card"},el("div",{class:"row"},el("strong",{},c.name),el("span",{class:"pill "+c.status},c.status)),
-        el("p",{class:"muted"},"Public key: "),el("code",{},c.public_key),
-        el("p",{},el("a",{href:url,target:"_blank"},"➜ Mở thử widget")),
-        el("label",{},"Mã nhúng"),el("pre",{},snippet)));});
-    }catch(e){list.innerHTML="";list.appendChild(el("div",{class:"err"},e.message));}};
-  body.appendChild(el("div",{class:"card"},el("h3",{},"Kênh bán hàng"),
-    el("p",{class:"muted"},"MVP hỗ trợ Website widget (chạy ngay). Facebook/Instagram/TikTok/Shopee sẽ thêm sau khi qua app-review."),
+    if(!cs.length){list.appendChild(el("p",{class:"muted"},"Chưa có kênh nào."));return;}
+    cs.forEach(ch=>{const url=location.origin+"/widget.html?key="+ch.public_key;const snip='<iframe src="'+url+'" style="border:0;width:380px;height:560px"></iframe>';
+      list.appendChild(el("div",{class:"card"},el("div",{class:"row"},el("strong",{},ch.name),el("span",{class:"pill "+ch.status},ch.status)),
+        el("p",{class:"sub"},"Public key: "),el("code",{},ch.public_key),el("p",{style:"margin-top:8px"},el("a",{href:url,target:"_blank"},"➜ Mở thử widget")),el("label",{},"Mã nhúng"),el("pre",{},snip)));});
+  }catch(e){list.innerHTML="";list.appendChild(el("div",{class:"err"},e.message));}};
+  c.appendChild(el("div",{class:"card"},el("h3",{},"Kênh bán hàng"),el("p",{class:"sub"},"MVP hỗ trợ Website widget (chạy ngay). Facebook/Instagram/TikTok/Shopee thêm sau khi qua app-review."),
     el("button",{on:{click:create}},"➕ Tạo Website widget"),err));
-  body.appendChild(list);load();
+  c.appendChild(list);load();
 }
 
 // ---------- inbox ----------
-async function tabInbox(body){
-  const cols=el("div",{class:"row",style:"align-items:flex-start"});
-  const left=el("div",{style:"flex:1;min-width:260px"}); const right=el("div",{style:"flex:2;min-width:280px"},el("p",{class:"muted"},"Chọn một hội thoại."));
-  cols.appendChild(left);cols.appendChild(right);
-  body.appendChild(el("div",{class:"card"},el("h3",{},"Hộp thư hợp nhất"),cols));
-  const openConv=async(c)=>{ right.innerHTML="";
-    const box=el("div",{style:"max-height:50vh;overflow:auto"});
-    const msgs=await api("/api/conversations/"+c.id+"/messages");
-    msgs.forEach(m=>box.appendChild(el("div",{class:"msg "+m.role},m.content)));
-    const inp=el("input",{placeholder:"Trả lời với tư cách nhân viên…",style:"flex:1"});
-    const send=async()=>{if(!inp.value.trim())return;await api("/api/conversations/"+c.id+"/reply",{method:"POST",body:JSON.stringify({text:inp.value})});inp.value="";openConv(c);};
-    right.appendChild(el("div",{},el("div",{class:"row"},el("strong",{},"Khách: "+c.customer_ref),el("span",{class:"pill "+c.status},c.status)),
-      box, el("div",{class:"row",style:"margin-top:8px"},inp,el("button",{on:{click:send}},"Gửi"),
-        el("button",{class:"sec",on:{click:async()=>{await api("/api/conversations/"+c.id+"/close",{method:"POST"});loadList();}}},"Đóng"))));
+async function tabInbox(c){
+  const wrap=el("div",{class:"row top"}),left=el("div",{style:"flex:1;min-width:240px"}),right=el("div",{style:"flex:1.4;min-width:280px"},el("p",{class:"muted"},"Chọn một hội thoại."));
+  wrap.appendChild(left);wrap.appendChild(right);c.appendChild(el("div",{class:"card"},el("h3",{},"Hộp thư hợp nhất"),wrap));
+  const open=async(cv)=>{right.innerHTML="";const box=el("div",{style:"max-height:52vh;overflow:auto;padding-right:4px"});
+    (await api("/api/conversations/"+cv.id+"/messages")).forEach(m=>box.appendChild(el("div",{class:"msg "+m.role},m.content)));
+    const inp=el("input",{placeholder:"Trả lời với tư cách nhân viên…"});
+    const send=async()=>{if(!inp.value.trim())return;await api("/api/conversations/"+cv.id+"/reply",{method:"POST",body:JSON.stringify({text:inp.value})});inp.value="";open(cv);};
+    right.appendChild(el("div",{},el("div",{class:"row",style:"margin-bottom:8px"},el("strong",{},"Khách: "+cv.customer_ref),el("span",{class:"pill "+cv.status},cv.status)),box,
+      el("div",{class:"row",style:"margin-top:10px"},el("div",{style:"flex:1"},inp),el("button",{on:{click:send}},"Gửi"),el("button",{class:"sec",on:{click:async()=>{await api("/api/conversations/"+cv.id+"/close",{method:"POST"});loadList();}}},"Đóng"))));
   };
-  const loadList=async()=>{ left.innerHTML=""; const cs=await api("/api/conversations?shop_id="+state.shop.id);
-    if(!cs.length)left.appendChild(el("p",{class:"muted"},"Chưa có hội thoại. Thử nhắn qua widget!"));
-    cs.forEach(c=>left.appendChild(el("div",{class:"card",style:"cursor:pointer",on:{click:()=>openConv(c)}},
-      el("div",{class:"row"},el("strong",{},c.customer_ref),el("span",{class:"pill "+c.status},c.status)),
-      el("div",{class:"muted",style:"font-size:13px"},(c.last_message||"").slice(0,80))))); };
+  const loadList=async()=>{left.innerHTML="";const cs=await api("/api/conversations?shop_id="+state.shop.id);
+    if(!cs.length){left.appendChild(el("p",{class:"muted"},"Chưa có hội thoại. Thử nhắn qua widget!"));return;}
+    cs.forEach(cv=>left.appendChild(el("div",{class:"card",style:"cursor:pointer;margin-bottom:8px",on:{click:()=>open(cv)}},el("div",{class:"row"},el("strong",{},cv.customer_ref),el("span",{class:"pill "+cv.status},cv.status)),el("div",{class:"muted",style:"font-size:13px"},(cv.last_message||"").slice(0,70)))));};
   loadList();
 }
 
 // ---------- usage ----------
-async function tabUsage(body){
-  try{ const s=await api("/api/usage/summary"); const sub=await api("/api/subscription");
-    body.appendChild(el("div",{class:"card"},el("h3",{},"Sử dụng tháng này"),
-      el("table",{},
-        el("tr",{},el("td",{},"Tin nhắn AI"),el("td",{},String(s.ai_messages)+" / "+sub.quota.limit)),
-        el("tr",{},el("td",{},"Input tokens"),el("td",{},String(s.input_tokens))),
-        el("tr",{},el("td",{},"Output tokens"),el("td",{},String(s.output_tokens))),
-        el("tr",{},el("td",{},"Embedding tokens"),el("td",{},String(s.embedding_tokens))),
-        el("tr",{},el("td",{},"Chi phí ước tính (COGS)"),el("td",{},"$"+s.total_cost.toFixed(4))))));
-  }catch(e){body.appendChild(el("div",{class:"err"},e.message));}
+async function tabUsage(c){
+  try{const s=await api("/api/usage/summary"),sub=await api("/api/subscription");
+    c.appendChild(el("div",{class:"card"},el("h3",{},"Sử dụng tháng này"),el("div",{class:"kpi"},
+      kpi(s.ai_messages+" / "+sub.quota.limit,"Tin nhắn AI"),kpi(s.input_tokens.toLocaleString(),"Input tokens"),
+      kpi(s.output_tokens.toLocaleString(),"Output tokens"),kpi(s.embedding_tokens.toLocaleString(),"Embedding tokens"),
+      kpi("$"+s.total_cost.toFixed(4),"Chi phí ước tính (COGS)"))));
+  }catch(e){c.appendChild(el("div",{class:"err"},e.message));}
 }
+function kpi(n,l){return el("div",{class:"b"},el("div",{class:"n"},n),el("div",{class:"l"},l));}
 
 // ---------- plan ----------
-async function tabPlan(body){
-  try{ const plans=await api("/api/plans"); const sub=await api("/api/subscription");
-    const cur=sub.entitlements._plan;
-    body.appendChild(el("div",{class:"card"},el("h3",{},"Gói hiện tại: "+sub.entitlements._plan_name),
-      el("p",{class:"muted"},"Quota AI/tháng: "+sub.quota.used+" / "+sub.quota.limit)));
-    plans.forEach(p=>{ const e=p.entitlements;
-      body.appendChild(el("div",{class:"card"},el("div",{class:"row"},el("strong",{},p.name),el("span",{class:"muted"},"$"+p.price_month+"/tháng"),
-        ...(p.code===cur?[el("span",{class:"pill human"},"đang dùng")]:[el("button",{class:"sec",on:{click:async()=>{await api("/api/subscription",{method:"POST",body:JSON.stringify({plan_code:p.code})});render();}}},"Chọn gói này")])),
-        el("p",{class:"muted"},"AI/tháng: "+e.ai_messages_month+" · Shops: "+e.shops+" · Kênh: "+(e.channels_allowed||[]).join(", "))));
-    });
-  }catch(e){body.appendChild(el("div",{class:"err"},e.message));}
+async function tabPlan(c){
+  if(!state.org){c.appendChild(el("p",{class:"muted"},"Chọn tổ chức."));return;}
+  try{const plans=await api("/api/plans"),sub=await api("/api/subscription"),cur=sub.entitlements._plan;
+    c.appendChild(el("div",{class:"card"},el("h3",{},"Gói hiện tại: "+sub.entitlements._plan_name),el("p",{class:"sub"},"Quota AI/tháng: "+sub.quota.used+" / "+sub.quota.limit)));
+    plans.forEach(p=>{const e=p.entitlements;c.appendChild(el("div",{class:"card"},el("div",{class:"row"},el("strong",{},p.name),el("span",{class:"muted"},"$"+p.price_month+"/tháng"),
+      ...(p.code===cur?[el("span",{class:"pill active"},"đang dùng")]:[el("button",{class:"sec",on:{click:async()=>{await api("/api/subscription",{method:"POST",body:JSON.stringify({plan_code:p.code})});render();}}},"Chọn gói")])),
+      el("p",{class:"sub",style:"margin-top:8px"},"AI/tháng: "+e.ai_messages_month+" · Shops: "+e.shops+" · Kênh: "+(e.channels_allowed||[]).join(", "))));});
+  }catch(e){c.appendChild(el("div",{class:"err"},e.message));}
 }
 
-// ---------- start ----------
-(function(){ const s=loadAuth(); if(s.token){ state.token=s.token; } boot(); })();
+// ---------- settings (tenant) ----------
+function llmForm(cfg,providers,onSave,onTest,onDelete){
+  const prov=el("select",{},...providers.map((p,i)=>el("option",{value:i},p.label)));
+  const model=el("input",{placeholder:"model (vd: claude-opus-5, gpt-4o-mini, gemini-1.5-flash)"});
+  const base=el("input",{placeholder:"base_url (để trống nếu mặc định)"});
+  const key=el("input",{type:"password",placeholder:"API key (để trống = giữ nguyên)"});
+  const maxt=el("input",{type:"number",placeholder:"max_tokens (mặc định 1024)"});
+  const err=el("div",{class:"err"}),ok=el("div",{class:"okmsg"});
+  if(cfg){model.value=cfg.model||"";base.value=cfg.base_url||"";
+    const idx=providers.findIndex(p=>p.id===cfg.provider&&(!p.base_url||p.base_url===cfg.base_url));prov.value=idx>=0?idx:providers.findIndex(p=>p.id===cfg.provider);}
+  prov.addEventListener("change",()=>{const p=providers[prov.value];if(p&&p.base_url&&!base.value)base.value=p.base_url;});
+  const body=()=>({provider:providers[prov.value].id,model:model.value,base_url:base.value,api_key:key.value?key.value:null,max_tokens:maxt.value?parseInt(maxt.value):null});
+  return el("div",{},el("label",{},"Nhà cung cấp"),prov,el("div",{class:"grid2"},el("div",{},el("label",{},"Model"),model),el("div",{},el("label",{},"Base URL"),base)),
+    el("div",{class:"grid2"},el("div",{},el("label",{},"API key"),key),el("div",{},el("label",{},"Max tokens"),maxt)),
+    el("div",{class:"row",style:"margin-top:12px"},
+      el("button",{on:{click:async()=>{ok.textContent="Đang test…";err.textContent="";try{const r=await onTest(body());if(r.ok){ok.textContent="✅ OK ("+(r.model||r.dim||"")+"): "+(r.reply||"");}else{err.textContent="❌ "+r.error;ok.textContent="";}}catch(e){err.textContent=e.message;ok.textContent="";}}}},"🔌 Test"),
+      el("button",{class:"sec",on:{click:async()=>{err.textContent="";ok.textContent="";try{await onSave(body());ok.textContent="Đã lưu.";}catch(e){err.textContent=e.message;}}}},"💾 Lưu"),
+      onDelete?el("button",{class:"danger",on:{click:async()=>{try{await onDelete();ok.textContent="Đã xoá cấu hình riêng, dùng mặc định nền tảng.";}catch(e){err.textContent=e.message;}}}},"Xoá override"):null),
+    ok,err);
+}
+async function tabSettings(c){
+  try{const s=await api("/api/settings/llm");
+    const head=el("div",{},el("h3",{},"Nhà cung cấp LLM (cho tổ chức này)"),el("p",{class:"sub"},s.can_edit?"Bạn có thể chọn LLM riêng. Đang dùng: "+(s.effective.provider)+" · "+(s.effective.model||"")+".":"Quản trị nền tảng đã khoá; đang dùng mặc định: "+s.effective.provider+"."));
+    const cardBody=[head];
+    if(s.can_edit)cardBody.push(llmForm(s.org_config,s.providers,
+      b=>api("/api/settings/llm",{method:"PUT",body:JSON.stringify(b)}),
+      b=>api("/api/settings/llm/test",{method:"POST",body:JSON.stringify(b)}),
+      s.org_config?()=>api("/api/settings/llm",{method:"DELETE"}):null));
+    c.appendChild(el("div",{class:"card"},...cardBody));
+  }catch(e){c.appendChild(el("div",{class:"err"},e.message));}
+  try{const o=await api("/api/settings/ocr");
+    const prov=el("select",{},...o.providers.map((p,i)=>el("option",{value:i,selected:o.org_config&&o.org_config.provider===p.id},p.label)));
+    const model=el("input",{placeholder:"model cho VLM (để trống = dùng LLM hiện tại)"}),lang=el("input",{placeholder:"ngôn ngữ tesseract (vd: vie+eng)"}),ok=el("div",{class:"okmsg"}),err=el("div",{class:"err"});
+    if(o.org_config)model.value=o.org_config.model||"";
+    c.appendChild(el("div",{class:"card"},el("h3",{},"OCR (đọc ảnh & PDF scan)"),el("p",{class:"sub"},"Đang dùng: "+o.effective.provider+". Có thể thay Tesseract ↔ VLM."),
+      el("label",{},"Backend OCR"),prov,el("div",{class:"grid2"},el("div",{},el("label",{},"Model (VLM)"),model),el("div",{},el("label",{},"Ngôn ngữ (Tesseract)"),lang)),
+      el("div",{style:"margin-top:12px"},el("button",{class:"sec",on:{click:async()=>{err.textContent="";ok.textContent="";try{await api("/api/settings/ocr",{method:"PUT",body:JSON.stringify({provider:o.providers[prov.value].id,model:model.value,lang:lang.value})});ok.textContent="Đã lưu.";}catch(e){err.textContent=e.message;}}}},"💾 Lưu OCR")),ok,err));
+  }catch(e){c.appendChild(el("div",{class:"err"},e.message));}
+}
+
+// ---------- admin (platform) ----------
+async function tabAdmin(c){
+  try{const ov=await api("/api/admin/overview");
+    c.appendChild(el("div",{class:"card"},el("h3",{},"Tổng quan nền tảng"),el("div",{class:"kpi"},
+      kpi(ov.tenants,"Tenants"),kpi(ov.shops,"Shops"),kpi(ov.conversations,"Hội thoại"),kpi(ov.ai_messages_month,"Tin AI/tháng"),kpi("$"+ov.cost_month.toFixed(4),"Chi phí/tháng"))));
+  }catch(e){c.appendChild(el("div",{class:"err"},e.message));}
+  try{const s=await api("/api/admin/settings");
+    // policy toggles
+    const al=el("input",{type:"checkbox"}),ao=el("input",{type:"checkbox"});al.checked=s.policy.allow_tenant_llm;ao.checked=s.policy.allow_tenant_ocr;
+    const pok=el("div",{class:"okmsg"});
+    c.appendChild(el("div",{class:"card"},el("h3",{},"Chính sách"),el("p",{class:"sub"},"Cho phép tenant tự chọn provider hay không."),
+      el("label",{style:"display:flex;gap:8px;align-items:center"},al," Cho phép tenant tự cấu hình LLM"),
+      el("label",{style:"display:flex;gap:8px;align-items:center"},ao," Cho phép tenant tự cấu hình OCR"),
+      el("div",{style:"margin-top:10px"},el("button",{class:"sec",on:{click:async()=>{await api("/api/admin/settings/policy",{method:"PUT",body:JSON.stringify({allow_tenant_llm:al.checked,allow_tenant_ocr:ao.checked})});pok.textContent="Đã lưu chính sách.";}}},"💾 Lưu chính sách")),pok));
+    // platform default LLM
+    c.appendChild(el("div",{class:"card"},el("h3",{},"LLM mặc định nền tảng"),el("p",{class:"sub"},"Áp dụng khi tenant không cấu hình riêng."),
+      llmForm(s.llm,s.llm_providers,b=>api("/api/admin/settings/llm",{method:"PUT",body:JSON.stringify(b)}),b=>api("/api/admin/settings/llm/test",{method:"POST",body:JSON.stringify(b)}),null)));
+    // platform embedding
+    const embProviders=[{id:"local",label:"Local (không cần key)",base_url:""},{id:"openai_compatible",label:"OpenAI-compatible",base_url:"https://api.openai.com/v1"},{id:"gemini",label:"Gemini",base_url:""}];
+    c.appendChild(el("div",{class:"card"},el("h3",{},"Embedding nền tảng"),el("p",{class:"sub"},"Dùng chung toàn nền tảng (đổi model cần re-embed). Dim cố định "+"384"+"."),
+      llmForm(s.embedding,embProviders,b=>api("/api/admin/settings/embedding",{method:"PUT",body:JSON.stringify(b)}),b=>api("/api/admin/settings/embedding/test",{method:"POST",body:JSON.stringify(b)}),null)));
+    // tenants table
+    const tl=el("div",{},el("p",{class:"muted"},"Đang tải…"));
+    c.appendChild(el("div",{class:"card"},el("h3",{},"Tenants"),tl));
+    const ts=await api("/api/admin/tenants");tl.innerHTML="";
+    const t=el("table",{},el("tr",{},el("th",{},"Tổ chức"),el("th",{},"Gói"),el("th",{},"Shops"),el("th",{},"Tin AI/tháng"),el("th",{},"Chi phí")));
+    ts.forEach(x=>t.appendChild(el("tr",{},el("td",{},x.name),el("td",{},el("span",{class:"pill active"},x.plan)),el("td",{},String(x.shops)),el("td",{},String(x.ai_messages)),el("td",{},"$"+x.cost_month.toFixed(4)))));
+    tl.appendChild(t);
+  }catch(e){c.appendChild(el("div",{class:"err"},e.message));}
+}
+
+(function(){const s=loadAuth();if(s.token)state.token=s.token;boot();})();
 </script>
-</body>
-</html>
+</body></html>

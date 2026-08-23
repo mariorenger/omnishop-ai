@@ -7,7 +7,8 @@ import time
 from .config import config
 from .db import tenant_tx, wait_ready
 from .modules import usage
-from .providers.embeddings import get_embedder, to_pgvector
+from .providers.embeddings import to_pgvector
+from .providers.registry import get_embedder
 from .providers.queue import mark, pop
 
 

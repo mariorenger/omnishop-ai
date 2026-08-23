@@ -28,6 +28,10 @@ class Config:
     EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "text-embedding-3-small")
     EMBEDDING_DIM = int(_get("EMBEDDING_DIM", "384"))
 
+    # OCR (flexible/swappable). tesseract | vlm | disabled
+    OCR_PROVIDER = _get("OCR_PROVIDER", "tesseract")
+    OCR_MODEL = _get("OCR_MODEL", "")  # for vlm OCR (defaults to the LLM model)
+
     # Cost estimation ($/1M tokens) — per-tenant COGS in usage metering.
     COST_INPUT_PER_M = float(_get("COST_INPUT_PER_M", "5.0"))
     COST_OUTPUT_PER_M = float(_get("COST_OUTPUT_PER_M", "25.0"))

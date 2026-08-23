@@ -10,8 +10,8 @@ import time
 from typing import List
 
 from ..db import tenant_tx
-from ..providers.embeddings import get_embedder
-from ..providers.llm import ContextBlock, get_llm
+from ..providers.llm import ContextBlock
+from ..providers.registry import get_embedder, get_llm
 from ..providers.vectorstore import search_chunks, search_products, variants_for
 from . import usage
 from .billing import check_ai_quota
@@ -114,7 +114,7 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
                 context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
 
     # 4) LLM answer
-    llm = get_llm()
+    llm = get_llm(org_id)
     res = llm.answer(question=text, context=context, history=history, shop_name=shop_name)
     latency_ms = int((time.time() - started) * 1000)
 

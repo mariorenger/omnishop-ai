@@ -1,15 +1,17 @@
-"""Knowledge base: upload text, chunk, enqueue embedding (async). Parsing of
-PDF/DOCX is deferred to OSS parsers (build-vs-buy) — MVP accepts pasted text."""
+"""Knowledge base: add text OR upload files (many types, with flexible OCR),
+chunk, and enqueue embedding (async)."""
 from __future__ import annotations
-from typing import List
+from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 
 from .. import audit
 from ..db import tenant_tx
 from ..errors import bad_request
+from ..ingest.parse import SUPPORTED, extract_text
 from ..providers.queue import enqueue
+from ..providers.registry import get_ocr
 from ..tenancy import OrgContext, get_org_context, require_role
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -32,7 +34,6 @@ def chunk_text(text: str, target: int = 800) -> List[str]:
             if buf:
                 chunks.append(buf)
             buf = p if len(p) <= target else p[:target]
-            # very long paragraph: hard-split
             while len(buf) > target:
                 chunks.append(buf[:target])
                 buf = buf[target:]
@@ -54,17 +55,37 @@ def _get_or_create_kb(conn, org_id: str, shop_id: str) -> str:
     return str(row["id"])
 
 
+def store_document(org_id: str, shop_id: str, title: str, source: Optional[str], text: str) -> Tuple[str, int]:
+    chunks = chunk_text(text)
+    with tenant_tx(org_id) as conn:
+        kb_id = _get_or_create_kb(conn, org_id, shop_id)
+        doc = conn.execute(
+            """INSERT INTO document (organization_id, knowledge_base_id, title, source, status)
+               VALUES (%s,%s,%s,%s,'pending') RETURNING id""",
+            (org_id, kb_id, title, source),
+        ).fetchone()
+        doc_id = str(doc["id"])
+        for i, ch in enumerate(chunks):
+            conn.execute(
+                """INSERT INTO chunk (organization_id, knowledge_base_id, document_id, ordinal, content)
+                   VALUES (%s,%s,%s,%s,%s)""",
+                (org_id, kb_id, doc_id, i, ch),
+            )
+    enqueue("embed_document", {"document_id": doc_id}, organization_id=org_id)
+    return doc_id, len(chunks)
+
+
 @router.get("/documents")
 def list_documents(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         rows = conn.execute(
-            """SELECT d.id, d.title, d.status, d.created_at,
+            """SELECT d.id, d.title, d.status, d.source, d.created_at,
                       (SELECT count(*) FROM chunk c WHERE c.document_id = d.id) AS chunks
                FROM document d JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
                WHERE kb.shop_id = %s ORDER BY d.created_at DESC""",
             (shop_id,),
         ).fetchall()
-    return [{"id": str(r["id"]), "title": r["title"], "status": r["status"],
+    return [{"id": str(r["id"]), "title": r["title"], "status": r["status"], "source": r["source"],
              "chunks": int(r["chunks"])} for r in rows]
 
 
@@ -72,22 +93,39 @@ def list_documents(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
 def create_document(body: DocBody, ctx: OrgContext = Depends(require_role("admin"))):
     if not body.text.strip():
         raise bad_request("text is empty")
-    chunks = chunk_text(body.text)
-    with tenant_tx(ctx.org_id) as conn:
-        kb_id = _get_or_create_kb(conn, ctx.org_id, body.shop_id)
-        doc = conn.execute(
-            """INSERT INTO document (organization_id, knowledge_base_id, title, status)
-               VALUES (%s,%s,%s,'pending') RETURNING id""",
-            (ctx.org_id, kb_id, body.title),
-        ).fetchone()
-        doc_id = str(doc["id"])
-        for i, ch in enumerate(chunks):
-            conn.execute(
-                """INSERT INTO chunk (organization_id, knowledge_base_id, document_id, ordinal, content)
-                   VALUES (%s,%s,%s,%s,%s)""",
-                (ctx.org_id, kb_id, doc_id, i, ch),
-            )
-    enqueue("embed_document", {"document_id": doc_id}, organization_id=ctx.org_id)
+    doc_id, n = store_document(ctx.org_id, body.shop_id, body.title, "text", body.text)
     audit.record("knowledge.upload", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
-                 target=doc_id, detail={"title": body.title, "chunks": len(chunks)})
-    return {"id": doc_id, "title": body.title, "chunks": len(chunks), "status": "pending"}
+                 target=doc_id, detail={"title": body.title, "chunks": n})
+    return {"id": doc_id, "title": body.title, "chunks": n, "status": "pending"}
+
+
+@router.get("/supported")
+def supported_types():
+    return {"extensions": sorted(SUPPORTED)}
+
+
+@router.post("/upload")
+async def upload_file(
+    shop_id: str = Form(...),
+    title: str = Form(""),
+    file: UploadFile = File(...),
+    ctx: OrgContext = Depends(require_role("admin")),
+):
+    data = await file.read()
+    if not data:
+        raise bad_request("empty file")
+    if len(data) > 25 * 1024 * 1024:
+        raise bad_request("file too large (max 25MB)")
+    ocr = get_ocr(ctx.org_id)
+    try:
+        text = extract_text(file.filename or "upload", data, ocr=ocr)
+    except ValueError as e:
+        raise bad_request(str(e))
+    if not text.strip():
+        raise bad_request("no text could be extracted (for scanned files, configure OCR in Settings)")
+    doc_id, n = store_document(ctx.org_id, shop_id, title or (file.filename or "Tài liệu"),
+                               file.filename, text)
+    audit.record("knowledge.upload_file", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=doc_id, detail={"filename": file.filename, "chunks": n})
+    return {"id": doc_id, "title": title or file.filename, "chunks": n, "status": "pending",
+            "extracted_chars": len(text)}

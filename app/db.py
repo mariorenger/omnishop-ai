@@ -68,6 +68,28 @@ def admin_tx() -> Iterator[psycopg.Connection]:
             yield conn
 
 
+def run_migrations() -> None:
+    """Apply idempotent migrations (002+) at startup so existing DB volumes get
+    new tables without a re-init. 001 is handled by initdb on a fresh volume."""
+    import glob
+    import os
+    root = os.path.dirname(os.path.dirname(__file__))
+    files = sorted(glob.glob(os.path.join(root, "db", "0*.sql")))
+    # 001 is not idempotent (CREATE POLICY etc.) — initdb owns it; run 002+ only.
+    for path in files:
+        if os.path.basename(path).startswith("001"):
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            sql = f.read()
+        conn = psycopg.connect(config.PG_DSN_ADMIN, autocommit=True)
+        try:
+            res = conn.pgconn.exec_(sql.encode("utf-8"))
+            if res.status not in (psycopg.pq.ExecStatus.COMMAND_OK, psycopg.pq.ExecStatus.TUPLES_OK):
+                raise RuntimeError(res.error_message.decode(errors="replace"))
+        finally:
+            conn.close()
+
+
 def wait_ready(timeout_s: int = 30) -> None:
     """Block until the DB accepts a trivial query (used at startup)."""
     import time

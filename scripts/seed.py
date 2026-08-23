@@ -14,7 +14,8 @@ import json
 import secrets
 
 from app.db import no_tenant, tenant_tx, wait_ready
-from app.providers.embeddings import get_embedder, to_pgvector
+from app.providers.embeddings import to_pgvector
+from app.providers.registry import get_embedder
 from app.security import hash_password
 
 ADMIN_EMAIL = "admin@omnishop.local"
