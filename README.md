@@ -13,16 +13,32 @@ channel, with human handoff when needed.
 
 ---
 
-## Status: Milestone 0 — Discovery (no application code yet)
+## Status: Milestone 1 — runnable MVP (core loop working)
 
-This repository currently contains **only discovery & architecture
-documentation**. Per the project's guiding principle, we do **not** write
-application code until the make/buy/OSS decisions and the target architecture
-are agreed.
+The **discovery docs** (Milestone 0) are in [`docs/`](docs/). On top of them, a
+first **runnable product** now implements the core loop end-to-end and has been
+verified against real Postgres+pgvector+RLS+Redis. See
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) for what's built and how it maps to the
+milestones.
 
-> **Do not build from scratch what good OSS already solves. Do not depend on OSS
-> where it costs us business control, tenant isolation, cost visibility, or core
-> differentiation. Do not optimize for scale before there is real workload.**
+### Run it (no API key required)
+
+```bash
+docker compose up -d --build                       # postgres+pgvector, valkey, api, worker
+docker compose exec api python -m scripts.seed     # demo tenant, products, knowledge
+# open http://localhost:8000   (login: demo@omnishop.local / demo12345)
+```
+
+The seed prints a widget URL — open it and ask *"Áo thun size M màu đen còn
+không?"*. It answers from the merchant's **product + inventory** data. Runs with a
+retrieval-grounded stub LLM out of the box; set `ANTHROPIC_API_KEY` in `.env` for
+real Claude. Verify tenant isolation: `docker compose exec api python -m
+scripts.test_isolation`.
+
+> **Guiding principle:** Do not build from scratch what good OSS already solves.
+> Do not depend on OSS where it costs us business control, tenant isolation, cost
+> visibility, or core differentiation. Do not optimize for scale before there is
+> real workload.
 
 ### Where to start reading
 
@@ -56,19 +72,20 @@ are agreed.
 
 ---
 
-## Repository layout (planned)
+## Repository layout
 
 ```
 omnishop-ai/
 ├── README.md              ← you are here
-└── docs/                  ← Milestone 0 discovery (current)
-    ├── product/
-    ├── research/
-    ├── platform/
-    ├── architecture/
-    ├── decisions/         ← ADRs
-    └── operations/
+├── IMPLEMENTATION.md      ← what the running app does + how to run/verify
+├── docker-compose.yml     ← postgres+pgvector, valkey, api, worker
+├── app/                   ← modular monolith (FastAPI) + worker
+│   ├── providers/         ← LLM, embeddings, vector, queue, channel (swappable)
+│   ├── modules/           ← auth, tenant, billing, usage, knowledge, product,
+│   │                        channel, conversation (+orchestrator), admin
+│   └── static/            ← dashboard + customer chat widget
+├── db/001_init.sql        ← schema + Row-Level Security + pgvector + seed plans
+├── scripts/               ← seed.py, test_isolation.py
+└── docs/                  ← Milestone 0 discovery
+    ├── product/  research/  platform/  architecture/  decisions/  operations/
 ```
-
-Application code (a modular monolith + background workers) is introduced from
-**Milestone 1** onward, once this discovery is approved.

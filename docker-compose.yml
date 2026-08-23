@@ -1,0 +1,54 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: omni
+      POSTGRES_PASSWORD: omni
+      POSTGRES_DB: omnishop
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omni -d omnishop"]
+      interval: 5s
+      retries: 10
+
+  cache:
+    image: valkey/valkey:8-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db: {condition: service_healthy}
+      cache: {condition: service_started}
+    env_file: .env
+    environment:
+      # App connects as the restricted role so Row-Level Security is enforced (ADR-008).
+      PG_DSN: postgresql://omni_app:omni_app@db:5432/omnishop
+      # Superuser DSN for platform-admin cross-tenant reads + first-run setup.
+      PG_DSN_ADMIN: postgresql://omni:omni@db:5432/omnishop
+      REDIS_URL: redis://cache:6379/0
+    ports: ["8000:8000"]
+    volumes: ["./:/srv"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: .
+    depends_on:
+      db: {condition: service_healthy}
+      cache: {condition: service_started}
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://omni_app:omni_app@db:5432/omnishop
+      PG_DSN_ADMIN: postgresql://omni:omni@db:5432/omnishop
+      REDIS_URL: redis://cache:6379/0
+    command: python -m app.worker
+
+volumes:
+  pgdata:
