@@ -24,10 +24,20 @@ milestones.
 ### Run it (no API key required)
 
 ```bash
-docker compose up -d --build                       # postgres+pgvector, valkey, api, worker
+docker compose up -d --build                       # db, valkey, api, worker, web
 docker compose exec api python -m scripts.seed     # demo tenant, products, knowledge
-# open http://localhost:8000   (login: demo@omnishop.local / demo12345)
+# open http://localhost:3000   (login: demo@omnishop.local / demo12345)
 ```
+
+The polished product UI is the **`web`** service (Vite + React + Tailwind, a
+Linear/shadcn-style dashboard) at **http://localhost:3000** — it reverse-proxies
+`/api` to the backend. The FastAPI service (`:8000`) still serves the API, the
+customer widget, and a simple built-in dashboard as a fallback.
+
+**Choose your AI provider in-app** (Settings → Cài đặt AI): Anthropic (Claude),
+**OpenAI**, **Google Gemini**, or **vLLM / local** (any OpenAI-compatible server)
+— with a **model dropdown** (fetched live from the provider) and a **Test**
+button. Platform admins set the default and whether tenants may override.
 
 The seed prints a widget URL — open it and ask *"Áo thun size M màu đen còn
 không?"*. It answers from the merchant's **product + inventory** data. Runs with a

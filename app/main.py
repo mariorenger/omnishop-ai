@@ -4,14 +4,27 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .config import config
 from .errors import new_correlation_id
 from .modules import (admin, auth, billing, channel, conversation, knowledge,
                       product, settings, tenant, usage)
 
 app = FastAPI(title="OmniShop AI", version="0.1.0")
+
+# CORS so the standalone web frontend (dev server / other origin) can call the API.
+# In production the web service reverse-proxies /api same-origin; this stays permissive
+# for local dev and is configurable via CORS_ORIGINS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.middleware("http")

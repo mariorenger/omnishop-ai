@@ -9,6 +9,7 @@ def _get(name: str, default: str = "") -> str:
 
 class Config:
     APP_SECRET = _get("APP_SECRET", "dev-only-change-me")
+    CORS_ORIGINS = [o.strip() for o in _get("CORS_ORIGINS", "*").split(",") if o.strip()]
 
     PG_DSN = _get("PG_DSN", "postgresql://omni_app:omni_app@localhost:5432/omnishop")
     PG_DSN_ADMIN = _get("PG_DSN_ADMIN", "postgresql://omni:omni@localhost:5432/omnishop")

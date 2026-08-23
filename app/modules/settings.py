@@ -11,6 +11,7 @@ from ..errors import forbidden
 from ..providers import registry
 from ..providers.embeddings import build_embedder
 from ..providers.llm import ContextBlock, build_llm
+from ..providers.models import list_models
 from ..tenancy import CurrentUser, OrgContext, require_platform_admin, require_role
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -96,6 +97,12 @@ def test_llm_settings(body: LLMConfigBody, ctx: OrgContext = Depends(require_rol
     return _test_llm(cfg)
 
 
+@router.post("/settings/llm/models")
+def tenant_list_models(body: LLMConfigBody, ctx: OrgContext = Depends(require_role("admin"))):
+    key = body.api_key or (registry._load(f"llm:org:{ctx.org_id}") or {}).get("api_key", "")
+    return list_models({"provider": body.provider, "base_url": body.base_url, "api_key": key})
+
+
 @router.get("/settings/ocr")
 def get_ocr_settings(ctx: OrgContext = Depends(require_role("admin"))):
     policy = registry.get_platform_settings()
@@ -178,6 +185,18 @@ def admin_test_llm(body: LLMConfigBody, _: CurrentUser = Depends(require_platfor
            "api_key": body.api_key or (registry._load("llm:platform") or {}).get("api_key", ""),
            "extra": _extra_llm(body)}
     return _test_llm(cfg)
+
+
+@router.post("/admin/settings/llm/models")
+def admin_list_models(body: LLMConfigBody, _: CurrentUser = Depends(require_platform_admin)):
+    key = body.api_key or (registry._load("llm:platform") or {}).get("api_key", "")
+    return list_models({"provider": body.provider, "base_url": body.base_url, "api_key": key})
+
+
+@router.post("/admin/settings/embedding/models")
+def admin_list_embedding_models(body: LLMConfigBody, _: CurrentUser = Depends(require_platform_admin)):
+    key = body.api_key or (registry._load("embedding:platform") or {}).get("api_key", "")
+    return list_models({"provider": body.provider, "base_url": body.base_url, "api_key": key})
 
 
 @router.post("/admin/settings/embedding/test")
