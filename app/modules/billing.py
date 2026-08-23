@@ -9,8 +9,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from .. import audit
 from ..db import no_tenant, tenant_tx
-from ..errors import bad_request
+from ..errors import bad_request, not_found
+from ..providers.payment import get_payment
 from ..tenancy import OrgContext, get_org_context, require_role
 
 router = APIRouter(prefix="/api", tags=["billing"])
@@ -81,10 +83,11 @@ def get_subscription(ctx: OrgContext = Depends(get_org_context)):
 
 
 @router.post("/subscription")
-def change_plan(body: ChangePlan, ctx: OrgContext = Depends(require_role("admin"))):
+def change_plan(body: ChangePlan, ctx: OrgContext = Depends(require_role("owner"))):
+    # Direct plan change (used for free/downgrade). Paid upgrades go through checkout.
     with no_tenant() as conn:
-        exists = conn.execute("SELECT 1 FROM plan WHERE code=%s", (body.plan_code,)).fetchone()
-        if not exists:
+        plan = conn.execute("SELECT code, price_month FROM plan WHERE code=%s", (body.plan_code,)).fetchone()
+        if not plan:
             raise bad_request("unknown plan")
         conn.execute(
             """INSERT INTO subscription (organization_id, plan_code)
@@ -94,3 +97,68 @@ def change_plan(body: ChangePlan, ctx: OrgContext = Depends(require_role("admin"
             (ctx.org_id, body.plan_code),
         )
     return {"ok": True, "plan": body.plan_code}
+
+
+class Checkout(BaseModel):
+    plan_code: str
+
+
+@router.post("/billing/checkout")
+def checkout(body: Checkout, ctx: OrgContext = Depends(require_role("owner"))):
+    with no_tenant() as conn:
+        plan = conn.execute("SELECT code, price_month FROM plan WHERE code=%s", (body.plan_code,)).fetchone()
+    if not plan:
+        raise bad_request("unknown plan")
+    prov = get_payment()
+    with tenant_tx(ctx.org_id) as conn:
+        inv = conn.execute(
+            """INSERT INTO invoice (organization_id, plan_code, amount, currency, provider)
+               VALUES (%s,%s,%s,'USD',%s) RETURNING id""",
+            (ctx.org_id, plan["code"], plan["price_month"], prov.name),
+        ).fetchone()
+        invoice_id = str(inv["id"])
+    co = prov.create_checkout(invoice_id=invoice_id, amount=float(plan["price_month"]),
+                              currency="USD", plan_code=plan["code"])
+    audit.record("billing.checkout", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=invoice_id, detail={"plan": plan["code"]})
+    return {"invoice_id": invoice_id, "amount": float(plan["price_month"]), "plan": plan["code"], **co}
+
+
+@router.post("/billing/checkout/{invoice_id}/confirm")
+def confirm_payment(invoice_id: str, ctx: OrgContext = Depends(require_role("owner"))):
+    with tenant_tx(ctx.org_id) as conn:
+        inv = conn.execute(
+            "SELECT id, plan_code, amount, currency, status FROM invoice WHERE id=%s", (invoice_id,)
+        ).fetchone()
+        if not inv:
+            raise not_found("invoice not found")
+        if inv["status"] != "paid":
+            conn.execute("UPDATE invoice SET status='paid', paid_at=now() WHERE id=%s", (invoice_id,))
+            conn.execute(
+                """INSERT INTO payment (organization_id, invoice_id, amount, currency, provider, status)
+                   VALUES (%s,%s,%s,%s,'manual','succeeded')""",
+                (ctx.org_id, invoice_id, inv["amount"], inv["currency"]),
+            )
+    with no_tenant() as conn:
+        conn.execute(
+            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,'manual')
+               ON CONFLICT (organization_id)
+               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider='manual'""",
+            (ctx.org_id, inv["plan_code"]),
+        )
+    audit.record("billing.paid", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=invoice_id, detail={"plan": inv["plan_code"]})
+    return {"ok": True, "plan": inv["plan_code"]}
+
+
+@router.get("/billing/invoices")
+def list_invoices(ctx: OrgContext = Depends(get_org_context)):
+    with tenant_tx(ctx.org_id) as conn:
+        rows = conn.execute(
+            """SELECT id, plan_code, amount, currency, status, provider, created_at, paid_at
+               FROM invoice ORDER BY created_at DESC LIMIT 50"""
+        ).fetchall()
+    return [{"id": str(r["id"]), "plan": r["plan_code"], "amount": float(r["amount"]),
+             "currency": r["currency"], "status": r["status"], "provider": r["provider"],
+             "created_at": r["created_at"].isoformat(),
+             "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None} for r in rows]
