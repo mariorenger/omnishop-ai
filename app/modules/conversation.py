@@ -27,14 +27,22 @@ def _resolve_channel(public_key: str) -> dict:
     if not row:
         raise not_found("unknown widget key")
     return {"channel_id": str(row["channel_id"]), "organization_id": str(row["organization_id"]),
-            "shop_id": str(row["shop_id"]), "status": row["status"], "config": row["config"]}
+            "shop_id": str(row["shop_id"]), "status": row["status"], "config": row["config"],
+            "bot_id": str(row["bot_id"]) if row["bot_id"] else None}
 
 
 @router.get("/widget/{public_key}/config")
 def widget_config(public_key: str):
     ch = _resolve_channel(public_key)
-    return {"greeting": (ch["config"] or {}).get("greeting", "Xin chào!"),
-            "status": ch["status"]}
+    greeting = (ch["config"] or {}).get("greeting", "Xin chào!")
+    appearance = {"name": "Trợ lý", "avatar_url": "", "accent_color": "#6d7cff"}
+    if ch["bot_id"]:
+        with tenant_tx(ch["organization_id"]) as conn:
+            b = conn.execute("SELECT name, greeting, avatar_url, accent_color FROM bot WHERE id=%s", (ch["bot_id"],)).fetchone()
+        if b:
+            appearance = {"name": b["name"], "avatar_url": b["avatar_url"] or "", "accent_color": b["accent_color"]}
+            greeting = b["greeting"] or greeting
+    return {"greeting": greeting, "status": ch["status"], **appearance}
 
 
 @router.post("/widget/{public_key}/message")

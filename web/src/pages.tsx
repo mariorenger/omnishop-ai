@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars } from "./charts";
-import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight } from "lucide-react";
+import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus } from "lucide-react";
+import QRCode from "qrcode";
 
 const fmt = (n: number) => n.toLocaleString("vi-VN");
 
@@ -158,13 +159,13 @@ export function Channels({ shopId }: { shopId: string }) {
   const [err, setErr] = useState(""); const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("website"); const [name, setName] = useState(""); const [greeting, setGreeting] = useState("Xin chào! Mình có thể giúp gì cho bạn?");
   const [creds, setCreds] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false); const [ferr, setFerr] = useState("");
-  const [editing, setEditing] = useState<any>(null);
-  const load = () => { api.get(`/api/channels?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get("/api/channels/kinds").then(setKinds).catch(() => {}); };
+  const [editing, setEditing] = useState<any>(null); const [bots, setBots] = useState<any[]>([]); const [botId, setBotId] = useState("");
+  const load = () => { api.get(`/api/channels?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get("/api/channels/kinds").then(setKinds).catch(() => {}); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
   useEffect(() => { setItems(null); load(); }, [shopId]);
   const spec = kinds.find((k) => k.kind === kind);
   const connect = async () => {
     setBusy(true); setFerr("");
-    try { await api.post("/api/channels", { shop_id: shopId, kind, name, greeting, credentials: creds }); setOpen(false); setCreds({}); setName(""); load(); }
+    try { await api.post("/api/channels", { shop_id: shopId, kind, name, greeting, credentials: creds, bot_id: botId || null }); setOpen(false); setCreds({}); setName(""); setBotId(""); load(); }
     catch (e: any) { setFerr(e.message); } finally { setBusy(false); }
   };
   return (
@@ -183,29 +184,36 @@ export function Channels({ shopId }: { shopId: string }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">{ch.name}</span>
                     <Badge kind={ch.status}>{channelStatus(ch.status)}</Badge>
+                    {ch.bot_name && <span className="text-xs text-muted inline-flex items-center gap-1"><Bot className="w-3.5 h-3.5" />{ch.bot_name}</span>}
                     <span className="flex-1" />
                     {isMeta && <Button size="sm" variant="ghost" onClick={async () => { await api.post(`/api/channels/${ch.id}/verify`); load(); }}>Kiểm tra</Button>}
                     {ch.kind !== "website" && <Button size="sm" variant="ghost" onClick={() => setEditing(ch)}>Chỉnh sửa</Button>}
                     <Button size="sm" variant="danger" onClick={async () => { if (confirm("Ngắt kết nối kênh này?")) { await api.del(`/api/channels/${ch.id}`); load(); } }}>Ngắt kết nối</Button>
                   </div>
-                  {url && <div className="mt-3">
-                    <Field label="Mã tích hợp website" info="Dán đoạn mã này vào website của bạn để hiển thị khung chat.">
-                      <pre className="bg-bg border border-line rounded-lg p-3 text-xs overflow-x-auto font-normal">{`<iframe src="${url}" style="border:0;width:380px;height:560px"></iframe>`}</pre>
-                    </Field>
-                    <a className="text-accent text-sm font-semibold inline-flex items-center gap-1 mt-2" href={url} target="_blank">Xem thử tiện ích <ArrowUpRight className="w-3.5 h-3.5" /></a>
+                  {url && <div className="mt-3 flex gap-4 flex-col sm:flex-row">
+                    <div className="flex-1 min-w-0">
+                      <Field label="Mã tích hợp website" info="Dán đoạn mã này vào website của bạn để hiển thị khung chat.">
+                        <pre className="bg-bg border border-line rounded-lg p-3 text-xs overflow-x-auto font-normal">{`<iframe src="${url}" style="border:0;width:380px;height:560px"></iframe>`}</pre>
+                      </Field>
+                      <a className="text-accent text-sm font-semibold inline-flex items-center gap-1 mt-2" href={url} target="_blank">Xem thử tiện ích <ArrowUpRight className="w-3.5 h-3.5" /></a>
+                    </div>
+                    <WidgetQR url={url} />
                   </div>}
                 </div>
               );
             })}
           </div>}
       </Card>
-      <EditChannelModal channel={editing} kinds={kinds} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+      <EditChannelModal channel={editing} kinds={kinds} bots={bots} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       <Modal open={open} onClose={() => setOpen(false)} title="Kết nối kênh" size="md"
         footer={<><Button variant="sec" onClick={() => setOpen(false)}>Huỷ</Button><Button loading={busy} disabled={spec && !spec.allowed} onClick={connect}>Kết nối</Button></>}>
         <Field label="Loại kênh"><Select value={kind} onChange={(e) => { setKind(e.target.value); setCreds({}); }}>
           {kinds.map((k) => <option key={k.kind} value={k.kind} disabled={!k.allowed}>{k.label}{k.allowed ? "" : " — không có trong gói"}</option>)}
         </Select></Field>
         {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal">{spec.note}</p>}
+        <div className="mt-3"><Field label="Trợ lý xử lý" info="Chọn trợ lý AI sẽ trả lời trên kênh này. Để trống sẽ dùng trợ lý mặc định.">
+          <Select value={botId} onChange={(e) => setBotId(e.target.value)}><option value="">Trợ lý mặc định</option>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
+        </Field></div>
         {kind === "website" ? (
           <><div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tiện ích website" /></Field></div>
             <div className="mt-3"><Field label="Lời chào"><Input value={greeting} onChange={(e) => setGreeting(e.target.value)} /></Field></div></>
@@ -225,21 +233,35 @@ export function Channels({ shopId }: { shopId: string }) {
   );
 }
 
-function EditChannelModal({ channel, kinds, onClose, onSaved }: { channel: any; kinds: any[]; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState(""); const [creds, setCreds] = useState<Record<string, string>>({});
+function WidgetQR({ url }: { url: string }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => { QRCode.toDataURL(url, { margin: 1, width: 128, color: { dark: "#0a0c11", light: "#ffffff" } }).then(setSrc).catch(() => {}); }, [url]);
+  if (!src) return null;
+  return (
+    <div className="text-center shrink-0">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1.5">Mã QR</div>
+      <img src={src} alt="QR" className="w-28 h-28 rounded-lg border border-line bg-white p-1" />
+      <div className="text-[11px] text-muted mt-1 font-normal">Quét để mở khung chat</div>
+    </div>
+  );
+}
+
+function EditChannelModal({ channel, kinds, bots, onClose, onSaved }: { channel: any; kinds: any[]; bots: any[]; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(""); const [creds, setCreds] = useState<Record<string, string>>({}); const [botId, setBotId] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
-  useEffect(() => { if (channel) { setName(channel.name || ""); setCreds({}); setErr(""); } }, [channel]);
+  useEffect(() => { if (channel) { setName(channel.name || ""); setCreds({}); setBotId(channel.bot_id || ""); setErr(""); } }, [channel]);
   if (!channel) return null;
   const spec = kinds.find((k) => k.kind === channel.kind);
   const save = async () => {
     setBusy(true); setErr("");
-    try { await api.put(`/api/channels/${channel.id}`, { name, credentials: creds }); onSaved(); }
+    try { await api.put(`/api/channels/${channel.id}`, { name, credentials: creds, bot_id: botId }); onSaved(); }
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   return (
     <Modal open={!!channel} onClose={onClose} title="Chỉnh sửa kênh" sub={spec?.label}
       footer={<><Button variant="sec" onClick={onClose}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu</Button></>}>
       <Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <div className="mt-3"><Field label="Trợ lý xử lý"><Select value={botId} onChange={(e) => setBotId(e.target.value)}><option value="">Trợ lý mặc định</option>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Field></div>
       {(spec?.fields || []).map((f: any) => (
         <div className="mt-3" key={f.key}><Field label={f.label} info={f.secret ? "Để trống nếu giữ giá trị hiện tại." : undefined}>
           <Input type={f.secret ? "password" : "text"} placeholder={f.secret ? "••• (giữ nguyên)" : ""} value={creds[f.key] || ""} onChange={(e) => setCreds({ ...creds, [f.key]: e.target.value })} />
@@ -541,6 +563,99 @@ function PaymentCard() {
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
     </Card>
+  );
+}
+
+// ============================================================ Bots
+export function Bots({ shopId, role }: { shopId: string; role: string }) {
+  const [bots, setBots] = useState<any[] | null>(null); const [err, setErr] = useState("");
+  const [editing, setEditing] = useState<any>(null); const [testing, setTesting] = useState<any>(null);
+  const canManage = role === "owner" || role === "admin";
+  const load = () => api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch((e) => setErr(e.message));
+  useEffect(() => { setBots(null); load(); }, [shopId]);
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardTitle sub="Mỗi trợ lý có prompt riêng, lời chào và giao diện riêng. Gắn trợ lý vào từng kênh hoặc trang."
+          right={canManage ? <Button size="sm" onClick={() => setEditing({ shop_id: shopId, name: "", persona: "", greeting: "Xin chào! Mình có thể giúp gì cho bạn?", avatar_url: "", accent_color: "#6d7cff" })}><Plus className="w-4 h-4" /> Tạo trợ lý</Button> : undefined}>Trợ lý AI</CardTitle>
+        {!bots ? <Spinner /> : bots.length === 0 ? <Empty>Chưa có trợ lý nào. Bấm Tạo trợ lý để bắt đầu.</Empty> :
+          <div className="grid md:grid-cols-2 gap-3">
+            {bots.map((b) => (
+              <div key={b.id} className="border border-line rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: b.accent_color }}>
+                    {b.avatar_url ? <img src={b.avatar_url} className="w-9 h-9 rounded-lg object-cover" /> : <Bot className="w-5 h-5" />}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{b.name}</div>
+                    <div className="text-xs text-muted">{b.channels} kênh đang dùng</div>
+                  </div>
+                </div>
+                <p className="text-[13px] text-muted mt-3 font-normal line-clamp-2">{b.persona || "Chưa đặt prompt tuỳ chỉnh."}</p>
+                <div className="flex gap-2 mt-3">
+                  <Button size="sm" variant="sec" onClick={() => setTesting(b)}><MessageSquare className="w-3.5 h-3.5" /> Thử</Button>
+                  {canManage && <Button size="sm" variant="ghost" onClick={() => setEditing(b)}>Chỉnh sửa</Button>}
+                  {canManage && <Button size="sm" variant="danger" onClick={async () => { try { await api.del(`/api/bots/${b.id}`); load(); } catch (e: any) { alert(e.message); } }}>Xoá</Button>}
+                </div>
+              </div>
+            ))}
+          </div>}
+        <Msg type="err">{err}</Msg>
+      </Card>
+      <BotEditor bot={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+      <BotTester bot={testing} onClose={() => setTesting(null)} />
+    </div>
+  );
+}
+
+function BotEditor({ bot, onClose, onSaved }: { bot: any; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState<any>({}); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  useEffect(() => { if (bot) { setF({ ...bot }); setErr(""); } }, [bot]);
+  if (!bot) return null;
+  const isNew = !bot.id;
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = { shop_id: bot.shop_id || f.shop_id, name: f.name, persona: f.persona, greeting: f.greeting, avatar_url: f.avatar_url, accent_color: f.accent_color };
+      if (isNew) await api.post("/api/bots", body); else await api.put(`/api/bots/${bot.id}`, body);
+      onSaved();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!bot} onClose={onClose} title={isNew ? "Tạo trợ lý" : "Chỉnh sửa trợ lý"} size="lg"
+      footer={<><Button variant="sec" onClick={onClose}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu</Button></>}>
+      <Field label="Tên trợ lý"><Input value={f.name || ""} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Trợ lý cửa hàng" /></Field>
+      <div className="mt-3"><Field label="Prompt tuỳ chỉnh (persona)" info="Hướng dẫn cách trợ lý xưng hô, giọng điệu, việc nên/không nên làm. Để trống sẽ dùng mặc định.">
+        <Textarea value={f.persona || ""} onChange={(e) => setF({ ...f, persona: e.target.value })} className="min-h-[120px]"
+          placeholder="Ví dụ: Bạn là trợ lý thân thiện của cửa hàng, xưng mình gọi khách là bạn, tư vấn size ngắn gọn và luôn gợi ý thêm một sản phẩm phù hợp." />
+      </Field></div>
+      <div className="grid md:grid-cols-2 gap-3 mt-3">
+        <Field label="Lời chào"><Input value={f.greeting || ""} onChange={(e) => setF({ ...f, greeting: e.target.value })} /></Field>
+        <Field label="Màu widget"><div className="flex gap-2 items-center"><input type="color" value={f.accent_color || "#6d7cff"} onChange={(e) => setF({ ...f, accent_color: e.target.value })} className="w-10 h-9 rounded-lg border border-line bg-bg" /><Input value={f.accent_color || ""} onChange={(e) => setF({ ...f, accent_color: e.target.value })} /></div></Field>
+      </div>
+      <div className="mt-3"><Field label="Ảnh đại diện (URL)" info="Ảnh hiển thị trong khung chat. Dán đường dẫn ảnh công khai."><Input value={f.avatar_url || ""} onChange={(e) => setF({ ...f, avatar_url: e.target.value })} placeholder="https://..." /></Field></div>
+      <Msg type="err">{err}</Msg>
+    </Modal>
+  );
+}
+
+function BotTester({ bot, onClose }: { bot: any; onClose: () => void }) {
+  const [msgs, setMsgs] = useState<{ role: string; text: string }[]>([]); const [text, setText] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { setMsgs([]); setText(""); }, [bot]);
+  if (!bot) return null;
+  const send = async () => {
+    if (!text.trim()) return; const q = text; setText(""); setMsgs((m) => [...m, { role: "customer", text: q }]); setBusy(true);
+    try { const r = await api.post(`/api/bots/${bot.id}/test`, { text: q }); setMsgs((m) => [...m, { role: "ai", text: r.reply }]); }
+    catch (e: any) { setMsgs((m) => [...m, { role: "system", text: e.message }]); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!bot} onClose={onClose} title={`Thử trợ lý — ${bot.name}`} sub="Trò chuyện thử với dữ liệu thật của cửa hàng." size="md"
+      footer={<div className="flex gap-2 w-full"><Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập câu hỏi của khách" onKeyDown={(e) => e.key === "Enter" && send()} /><Button loading={busy} onClick={send}><Send className="w-4 h-4" /></Button></div>}>
+      <div className="min-h-[160px] max-h-[46vh] overflow-auto space-y-2">
+        {msgs.length === 0 ? <Empty>Nhập câu hỏi để thử, ví dụ: "Áo thun size M còn không?"</Empty> :
+          msgs.map((m, i) => <div key={i} className={"px-3 py-2 rounded-xl text-sm max-w-[85%] whitespace-pre-wrap font-normal " + (m.role === "customer" ? "bg-bg border border-line ml-auto" : m.role === "ai" ? "bg-indigo-900/40" : "bg-amber-900/30 text-xs")}>{m.text}</div>)}
+      </div>
+    </Modal>
   );
 }
 

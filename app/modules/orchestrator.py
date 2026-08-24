@@ -77,6 +77,10 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
     with tenant_tx(org_id) as conn:
         shop = conn.execute("SELECT name FROM shop WHERE id=%s", (shop_id,)).fetchone()
         shop_name = shop["name"] if shop else "cửa hàng"
+        botrow = conn.execute(
+            "SELECT b.persona FROM channel c LEFT JOIN bot b ON b.id = c.bot_id WHERE c.id=%s", (channel_id,)
+        ).fetchone()
+        persona = (botrow["persona"] or "") if botrow else ""
         conv_id = _get_or_create_conversation(conn, org_id, shop_id, channel_id, customer_ref)
         hist_rows = conn.execute(
             "SELECT role, content FROM message WHERE conversation_id=%s ORDER BY created_at DESC LIMIT %s",

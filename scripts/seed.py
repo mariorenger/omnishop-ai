@@ -66,15 +66,30 @@ def main():
                 "INSERT INTO shop (organization_id, name) VALUES (%s,'Boutique Demo') RETURNING id", (org_id,)
             ).fetchone()["id"])
 
-        ch = conn.execute("SELECT public_key FROM channel WHERE shop_id=%s AND kind='website' LIMIT 1", (shop_id,)).fetchone()
+        # a demo bot with a custom persona
+        bot = conn.execute("SELECT id FROM bot WHERE shop_id=%s LIMIT 1", (shop_id,)).fetchone()
+        if bot:
+            bot_id = str(bot["id"])
+        else:
+            bot_id = str(conn.execute(
+                """INSERT INTO bot (organization_id, shop_id, name, persona, greeting, accent_color)
+                   VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (org_id, shop_id, "Trợ lý Boutique",
+                 "Bạn là trợ lý bán hàng thân thiện của Boutique Demo, xưng \"mình\" và gọi khách là \"bạn\". "
+                 "Tư vấn size và phối đồ ngắn gọn, luôn gợi ý thêm một sản phẩm phù hợp.",
+                 "Xin chào! Mình là trợ lý của Boutique Demo, bạn cần tư vấn gì ạ?", "#6d7cff"),
+            ).fetchone()["id"])
+
+        ch = conn.execute("SELECT id, public_key FROM channel WHERE shop_id=%s AND kind='website' LIMIT 1", (shop_id,)).fetchone()
         if ch:
             public_key = ch["public_key"]
+            conn.execute("UPDATE channel SET bot_id=coalesce(bot_id,%s) WHERE id=%s", (bot_id, ch["id"]))
         else:
             public_key = "web_" + secrets.token_urlsafe(12)
             conn.execute(
-                """INSERT INTO channel (organization_id, shop_id, kind, name, public_key, config)
-                   VALUES (%s,%s,'website','Website widget',%s,%s)""",
-                (org_id, shop_id, public_key, json.dumps({"greeting": "Xin chào! Mình là trợ lý của Boutique Demo, bạn cần tư vấn gì ạ?"})),
+                """INSERT INTO channel (organization_id, shop_id, kind, name, public_key, config, bot_id)
+                   VALUES (%s,%s,'website','Website widget',%s,%s,%s)""",
+                (org_id, shop_id, public_key, json.dumps({"greeting": "Xin chào! Mình là trợ lý của Boutique Demo, bạn cần tư vấn gì ạ?"}), bot_id),
             )
 
         # products (only if none yet)

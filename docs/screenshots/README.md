@@ -19,3 +19,6 @@ shadcn: dark-first, tối giản, tooltip (i) cho chú thích, biểu đồ theo
 | Quản trị hệ thống (admin) | [11-admin.png](11-admin.png) |
 | Kết nối kênh — form thông tin (Messenger) | [12-channel-connect.png](12-channel-connect.png) |
 | Admin — cấu hình cổng thanh toán | [13-admin-payment.png](13-admin-payment.png) |
+| Trợ lý AI — danh sách bot | [14-bots.png](14-bots.png) |
+| Trợ lý AI — tạo/sửa bot (prompt tuỳ chỉnh) | [15-bot-editor.png](15-bot-editor.png) |
+| Trợ lý AI — trò chuyện thử | [16-bot-test.png](16-bot-test.png) |

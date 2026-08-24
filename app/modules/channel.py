@@ -27,6 +27,7 @@ from ..security import decrypt_secret, encrypt_secret
 from ..tenancy import OrgContext, get_org_context, require_role
 from . import orchestrator
 from .billing import channel_allowed
+from .bots import get_or_create_default_bot
 
 router = APIRouter(prefix="/api", tags=["channel"])
 
@@ -78,6 +79,7 @@ class ChannelBody(BaseModel):
     name: str = ""
     greeting: str = "Xin chào! Mình có thể giúp gì cho bạn?"
     credentials: dict = {}
+    bot_id: Optional[str] = None
 
 
 def _assert_shop(conn, shop_id: str):
@@ -100,11 +102,14 @@ def list_channels(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         _assert_shop(conn, shop_id)
         rows = conn.execute(
-            "SELECT id, kind, name, public_key, status, config FROM channel WHERE shop_id=%s ORDER BY created_at",
+            """SELECT c.id, c.kind, c.name, c.public_key, c.status, c.config, c.bot_id, b.name AS bot_name
+               FROM channel c LEFT JOIN bot b ON b.id = c.bot_id
+               WHERE c.shop_id=%s ORDER BY c.created_at""",
             (shop_id,),
         ).fetchall()
     return [{"id": str(r["id"]), "kind": r["kind"], "name": r["name"], "public_key": r["public_key"],
-             "status": r["status"], "config": r["config"]} for r in rows]
+             "status": r["status"], "config": r["config"],
+             "bot_id": str(r["bot_id"]) if r["bot_id"] else None, "bot_name": r["bot_name"]} for r in rows]
 
 
 @router.post("/channels")
@@ -141,10 +146,22 @@ def create_channel(body: ChannelBody, ctx: OrgContext = Depends(require_role("ad
     enc = encrypt_secret(json.dumps(creds)) if creds else None
     with tenant_tx(ctx.org_id) as conn:
         _assert_shop(conn, body.shop_id)
+        # bind a bot: the one requested (must belong to the shop) or a default one
+        bot_id = body.bot_id
+        if bot_id:
+            if not conn.execute("SELECT 1 FROM bot WHERE id=%s AND shop_id=%s", (bot_id, body.shop_id)).fetchone():
+                raise bad_request("bot not found in this shop")
+        else:
+            bot_id = get_or_create_default_bot(conn, ctx.org_id, body.shop_id)
+        # website greeting mirrors the bot greeting if not customized
+        if kind == "website":
+            b = conn.execute("SELECT greeting FROM bot WHERE id=%s", (bot_id,)).fetchone()
+            if b and b["greeting"]:
+                cfg["greeting"] = cfg.get("greeting") or b["greeting"]
         row = conn.execute(
-            """INSERT INTO channel (organization_id, shop_id, kind, name, public_key, credentials_enc, status, config)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (ctx.org_id, body.shop_id, kind, body.name or spec["label"], public_key, enc, status, json.dumps(cfg)),
+            """INSERT INTO channel (organization_id, shop_id, kind, name, public_key, credentials_enc, status, config, bot_id)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (ctx.org_id, body.shop_id, kind, body.name or spec["label"], public_key, enc, status, json.dumps(cfg), bot_id),
         ).fetchone()
     audit.record("channel.connect", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=str(row["id"]), detail={"kind": kind, "status": status})
@@ -155,6 +172,7 @@ class ChannelUpdate(BaseModel):
     name: Optional[str] = None
     greeting: Optional[str] = None
     credentials: dict = {}
+    bot_id: Optional[str] = None
 
 
 @router.get("/channels/{channel_id}")
@@ -215,6 +233,10 @@ def update_channel(channel_id: str, body: ChannelUpdate, ctx: OrgContext = Depen
                 v = str(body.credentials[f["key"]]).strip()
                 (creds if f["secret"] else cfg)[f["key"]] = v
         enc = encrypt_secret(json.dumps(creds)) if creds else r["credentials_enc"]
+        if body.bot_id is not None:
+            if body.bot_id and not conn.execute("SELECT 1 FROM bot WHERE id=%s", (body.bot_id,)).fetchone():
+                raise bad_request("bot not found")
+            conn.execute("UPDATE channel SET bot_id=%s WHERE id=%s", (body.bot_id or None, channel_id))
         conn.execute(
             "UPDATE channel SET name=coalesce(%s,name), config=%s, credentials_enc=%s WHERE id=%s",
             (body.name, json.dumps(cfg), enc, channel_id),
