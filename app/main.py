@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import config
 from .errors import new_correlation_id
 from .modules import (admin, analytics, auth, billing, channel, conversation,
-                      knowledge, product, settings, tenant, usage)
+                      knowledge, product, rag, settings, tenant, usage)
 
 app = FastAPI(title="OmniShop AI", version="0.1.0")
 
@@ -43,7 +43,7 @@ def health():
 
 for r in (auth.router, tenant.router, billing.router, usage.router, channel.router,
           knowledge.router, product.router, conversation.router, admin.router, settings.router,
-          analytics.router):
+          analytics.router, rag.router):
     app.include_router(r)
 
 

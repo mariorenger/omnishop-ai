@@ -151,28 +151,66 @@ export function Knowledge({ shopId }: { shopId: string }) {
 const docStatus = (s: string) => ({ pending: "Đang chờ", processing: "Đang xử lý", ready: "Sẵn sàng", error: "Lỗi" } as any)[s] || s;
 
 // ============================================================ Channels
+const channelStatus = (s: string) => ({ connected: "Đang hoạt động", degraded: "Cần kiểm tra", pending: "Chờ kích hoạt", disconnected: "Đã ngắt" } as any)[s] || s;
+
 export function Channels({ shopId }: { shopId: string }) {
-  const [items, setItems] = useState<any[] | null>(null); const [err, setErr] = useState("");
-  const load = () => api.get(`/api/channels?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message));
+  const [items, setItems] = useState<any[] | null>(null); const [kinds, setKinds] = useState<any[]>([]);
+  const [err, setErr] = useState(""); const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState("website"); const [name, setName] = useState(""); const [greeting, setGreeting] = useState("Xin chào! Mình có thể giúp gì cho bạn?");
+  const [creds, setCreds] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false); const [ferr, setFerr] = useState("");
+  const load = () => { api.get(`/api/channels?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get("/api/channels/kinds").then(setKinds).catch(() => {}); };
   useEffect(() => { setItems(null); load(); }, [shopId]);
-  const create = async () => { setErr(""); try { await api.post("/api/channels", { shop_id: shopId, kind: "website", name: "Website widget" }); load(); } catch (e: any) { setErr(e.message); } };
+  const spec = kinds.find((k) => k.kind === kind);
+  const connect = async () => {
+    setBusy(true); setFerr("");
+    try { await api.post("/api/channels", { shop_id: shopId, kind, name, greeting, credentials: creds }); setOpen(false); setCreds({}); setName(""); load(); }
+    catch (e: any) { setFerr(e.message); } finally { setBusy(false); }
+  };
   return (
     <div className="space-y-4">
       <Card>
-        <CardTitle sub="Hiện hỗ trợ tiện ích chat cho website. Facebook, Instagram, TikTok Shop và Shopee sẽ được bổ sung.">Kênh kết nối</CardTitle>
-        <Button onClick={create}><Plug className="w-4 h-4" /> Tạo tiện ích website</Button>
+        <CardTitle sub="Kết nối các kênh bán hàng để trợ lý AI trả lời khách trên mọi nơi."
+          right={<Button size="sm" onClick={() => setOpen(true)}><Plug className="w-4 h-4" /> Kết nối kênh</Button>}>Kênh kết nối</CardTitle>
         <Msg type="err">{err}</Msg>
+        {!items ? <Spinner /> : items.length === 0 ? <Empty>Chưa có kênh nào. Bấm Kết nối kênh để bắt đầu.</Empty> :
+          <div className="space-y-3">
+            {items.map((ch) => {
+              const url = ch.public_key ? `${location.origin}/widget.html?key=${ch.public_key}` : "";
+              return (
+                <div key={ch.id} className="border border-line rounded-xl p-4">
+                  <div className="flex items-center gap-2"><span className="font-semibold">{ch.name}</span><Badge kind={ch.status}>{channelStatus(ch.status)}</Badge></div>
+                  {url && <div className="mt-3">
+                    <Field label="Mã tích hợp website" info="Dán đoạn mã này vào website của bạn để hiển thị khung chat.">
+                      <pre className="bg-bg border border-line rounded-lg p-3 text-xs overflow-x-auto font-normal">{`<iframe src="${url}" style="border:0;width:380px;height:560px"></iframe>`}</pre>
+                    </Field>
+                    <a className="text-accent text-sm font-semibold inline-flex items-center gap-1 mt-2" href={url} target="_blank">Xem thử tiện ích <ArrowUpRight className="w-3.5 h-3.5" /></a>
+                  </div>}
+                </div>
+              );
+            })}
+          </div>}
       </Card>
-      {!items ? <Spinner /> : items.length === 0 ? <Card><Empty>Chưa có kênh nào.</Empty></Card> : items.map((ch) => {
-        const url = `${location.origin}/widget.html?key=${ch.public_key}`;
-        return (
-          <Card key={ch.id}>
-            <div className="flex items-center gap-2 mb-3"><span className="font-semibold">{ch.name}</span><Badge kind={ch.status}>Đang hoạt động</Badge></div>
-            <Field label="Mã tích hợp" info="Dán đoạn mã này vào website của bạn để hiển thị khung chat."><pre className="bg-bg border border-line rounded-lg p-3 text-xs overflow-x-auto font-normal">{`<iframe src="${url}" style="border:0;width:380px;height:560px"></iframe>`}</pre></Field>
-            <div className="mt-3"><a className="text-accent text-sm font-semibold inline-flex items-center gap-1" href={url} target="_blank">Xem thử tiện ích <ArrowUpRight className="w-3.5 h-3.5" /></a></div>
-          </Card>
-        );
-      })}
+      <Modal open={open} onClose={() => setOpen(false)} title="Kết nối kênh" size="md"
+        footer={<><Button variant="sec" onClick={() => setOpen(false)}>Huỷ</Button><Button loading={busy} disabled={spec && !spec.allowed} onClick={connect}>Kết nối</Button></>}>
+        <Field label="Loại kênh"><Select value={kind} onChange={(e) => { setKind(e.target.value); setCreds({}); }}>
+          {kinds.map((k) => <option key={k.kind} value={k.kind} disabled={!k.allowed}>{k.label}{k.allowed ? "" : " — không có trong gói"}</option>)}
+        </Select></Field>
+        {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal">{spec.note}</p>}
+        {kind === "website" ? (
+          <><div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tiện ích website" /></Field></div>
+            <div className="mt-3"><Field label="Lời chào"><Input value={greeting} onChange={(e) => setGreeting(e.target.value)} /></Field></div></>
+        ) : (
+          <>
+            <div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec?.label} /></Field></div>
+            {(spec?.fields || []).map((f: any) => (
+              <div className="mt-3" key={f.key}><Field label={f.label + (f.required ? "" : " (tuỳ chọn)")}>
+                <Input type={f.secret ? "password" : "text"} value={creds[f.key] || ""} onChange={(e) => setCreds({ ...creds, [f.key]: e.target.value })} />
+              </Field></div>
+            ))}
+          </>
+        )}
+        <Msg type="err">{ferr}</Msg>
+      </Modal>
     </div>
   );
 }

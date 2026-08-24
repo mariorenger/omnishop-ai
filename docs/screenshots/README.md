@@ -17,3 +17,4 @@ shadcn: dark-first, tối giản, tooltip (i) cho chú thích, biểu đồ theo
 | Cài đặt (LLM + OCR + chọn model) | [09-settings.png](09-settings.png) |
 | Hướng dẫn | [10-help.png](10-help.png) |
 | Quản trị hệ thống (admin) | [11-admin.png](11-admin.png) |
+| Kết nối kênh — form thông tin (Messenger) | [12-channel-connect.png](12-channel-connect.png) |

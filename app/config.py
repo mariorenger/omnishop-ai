@@ -33,6 +33,10 @@ class Config:
     OCR_PROVIDER = _get("OCR_PROVIDER", "tesseract")
     OCR_MODEL = _get("OCR_MODEL", "")  # for vlm OCR (defaults to the LLM model)
 
+    # Meta (Facebook/Instagram) platform app — the SaaS owns one FB App.
+    META_APP_SECRET = _get("META_APP_SECRET", "")   # webhook signature
+    META_VERIFY_TOKEN = _get("META_VERIFY_TOKEN", "omnishop-verify")  # webhook handshake
+
     # Cost estimation ($/1M tokens) — per-tenant COGS in usage metering.
     COST_INPUT_PER_M = float(_get("COST_INPUT_PER_M", "5.0"))
     COST_OUTPUT_PER_M = float(_get("COST_OUTPUT_PER_M", "25.0"))

@@ -11,8 +11,10 @@ body {
     radial-gradient(900px 500px at -10% 110%, rgba(139,92,246,0.10), transparent),
     #0a0c11;
   color: #e8ecf6;
-  font-family: Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  font-family: "Be Vietnam Pro", Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
 }
 * { box-sizing: border-box; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
