@@ -158,6 +158,7 @@ export function Channels({ shopId }: { shopId: string }) {
   const [err, setErr] = useState(""); const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("website"); const [name, setName] = useState(""); const [greeting, setGreeting] = useState("Xin chào! Mình có thể giúp gì cho bạn?");
   const [creds, setCreds] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false); const [ferr, setFerr] = useState("");
+  const [editing, setEditing] = useState<any>(null);
   const load = () => { api.get(`/api/channels?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get("/api/channels/kinds").then(setKinds).catch(() => {}); };
   useEffect(() => { setItems(null); load(); }, [shopId]);
   const spec = kinds.find((k) => k.kind === kind);
@@ -176,9 +177,17 @@ export function Channels({ shopId }: { shopId: string }) {
           <div className="space-y-3">
             {items.map((ch) => {
               const url = ch.public_key ? `${location.origin}/widget.html?key=${ch.public_key}` : "";
+              const isMeta = ch.kind === "messenger" || ch.kind === "instagram";
               return (
                 <div key={ch.id} className="border border-line rounded-xl p-4">
-                  <div className="flex items-center gap-2"><span className="font-semibold">{ch.name}</span><Badge kind={ch.status}>{channelStatus(ch.status)}</Badge></div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold">{ch.name}</span>
+                    <Badge kind={ch.status}>{channelStatus(ch.status)}</Badge>
+                    <span className="flex-1" />
+                    {isMeta && <Button size="sm" variant="ghost" onClick={async () => { await api.post(`/api/channels/${ch.id}/verify`); load(); }}>Kiểm tra</Button>}
+                    {ch.kind !== "website" && <Button size="sm" variant="ghost" onClick={() => setEditing(ch)}>Chỉnh sửa</Button>}
+                    <Button size="sm" variant="danger" onClick={async () => { if (confirm("Ngắt kết nối kênh này?")) { await api.del(`/api/channels/${ch.id}`); load(); } }}>Ngắt kết nối</Button>
+                  </div>
                   {url && <div className="mt-3">
                     <Field label="Mã tích hợp website" info="Dán đoạn mã này vào website của bạn để hiển thị khung chat.">
                       <pre className="bg-bg border border-line rounded-lg p-3 text-xs overflow-x-auto font-normal">{`<iframe src="${url}" style="border:0;width:380px;height:560px"></iframe>`}</pre>
@@ -190,6 +199,7 @@ export function Channels({ shopId }: { shopId: string }) {
             })}
           </div>}
       </Card>
+      <EditChannelModal channel={editing} kinds={kinds} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       <Modal open={open} onClose={() => setOpen(false)} title="Kết nối kênh" size="md"
         footer={<><Button variant="sec" onClick={() => setOpen(false)}>Huỷ</Button><Button loading={busy} disabled={spec && !spec.allowed} onClick={connect}>Kết nối</Button></>}>
         <Field label="Loại kênh"><Select value={kind} onChange={(e) => { setKind(e.target.value); setCreds({}); }}>
@@ -212,6 +222,31 @@ export function Channels({ shopId }: { shopId: string }) {
         <Msg type="err">{ferr}</Msg>
       </Modal>
     </div>
+  );
+}
+
+function EditChannelModal({ channel, kinds, onClose, onSaved }: { channel: any; kinds: any[]; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(""); const [creds, setCreds] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  useEffect(() => { if (channel) { setName(channel.name || ""); setCreds({}); setErr(""); } }, [channel]);
+  if (!channel) return null;
+  const spec = kinds.find((k) => k.kind === channel.kind);
+  const save = async () => {
+    setBusy(true); setErr("");
+    try { await api.put(`/api/channels/${channel.id}`, { name, credentials: creds }); onSaved(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!channel} onClose={onClose} title="Chỉnh sửa kênh" sub={spec?.label}
+      footer={<><Button variant="sec" onClick={onClose}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu</Button></>}>
+      <Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      {(spec?.fields || []).map((f: any) => (
+        <div className="mt-3" key={f.key}><Field label={f.label} info={f.secret ? "Để trống nếu giữ giá trị hiện tại." : undefined}>
+          <Input type={f.secret ? "password" : "text"} placeholder={f.secret ? "••• (giữ nguyên)" : ""} value={creds[f.key] || ""} onChange={(e) => setCreds({ ...creds, [f.key]: e.target.value })} />
+        </Field></div>
+      ))}
+      <Msg type="err">{err}</Msg>
+    </Modal>
   );
 }
 
@@ -455,6 +490,7 @@ export function Admin() {
         <label className="flex items-center gap-2 text-sm font-normal"><input type="checkbox" checked={!!pol.allow_tenant_ocr} onChange={(e) => setPol({ ...pol, allow_tenant_ocr: e.target.checked })} /> Cho phép khách hàng tự cấu hình OCR</label>
         <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
       </Card>
+      <PaymentCard />
       <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
         <LlmForm initial={s.llm} providers={s.llm_providers} endpoints={{ save: "/api/admin/settings/llm", test: "/api/admin/settings/llm/test", models: "/api/admin/settings/llm/models" }} /></Card>
       <Card><CardTitle sub="Dùng chung toàn nền tảng. Đổi model yêu cầu lập chỉ mục lại; số chiều cố định 384.">Mô hình embedding</CardTitle>
@@ -467,6 +503,44 @@ export function Admin() {
           </Table>}
       </Card>
     </div>
+  );
+}
+
+function PaymentCard() {
+  const [cfg, setCfg] = useState<any>(null); const [providers, setProviders] = useState<any[]>([]);
+  const [provider, setProvider] = useState("manual"); const [apiKey, setApiKey] = useState("");
+  const [f, setF] = useState({ publishable_key: "", webhook_secret: "", success_url: "", cancel_url: "", currency: "USD" });
+  const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/settings/payment").then((d) => { setProviders(d.providers); setCfg(d.config); if (d.config) setProvider(d.config.provider); }).catch((e) => setErr(e.message)); }, []);
+  const save = async () => {
+    setOk(""); setErr("");
+    try { await api.put("/api/admin/settings/payment", { provider, api_key: apiKey || null, ...f }); setOk("Đã lưu cấu hình thanh toán."); setApiKey(""); } catch (e: any) { setErr(e.message); }
+  };
+  return (
+    <Card>
+      <CardTitle sub="Chọn cổng thanh toán và nhập khoá. Khoá được mã hoá khi lưu. Khách hàng sẽ thanh toán qua cổng này.">Cấu hình thanh toán</CardTitle>
+      <Field label="Cổng thanh toán"><Select value={provider} onChange={(e) => setProvider(e.target.value)}>{providers.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</Select></Field>
+      {provider === "stripe" && (
+        <>
+          <div className="grid md:grid-cols-2 gap-3 mt-3">
+            <Field label="Secret key" info="sk_live_… hoặc sk_test_… — được mã hoá khi lưu."><Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="••••••••" /></Field>
+            <Field label="Publishable key"><Input value={f.publishable_key} onChange={(e) => setF({ ...f, publishable_key: e.target.value })} placeholder="pk_..." /></Field>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3 mt-3">
+            <Field label="Webhook secret" info="whsec_… để xác thực webhook kích hoạt gói tự động."><Input type="password" value={f.webhook_secret} onChange={(e) => setF({ ...f, webhook_secret: e.target.value })} /></Field>
+            <Field label="Tiền tệ"><Input value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })} placeholder="USD" /></Field>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3 mt-3">
+            <Field label="Success URL"><Input value={f.success_url} onChange={(e) => setF({ ...f, success_url: e.target.value })} placeholder="https://app.cua-ban.com/?paid=1" /></Field>
+            <Field label="Cancel URL"><Input value={f.cancel_url} onChange={(e) => setF({ ...f, cancel_url: e.target.value })} placeholder="https://app.cua-ban.com/?canceled=1" /></Field>
+          </div>
+        </>
+      )}
+      {provider === "manual" && <p className="text-[13px] text-muted mt-2 font-normal">Chế độ thủ công: khách xác nhận trong ứng dụng (phù hợp demo hoặc chuyển khoản).</p>}
+      {(provider === "vnpay" || provider === "momo") && <p className="text-[13px] text-warn mt-2 font-normal">Cổng này sẽ sớm được hỗ trợ. Lưu thông tin trước để kích hoạt sau.</p>}
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 

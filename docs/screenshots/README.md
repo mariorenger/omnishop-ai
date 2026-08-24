@@ -18,3 +18,4 @@ shadcn: dark-first, tối giản, tooltip (i) cho chú thích, biểu đồ theo
 | Hướng dẫn | [10-help.png](10-help.png) |
 | Quản trị hệ thống (admin) | [11-admin.png](11-admin.png) |
 | Kết nối kênh — form thông tin (Messenger) | [12-channel-connect.png](12-channel-connect.png) |
+| Admin — cấu hình cổng thanh toán | [13-admin-payment.png](13-admin-payment.png) |

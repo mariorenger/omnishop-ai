@@ -131,6 +131,10 @@ def resolve_embedding_config() -> dict:
     return _load("embedding:platform") or _env_embedding()
 
 
+def resolve_payment_config() -> dict:
+    return _load("payment:platform") or {"provider": "manual", "model": "", "base_url": "", "api_key": "", "extra": {}}
+
+
 def resolve_ocr_config(org_id: Optional[str]) -> dict:
     if org_id and get_platform_settings()["allow_tenant_ocr"]:
         c = _load(f"ocr:org:{org_id}")

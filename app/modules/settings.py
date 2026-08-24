@@ -187,6 +187,38 @@ def admin_test_llm(body: LLMConfigBody, _: CurrentUser = Depends(require_platfor
     return _test_llm(cfg)
 
 
+PAYMENT_PROVIDERS = [
+    {"id": "manual", "label": "Thủ công / chuyển khoản (demo)"},
+    {"id": "stripe", "label": "Stripe (thẻ quốc tế)"},
+    {"id": "vnpay", "label": "VNPay (sắp có)"},
+    {"id": "momo", "label": "MoMo (sắp có)"},
+]
+
+
+class PaymentConfigBody(BaseModel):
+    provider: str
+    api_key: Optional[str] = None       # None = keep; "" = clear
+    publishable_key: str = ""
+    webhook_secret: str = ""
+    success_url: str = ""
+    cancel_url: str = ""
+    currency: str = "USD"
+
+
+@router.get("/admin/settings/payment")
+def admin_get_payment(_: CurrentUser = Depends(require_platform_admin)):
+    return {"config": registry.public_view("payment:platform"), "providers": PAYMENT_PROVIDERS}
+
+
+@router.put("/admin/settings/payment")
+def admin_set_payment(body: PaymentConfigBody, admin: CurrentUser = Depends(require_platform_admin)):
+    extra = {"publishable_key": body.publishable_key, "webhook_secret": body.webhook_secret,
+             "success_url": body.success_url, "cancel_url": body.cancel_url, "currency": body.currency}
+    registry.write_config("payment:platform", provider=body.provider, api_key=body.api_key, extra=extra)
+    audit.record("admin.payment.update", actor_user_id=admin.id, detail={"provider": body.provider})
+    return {"ok": True}
+
+
 @router.post("/admin/settings/llm/models")
 def admin_list_models(body: LLMConfigBody, _: CurrentUser = Depends(require_platform_admin)):
     key = body.api_key or (registry._load("llm:platform") or {}).get("api_key", "")

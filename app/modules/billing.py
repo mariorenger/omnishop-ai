@@ -6,7 +6,7 @@ the frontend). Payments are out of scope for the MVP (subscription.provider =
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from .. import audit
@@ -119,9 +119,60 @@ def checkout(body: Checkout, ctx: OrgContext = Depends(require_role("owner"))):
         invoice_id = str(inv["id"])
     co = prov.create_checkout(invoice_id=invoice_id, amount=float(plan["price_month"]),
                               currency="USD", plan_code=plan["code"])
+    if co.get("external_ref"):
+        with tenant_tx(ctx.org_id) as conn:
+            conn.execute("UPDATE invoice SET external_ref=%s WHERE id=%s", (co["external_ref"], invoice_id))
     audit.record("billing.checkout", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
-                 target=invoice_id, detail={"plan": plan["code"]})
+                 target=invoice_id, detail={"plan": plan["code"], "provider": prov.name})
     return {"invoice_id": invoice_id, "amount": float(plan["price_month"]), "plan": plan["code"], **co}
+
+
+def _activate_invoice(invoice_id: str) -> None:
+    """Mark an invoice paid and activate its subscription (webhook / admin path,
+    no org context — uses the superuser connection)."""
+    from ..db import admin_tx
+    with admin_tx() as conn:
+        inv = conn.execute(
+            "SELECT organization_id, plan_code, amount, currency, status FROM invoice WHERE id=%s", (invoice_id,)
+        ).fetchone()
+        if not inv or inv["status"] == "paid":
+            return
+        conn.execute("UPDATE invoice SET status='paid', paid_at=now() WHERE id=%s", (invoice_id,))
+        conn.execute(
+            """INSERT INTO payment (organization_id, invoice_id, amount, currency, provider, status)
+               VALUES (%s,%s,%s,%s,'stripe','succeeded')""",
+            (inv["organization_id"], invoice_id, inv["amount"], inv["currency"]),
+        )
+        conn.execute(
+            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,'stripe')
+               ON CONFLICT (organization_id)
+               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider='stripe'""",
+            (inv["organization_id"], inv["plan_code"]),
+        )
+
+
+@router.post("/billing/webhook/stripe")
+async def stripe_webhook(request: Request):
+    import hashlib
+    import hmac
+    import json as _json
+    from ..providers.payment import stripe_webhook_secret
+    body = await request.body()
+    secret = stripe_webhook_secret()
+    if secret:
+        header = request.headers.get("stripe-signature", "")
+        parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+        signed = f"{parts.get('t','')}.{body.decode()}"
+        expected = hmac.new(secret.encode(), signed.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, parts.get("v1", "")):
+            return {"ok": False, "error": "bad signature"}
+    event = _json.loads(body or b"{}")
+    if event.get("type") == "checkout.session.completed":
+        obj = event.get("data", {}).get("object", {})
+        invoice_id = (obj.get("metadata") or {}).get("invoice_id") or obj.get("client_reference_id")
+        if invoice_id:
+            _activate_invoice(invoice_id)
+    return {"ok": True}
 
 
 @router.post("/billing/checkout/{invoice_id}/confirm")
