@@ -97,7 +97,7 @@ export default function App() {
           <Button variant="ghost" size="sm" onClick={() => { clearAuth(); location.reload(); }}><LogOut className="w-4 h-4" /></Button>
         </header>
 
-        <main className="p-4 md:p-6 max-w-[1040px] w-full">
+        <main className="p-4 md:p-6 w-full max-w-[1440px]">
           {needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
             : tab === "overview" ? <Overview shopId={shop.id} />
             : tab === "inbox" ? <Inbox shopId={shop.id} />

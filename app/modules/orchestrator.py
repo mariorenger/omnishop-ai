@@ -16,7 +16,7 @@ from ..providers.vectorstore import search_chunks, search_products, variants_for
 from . import usage
 from .billing import check_ai_quota
 
-_HISTORY = 8
+_HISTORY = 16  # per-customer conversation memory window (real runs remember context)
 _SCORE_MIN = 0.05
 
 _PRODUCT_HINTS = ("giá", "size", "cỡ", "màu", "còn hàng", "tồn", "stock", "price",

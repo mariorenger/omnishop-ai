@@ -657,15 +657,17 @@ function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shop
     finally { if (fileRef.current) fileRef.current.value = ""; }
   };
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-4">
+    <div className="flex flex-col h-[calc(100vh-118px)]">
+      <div className="flex items-center gap-2 mb-3 shrink-0">
         <Button variant="ghost" size="sm" onClick={onBack}>← Trợ lý</Button>
         <span className="text-muted text-sm">/</span>
         <span className="font-semibold">{f.name || "Trợ lý mới"}</span>
       </div>
-      <div className="grid lg:grid-cols-2 gap-4 items-start">
-        {/* settings */}
-        <Card>
+      <div className="grid lg:grid-cols-[1fr_430px] gap-4 flex-1 min-h-0">
+        {/* test chat — big, full height, left */}
+        <BotTestPanel botId={f.id} accent={f.accent_color} />
+        {/* settings — full height, right, scrolls */}
+        <Card className="h-full overflow-auto">
           <CardTitle>Cấu hình trợ lý</CardTitle>
           <div className="flex items-center gap-3 mb-3">
             <span className="w-14 h-14 rounded-xl flex items-center justify-center text-white overflow-hidden shrink-0" style={{ background: f.accent_color }}>
@@ -699,8 +701,6 @@ function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shop
             {!isNew && <Button variant="danger" onClick={async () => { if (confirm("Xoá trợ lý này?")) { try { await api.del(`/api/bots/${f.id}`); onBack(); } catch (e: any) { setErr(e.message); } } }}>Xoá</Button>}</div>}
           <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
         </Card>
-        {/* test chat (side panel, with memory) */}
-        <BotTestPanel botId={f.id} accent={f.accent_color} />
       </div>
     </div>
   );
@@ -718,9 +718,9 @@ function BotTestPanel({ botId, accent }: { botId?: string; accent?: string }) {
     catch (e: any) { setMsgs((m) => [...m, { role: "system", text: e.message }]); } finally { setBusy(false); }
   };
   return (
-    <Card className="lg:sticky lg:top-20 flex flex-col" >
+    <Card className="h-full flex flex-col min-h-0">
       <CardTitle sub="Trò chuyện nhiều lượt với dữ liệu thật, có ghi nhớ hội thoại.">Chạy thử</CardTitle>
-      <div ref={boxRef} className="flex-1 min-h-[300px] max-h-[52vh] overflow-auto space-y-2 pr-1">
+      <div ref={boxRef} className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
         {!botId ? <Empty>Lưu trợ lý để bắt đầu trò chuyện thử.</Empty> :
           msgs.length === 0 ? <Empty>Nhập câu hỏi, ví dụ: "Áo thun size M còn không?"</Empty> :
             msgs.map((m, i) => <div key={i} className={"px-3 py-2 rounded-xl text-sm max-w-[88%] whitespace-pre-wrap font-normal " + (m.role === "customer" ? "text-white ml-auto" : m.role === "ai" ? "bg-card2 border border-line" : "bg-amber-900/30 text-xs")} style={m.role === "customer" ? { background: accent || "#6d7cff" } : undefined}>{m.text}</div>)}
