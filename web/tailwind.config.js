@@ -4,14 +4,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: "#0a0c11",
-        panel: "#0f121a",
-        card: "#141824",
-        card2: "#181d2b",
-        line: "#232a3b",
-        line2: "#2d364c",
-        fg: "#e8ecf6",
-        muted: "#8b95ad",
+        bg: "#090b10",
+        panel: "#0e1119",
+        card: "#151a26",
+        card2: "#1b2130",
+        line: "#2b3346",
+        line2: "#3a4661",
+        fg: "#eff2f9",
+        muted: "#9aa6c0",
         accent: "#6d7cff",
         accent2: "#8b5cf6",
         ok: "#34d399",

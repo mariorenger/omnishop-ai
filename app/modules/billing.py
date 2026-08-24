@@ -199,6 +199,10 @@ def confirm_payment(invoice_id: str, ctx: OrgContext = Depends(require_role("own
         )
     audit.record("billing.paid", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=invoice_id, detail={"plan": inv["plan_code"]})
+    from ..providers.email import send_safe
+    send_safe(ctx.user.email, "Xác nhận thanh toán OmniShop AI",
+              f"<p>Cảm ơn bạn! Gói <b>{inv['plan_code']}</b> đã được kích hoạt. "
+              f"Số tiền: {inv['amount']} {inv['currency']}.</p>")
     return {"ok": True, "plan": inv["plan_code"]}
 
 

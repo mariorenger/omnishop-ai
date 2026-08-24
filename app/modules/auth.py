@@ -73,6 +73,8 @@ def signup(body: SignupBody):
 
 @router.post("/login")
 def login(body: LoginBody):
+    from .. import ratelimit
+    ratelimit.check(f"login:{body.email.lower()}", limit=10, window_s=300)
     with no_tenant() as conn:
         row = conn.execute(
             "SELECT id, password_hash FROM app_user WHERE email=%s", (body.email,)

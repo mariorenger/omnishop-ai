@@ -31,6 +31,7 @@ class ProductBody(BaseModel):
     sku: str = ""
     attributes: dict = {}
     variants: List[VariantBody] = []
+    bot_id: Optional[str] = None
 
 
 def _assert_shop(conn, shop_id: str):
@@ -70,11 +71,14 @@ def create_product(body: ProductBody, ctx: OrgContext = Depends(require_role("ad
     import json
     with tenant_tx(ctx.org_id) as conn:
         _assert_shop(conn, body.shop_id)
+        bot_id = body.bot_id
+        if bot_id and not conn.execute("SELECT 1 FROM bot WHERE id=%s AND shop_id=%s", (bot_id, body.shop_id)).fetchone():
+            bot_id = None
         row = conn.execute(
-            """INSERT INTO product (organization_id, shop_id, name, description, price, currency, sku, attributes)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            """INSERT INTO product (organization_id, shop_id, name, description, price, currency, sku, attributes, bot_id)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (ctx.org_id, body.shop_id, body.name, body.description, body.price,
-             body.currency, body.sku, json.dumps(body.attributes)),
+             body.currency, body.sku, json.dumps(body.attributes), bot_id),
         ).fetchone()
         pid = str(row["id"])
         for v in body.variants:

@@ -219,6 +219,27 @@ def admin_set_payment(body: PaymentConfigBody, admin: CurrentUser = Depends(requ
     return {"ok": True}
 
 
+class MetaAppBody(BaseModel):
+    app_id: str = ""
+    app_secret: Optional[str] = None
+    verify_token: str = "omnishop-verify"
+
+
+@router.get("/admin/settings/meta")
+def admin_get_meta(_: CurrentUser = Depends(require_platform_admin)):
+    v = registry.public_view("channel:meta")
+    return {"app_id": (v or {}).get("model", ""), "has_secret": bool(v and v.get("has_key")),
+            "verify_token": ((v or {}).get("extra") or {}).get("verify_token", "omnishop-verify")}
+
+
+@router.put("/admin/settings/meta")
+def admin_set_meta(body: MetaAppBody, admin: CurrentUser = Depends(require_platform_admin)):
+    registry.write_config("channel:meta", provider="meta", model=body.app_id, api_key=body.app_secret,
+                          extra={"verify_token": body.verify_token})
+    audit.record("admin.meta.update", actor_user_id=admin.id, detail={"app_id": body.app_id})
+    return {"ok": True}
+
+
 @router.post("/admin/settings/llm/models")
 def admin_list_models(body: LLMConfigBody, _: CurrentUser = Depends(require_platform_admin)):
     key = body.api_key or (registry._load("llm:platform") or {}).get("api_key", "")

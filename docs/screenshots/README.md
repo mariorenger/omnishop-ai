@@ -22,3 +22,4 @@ shadcn: dark-first, tối giản, tooltip (i) cho chú thích, biểu đồ theo
 | Trợ lý AI — danh sách bot | [14-bots.png](14-bots.png) |
 | Trợ lý AI — tạo/sửa bot (prompt tuỳ chỉnh) | [15-bot-editor.png](15-bot-editor.png) |
 | Trợ lý AI — trò chuyện thử | [16-bot-test.png](16-bot-test.png) |
+| Trợ lý AI — cấu hình + chạy thử (chat bên phải, có memory) | [17-bot-detail.png](17-bot-detail.png) |

@@ -53,6 +53,21 @@ def create_shop(body: ShopBody, ctx: OrgContext = Depends(require_role("admin"))
     return {"id": str(row["id"]), "name": body.name}
 
 
+@router.delete("/org")
+def delete_org(confirm: str = "", ctx: OrgContext = Depends(require_role("owner"))):
+    # Permanent deletion of the organization and ALL its data (GDPR). Requires the
+    # exact org name as confirmation.
+    with no_tenant() as conn:
+        row = conn.execute("SELECT name FROM organization WHERE id=%s", (ctx.org_id,)).fetchone()
+        if not row:
+            raise bad_request("organization not found")
+        if confirm.strip() != row["name"]:
+            raise bad_request("Nhập đúng tên tổ chức để xác nhận xoá.")
+        conn.execute("DELETE FROM organization WHERE id=%s", (ctx.org_id,))
+    audit.record("org.delete", actor_user_id=ctx.user.id, target=ctx.org_id, detail={"name": row["name"]})
+    return {"ok": True}
+
+
 @router.get("/members")
 def list_members(ctx: OrgContext = Depends(require_role("admin"))):
     with tenant_tx(ctx.org_id) as conn:
@@ -80,4 +95,8 @@ def add_member(body: MemberBody, ctx: OrgContext = Depends(require_role("admin")
         )
     audit.record("member.add", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=body.email, detail={"role": body.role})
+    from ..providers.email import send_safe
+    send_safe(body.email, "Bạn được mời vào workspace OmniShop AI",
+              f"<p>Bạn vừa được thêm vào một workspace trên OmniShop AI với vai trò <b>{body.role}</b>. "
+              f"Đăng nhập để bắt đầu.</p>")
     return {"ok": True}

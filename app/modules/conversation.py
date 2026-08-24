@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from .. import ratelimit
 from ..db import no_tenant, tenant_tx
 from ..errors import bad_request, not_found
 from ..tenancy import OrgContext, get_org_context, require_role
@@ -47,6 +48,7 @@ def widget_config(public_key: str):
 
 @router.post("/widget/{public_key}/message")
 def widget_message(public_key: str, body: WidgetMessage):
+    ratelimit.check(f"widget:{public_key}", limit=30, window_s=60)
     if not body.text.strip():
         raise bad_request("empty message")
     ch = _resolve_channel(public_key)
@@ -132,3 +134,24 @@ def close_conversation(conv_id: str, ctx: OrgContext = Depends(require_role("age
     with tenant_tx(ctx.org_id) as conn:
         conn.execute("UPDATE conversation SET status='closed', last_at=now() WHERE id=%s", (conv_id,))
     return {"ok": True}
+
+
+@router.delete("/conversations/{conv_id}")
+def delete_conversation(conv_id: str, ctx: OrgContext = Depends(require_role("agent"))):
+    # GDPR-style deletion: removes the conversation and its messages (cascade).
+    from .. import audit
+    with tenant_tx(ctx.org_id) as conn:
+        conn.execute("DELETE FROM conversation WHERE id=%s", (conv_id,))
+    audit.record("conversation.delete", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=conv_id)
+    return {"ok": True}
+
+
+@router.delete("/customers")
+def delete_customer_data(shop_id: str, customer_ref: str, ctx: OrgContext = Depends(require_role("admin"))):
+    # Erase all data for one customer (all their conversations in a shop).
+    from .. import audit
+    with tenant_tx(ctx.org_id) as conn:
+        n = conn.execute("DELETE FROM conversation WHERE shop_id=%s AND customer_ref=%s", (shop_id, customer_ref)).rowcount
+    audit.record("customer.delete", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=customer_ref, detail={"conversations": n})
+    return {"ok": True, "deleted_conversations": n}

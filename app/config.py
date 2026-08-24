@@ -34,8 +34,19 @@ class Config:
     OCR_MODEL = _get("OCR_MODEL", "")  # for vlm OCR (defaults to the LLM model)
 
     # Meta (Facebook/Instagram) platform app — the SaaS owns one FB App.
-    META_APP_SECRET = _get("META_APP_SECRET", "")   # webhook signature
+    META_APP_ID = _get("META_APP_ID", "")           # Facebook Login (OAuth)
+    META_APP_SECRET = _get("META_APP_SECRET", "")   # webhook signature + token exchange
     META_VERIFY_TOKEN = _get("META_VERIFY_TOKEN", "omnishop-verify")  # webhook handshake
+    OAUTH_REDIRECT_BASE = _get("OAUTH_REDIRECT_BASE", "http://localhost:8000")  # public base for callbacks
+
+    # Transactional email
+    EMAIL_PROVIDER = _get("EMAIL_PROVIDER", "console")  # console | smtp | resend
+    EMAIL_FROM = _get("EMAIL_FROM", "OmniShop AI <no-reply@omnishop.local>")
+    RESEND_API_KEY = _get("RESEND_API_KEY", "")
+    SMTP_HOST = _get("SMTP_HOST", "")
+    SMTP_PORT = int(_get("SMTP_PORT", "587"))
+    SMTP_USER = _get("SMTP_USER", "")
+    SMTP_PASS = _get("SMTP_PASS", "")
 
     # Cost estimation ($/1M tokens) — per-tenant COGS in usage metering.
     COST_INPUT_PER_M = float(_get("COST_INPUT_PER_M", "5.0"))

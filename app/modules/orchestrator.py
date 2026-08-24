@@ -78,9 +78,12 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
         shop = conn.execute("SELECT name FROM shop WHERE id=%s", (shop_id,)).fetchone()
         shop_name = shop["name"] if shop else "cửa hàng"
         botrow = conn.execute(
-            "SELECT b.persona FROM channel c LEFT JOIN bot b ON b.id = c.bot_id WHERE c.id=%s", (channel_id,)
+            "SELECT b.id AS bot_id, b.persona, b.config FROM channel c LEFT JOIN bot b ON b.id = c.bot_id WHERE c.id=%s",
+            (channel_id,),
         ).fetchone()
         persona = (botrow["persona"] or "") if botrow else ""
+        bot_id = str(botrow["bot_id"]) if botrow and botrow["bot_id"] else None
+        bot_cfg = (botrow["config"] or {}) if botrow else {}
         conv_id = _get_or_create_conversation(conn, org_id, shop_id, channel_id, customer_ref)
         hist_rows = conn.execute(
             "SELECT role, content FROM message WHERE conversation_id=%s ORDER BY created_at DESC LIMIT %s",
@@ -110,20 +113,21 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
     qvec = embedder.embed_one(text)
     context: List[ContextBlock] = []
     with tenant_tx(org_id) as conn:
-        for p in search_products(conn, shop_id, qvec, k=3):
+        for p in search_products(conn, shop_id, qvec, k=3, bot_id=bot_id):
             if float(p["score"]) >= _SCORE_MIN:
                 context.append(_product_block(conn, p))
-        for c in search_chunks(conn, shop_id, qvec, k=3):
+        for c in search_chunks(conn, shop_id, qvec, k=3, bot_id=bot_id):
             if float(c["score"]) >= _SCORE_MIN:
                 context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
 
     # 4) LLM answer
     llm = get_llm(org_id)
-    res = llm.answer(question=text, context=context, history=history, shop_name=shop_name)
+    res = llm.answer(question=text, context=context, history=history, shop_name=shop_name, persona=persona)
     latency_ms = int((time.time() - started) * 1000)
 
     # 5) handoff policy: nothing retrieved for an info-seeking intent -> human
-    needs_human = len(context) == 0 and intent in ("product", "order")
+    handoff_no_context = bool(bot_cfg.get("handoff_no_context", True))
+    needs_human = handoff_no_context and len(context) == 0 and intent in ("product", "order")
     status = "needs_human" if needs_human else "ai"
 
     # 6) persist AI reply + update conversation

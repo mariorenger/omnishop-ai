@@ -21,6 +21,7 @@ class DocBody(BaseModel):
     shop_id: str
     title: str
     text: str
+    bot_id: Optional[str] = None
 
 
 def chunk_text(text: str, target: int = 800) -> List[str]:
@@ -55,21 +56,23 @@ def _get_or_create_kb(conn, org_id: str, shop_id: str) -> str:
     return str(row["id"])
 
 
-def store_document(org_id: str, shop_id: str, title: str, source: Optional[str], text: str) -> Tuple[str, int]:
+def store_document(org_id: str, shop_id: str, title: str, source: Optional[str], text: str, bot_id: Optional[str] = None) -> Tuple[str, int]:
     chunks = chunk_text(text)
     with tenant_tx(org_id) as conn:
         kb_id = _get_or_create_kb(conn, org_id, shop_id)
+        if bot_id and not conn.execute("SELECT 1 FROM bot WHERE id=%s AND shop_id=%s", (bot_id, shop_id)).fetchone():
+            bot_id = None
         doc = conn.execute(
-            """INSERT INTO document (organization_id, knowledge_base_id, title, source, status)
-               VALUES (%s,%s,%s,%s,'pending') RETURNING id""",
-            (org_id, kb_id, title, source),
+            """INSERT INTO document (organization_id, knowledge_base_id, title, source, status, bot_id)
+               VALUES (%s,%s,%s,%s,'pending',%s) RETURNING id""",
+            (org_id, kb_id, title, source, bot_id),
         ).fetchone()
         doc_id = str(doc["id"])
         for i, ch in enumerate(chunks):
             conn.execute(
-                """INSERT INTO chunk (organization_id, knowledge_base_id, document_id, ordinal, content)
-                   VALUES (%s,%s,%s,%s,%s)""",
-                (org_id, kb_id, doc_id, i, ch),
+                """INSERT INTO chunk (organization_id, knowledge_base_id, document_id, ordinal, content, bot_id)
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                (org_id, kb_id, doc_id, i, ch, bot_id),
             )
     enqueue("embed_document", {"document_id": doc_id}, organization_id=org_id)
     return doc_id, len(chunks)
@@ -93,7 +96,7 @@ def list_documents(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
 def create_document(body: DocBody, ctx: OrgContext = Depends(require_role("admin"))):
     if not body.text.strip():
         raise bad_request("text is empty")
-    doc_id, n = store_document(ctx.org_id, body.shop_id, body.title, "text", body.text)
+    doc_id, n = store_document(ctx.org_id, body.shop_id, body.title, "text", body.text, body.bot_id)
     audit.record("knowledge.upload", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=doc_id, detail={"title": body.title, "chunks": n})
     return {"id": doc_id, "title": body.title, "chunks": n, "status": "pending"}
@@ -108,6 +111,7 @@ def supported_types():
 async def upload_file(
     shop_id: str = Form(...),
     title: str = Form(""),
+    bot_id: str = Form(""),
     file: UploadFile = File(...),
     ctx: OrgContext = Depends(require_role("admin")),
 ):
@@ -124,7 +128,7 @@ async def upload_file(
     if not text.strip():
         raise bad_request("no text could be extracted (for scanned files, configure OCR in Settings)")
     doc_id, n = store_document(ctx.org_id, shop_id, title or (file.filename or "Tài liệu"),
-                               file.filename, text)
+                               file.filename, text, bot_id or None)
     audit.record("knowledge.upload_file", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=doc_id, detail={"filename": file.filename, "chunks": n})
     return {"id": doc_id, "title": title or file.filename, "chunks": n, "status": "pending",

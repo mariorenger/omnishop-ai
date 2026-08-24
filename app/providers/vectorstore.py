@@ -10,34 +10,45 @@ import psycopg
 from .embeddings import to_pgvector
 
 
-def search_chunks(conn: psycopg.Connection, shop_id: str, query_vec: List[float], k: int = 4):
+def search_chunks(conn: psycopg.Connection, shop_id: str, query_vec: List[float], k: int = 4, bot_id: str = None):
+    # bot-scoped: shop-wide (bot_id IS NULL) OR assigned to this bot.
+    bot_clause = "AND (c.bot_id IS NULL OR c.bot_id = %s)" if bot_id else ""
+    params = [to_pgvector(query_vec), shop_id]
+    if bot_id:
+        params.append(bot_id)
+    params.append(to_pgvector(query_vec)); params.append(k)
     rows = conn.execute(
-        """
+        f"""
         SELECT d.title AS title, c.content AS content,
                1 - (c.embedding <=> %s::vector) AS score
         FROM chunk c
         JOIN knowledge_base kb ON kb.id = c.knowledge_base_id
         JOIN document d ON d.id = c.document_id
-        WHERE kb.shop_id = %s AND c.embedding IS NOT NULL
+        WHERE kb.shop_id = %s AND c.embedding IS NOT NULL {bot_clause}
         ORDER BY c.embedding <=> %s::vector
         LIMIT %s
         """,
-        (to_pgvector(query_vec), shop_id, to_pgvector(query_vec), k),
+        tuple(params),
     ).fetchall()
     return rows
 
 
-def search_products(conn: psycopg.Connection, shop_id: str, query_vec: List[float], k: int = 4):
+def search_products(conn: psycopg.Connection, shop_id: str, query_vec: List[float], k: int = 4, bot_id: str = None):
+    bot_clause = "AND (p.bot_id IS NULL OR p.bot_id = %s)" if bot_id else ""
+    params = [to_pgvector(query_vec), shop_id]
+    if bot_id:
+        params.append(bot_id)
+    params.append(to_pgvector(query_vec)); params.append(k)
     rows = conn.execute(
-        """
+        f"""
         SELECT p.id, p.name, p.description, p.price, p.currency, p.sku, p.attributes,
                1 - (p.embedding <=> %s::vector) AS score
         FROM product p
-        WHERE p.shop_id = %s AND p.embedding IS NOT NULL
+        WHERE p.shop_id = %s AND p.embedding IS NOT NULL {bot_clause}
         ORDER BY p.embedding <=> %s::vector
         LIMIT %s
         """,
-        (to_pgvector(query_vec), shop_id, to_pgvector(query_vec), k),
+        tuple(params),
     ).fetchall()
     return rows
 

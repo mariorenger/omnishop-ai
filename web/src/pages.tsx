@@ -66,59 +66,74 @@ const statusLabel = (s: string) => ({ ai: "AI xử lý", needs_human: "Cần h�
 
 // ============================================================ Products
 export function Products({ shopId }: { shopId: string }) {
-  const [items, setItems] = useState<any[] | null>(null);
-  const [f, setF] = useState({ name: "", price: "", description: "", variants: "" });
-  const [err, setErr] = useState("");
-  const load = () => api.get(`/api/products?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message));
+  const [items, setItems] = useState<any[] | null>(null); const [bots, setBots] = useState<any[]>([]);
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
+  const [f, setF] = useState<any>({ name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" });
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const load = () => { api.get(`/api/products?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
   useEffect(() => { setItems(null); load(); }, [shopId]);
   const add = async () => {
-    setErr("");
-    const variants = f.variants.split(",").map((s) => s.trim()).filter(Boolean).map((s) => { const [n, st] = s.split(":"); return { name: (n || "").trim(), stock: parseInt(st || "0") || 0 }; });
-    try { await api.post("/api/products", { shop_id: shopId, name: f.name, price: f.price ? parseFloat(f.price) : null, description: f.description, variants }); setF({ name: "", price: "", description: "", variants: "" }); load(); }
-    catch (e: any) { setErr(e.message); }
+    setBusy(true); setErr("");
+    const variants = (f.variants || "").split(",").map((s: string) => s.trim()).filter(Boolean).map((s: string) => { const [n, st] = s.split(":"); return { name: (n || "").trim(), stock: parseInt(st || "0") || 0 }; });
+    try {
+      await api.post("/api/products", { shop_id: shopId, name: f.name, price: f.price ? parseFloat(f.price) : null, currency: f.currency, sku: f.sku, description: f.description, attributes: f.category ? { category: f.category } : {}, variants, bot_id: f.bot_id || null });
+      setF({ name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" }); setOpen(false); load();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
+  const totalStock = (p: any) => (p.variants || []).reduce((s: number, v: any) => s + (v.stock || 0), 0);
+  const botName = (id: string) => bots.find((b) => b.id === id)?.name;
+  const rows = (items || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || (p.sku || "").toLowerCase().includes(q.toLowerCase()));
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardTitle sub="Trợ lý AI dùng dữ liệu này để trả lời về giá, tồn kho và biến thể.">Thêm sản phẩm</CardTitle>
-        <div className="grid md:grid-cols-2 gap-3">
+    <Card>
+      <CardTitle sub="Trợ lý AI dùng dữ liệu này để trả lời về giá, tồn kho và biến thể."
+        right={<div className="flex gap-2"><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm tên hoặc SKU" className="w-44" /><Button size="sm" onClick={() => setOpen(true)}><Plus className="w-4 h-4" /> Thêm</Button></div>}>Sản phẩm</CardTitle>
+      {!items ? <Spinner /> : rows.length === 0 ? <Empty>{q ? "Không tìm thấy sản phẩm." : "Chưa có sản phẩm nào."}</Empty> :
+        <Table head={["Sản phẩm", "SKU", "Giá", "Tồn kho", "Biến thể", "Áp dụng"]}>
+          {rows.map((p) => (
+            <tr key={p.id}>
+              <Td><div className="font-medium">{p.name}</div><div className="text-xs text-muted line-clamp-1">{p.description || ""}</div></Td>
+              <Td className="text-muted">{p.sku || "—"}</Td>
+              <Td className="whitespace-nowrap">{p.price != null ? `${fmt(p.price)} ${p.currency}` : "Liên hệ"}</Td>
+              <Td>{p.variants && p.variants.length ? <span className={totalStock(p) === 0 ? "text-bad" : ""}>{totalStock(p)}</span> : "—"}</Td>
+              <Td><div className="flex flex-wrap gap-1">{(p.variants || []).slice(0, 4).map((v: any, i: number) => <span key={i} className={"text-[11px] border rounded px-1.5 py-0.5 font-normal " + (v.stock === 0 ? "border-bad/40 text-bad" : "border-line text-muted")}>{v.name}·{v.stock}</span>)}{(p.variants || []).length > 4 && <span className="text-[11px] text-muted">+{p.variants.length - 4}</span>}</div></Td>
+              <Td className="text-muted text-xs">{p.bot_id ? botName(p.bot_id) || "1 trợ lý" : "Tất cả"}</Td>
+            </tr>
+          ))}
+        </Table>}
+      <Msg type="err">{err}</Msg>
+      <Modal open={open} onClose={() => setOpen(false)} title="Thêm sản phẩm" size="lg"
+        footer={<><Button variant="sec" onClick={() => setOpen(false)}>Huỷ</Button><Button loading={busy} onClick={add}>Lưu sản phẩm</Button></>}>
+        <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Tên sản phẩm"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Áo thun cotton" /></Field>
-          <Field label="Giá" info="Đơn vị VND. Bỏ trống nếu giá liên hệ."><Input type="number" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
+          <Field label="SKU"><Input value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} placeholder="AO-001" /></Field>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-3 mt-3">
+          <Field label="Giá"><Input type="number" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
+          <Field label="Tiền tệ"><Input value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })} /></Field>
+          <Field label="Danh mục"><Input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="Áo" /></Field>
         </div>
         <div className="mt-3"><Field label="Mô tả"><Textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field></div>
-        <div className="mt-3"><Field label="Biến thể và tồn kho" info="Mỗi biến thể theo dạng Tên:Số lượng, cách nhau bởi dấu phẩy. Ví dụ: Size M:10, Size L:3."><Input value={f.variants} onChange={(e) => setF({ ...f, variants: e.target.value })} placeholder="Size M:10, Size L:3" /></Field></div>
-        <div className="mt-4"><Button onClick={add}>Lưu sản phẩm</Button></div>
+        <div className="mt-3"><Field label="Biến thể và tồn kho" info="Dạng Tên:Số lượng, cách nhau bởi dấu phẩy. Ví dụ: Size M:10, Size L:3."><Input value={f.variants} onChange={(e) => setF({ ...f, variants: e.target.value })} placeholder="Size M:10, Size L:3" /></Field></div>
+        <div className="mt-3"><Field label="Áp dụng cho" info="Chọn một trợ lý để chỉ trợ lý đó dùng sản phẩm này, hoặc Tất cả trợ lý."><Select value={f.bot_id} onChange={(e) => setF({ ...f, bot_id: e.target.value })}><option value="">Tất cả trợ lý</option>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Field></div>
         <Msg type="err">{err}</Msg>
-      </Card>
-      <Card>
-        <CardTitle>Danh sách sản phẩm</CardTitle>
-        {!items ? <Spinner /> : items.length === 0 ? <Empty>Chưa có sản phẩm nào.</Empty> :
-          <Table head={["Tên", "Giá", "Biến thể và tồn kho"]}>
-            {items.map((p) => (
-              <tr key={p.id}>
-                <Td><div className="font-semibold">{p.name}</div><div className="text-xs text-muted">{(p.description || "").slice(0, 60)}</div></Td>
-                <Td>{p.price != null ? `${fmt(p.price)} ${p.currency}` : "Liên hệ"}</Td>
-                <Td><div className="flex flex-wrap gap-1">{(p.variants || []).map((v: any, i: number) => <span key={i} className="text-xs bg-card2 border border-line rounded px-2 py-0.5 font-normal">{v.name} · {v.stock}</span>)}</div></Td>
-              </tr>
-            ))}
-          </Table>}
-      </Card>
-    </div>
+      </Modal>
+    </Card>
   );
 }
 
 // ============================================================ Knowledge
 export function Knowledge({ shopId }: { shopId: string }) {
   const [docs, setDocs] = useState<any[] | null>(null);
-  const [title, setTitle] = useState(""); const [text, setText] = useState("");
+  const [title, setTitle] = useState(""); const [text, setText] = useState(""); const [botId, setBotId] = useState("");
+  const [bots, setBots] = useState<any[]>([]);
   const [msg, setMsg] = useState(""); const [err, setErr] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const load = () => api.get(`/api/knowledge/documents?shop_id=${shopId}`).then((d) => { setDocs(d); if (d.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(load, 2000); }).catch((e) => setErr(e.message));
+  const load = () => { api.get(`/api/knowledge/documents?shop_id=${shopId}`).then((d) => { setDocs(d); if (d.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(load, 2000); }).catch((e) => setErr(e.message)); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
   useEffect(() => { setDocs(null); load(); }, [shopId]);
-  const addText = async () => { setErr(""); setMsg(""); try { await api.post("/api/knowledge/documents", { shop_id: shopId, title, text }); setTitle(""); setText(""); setMsg("Đã thêm tài liệu, đang xử lý nội dung."); load(); } catch (e: any) { setErr(e.message); } };
+  const addText = async () => { setErr(""); setMsg(""); try { await api.post("/api/knowledge/documents", { shop_id: shopId, title, text, bot_id: botId || null }); setTitle(""); setText(""); setMsg("Đã thêm tài liệu, đang xử lý nội dung."); load(); } catch (e: any) { setErr(e.message); } };
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return; setErr(""); setMsg(`Đang xử lý ${file.name}`);
-    const fd = new FormData(); fd.append("shop_id", shopId); fd.append("file", file);
+    const fd = new FormData(); fd.append("shop_id", shopId); fd.append("file", file); if (botId) fd.append("bot_id", botId);
     try { const r = await api.upload("/api/knowledge/upload", fd); setMsg(`Đã tải ${file.name}: ${fmt(r.extracted_chars)} ký tự, ${r.chunks} đoạn.`); load(); }
     catch (ex: any) { setErr(ex.message); setMsg(""); } finally { if (fileRef.current) fileRef.current.value = ""; }
   };
@@ -133,7 +148,10 @@ export function Knowledge({ shopId }: { shopId: string }) {
         </div>
         <input ref={fileRef} type="file" className="hidden" onChange={onFile} />
         <div className="mt-4 grid gap-3">
-          <Field label="Tiêu đề"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Chính sách đổi trả" /></Field>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="Tiêu đề"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Chính sách đổi trả" /></Field>
+            <Field label="Áp dụng cho" info="Chọn một trợ lý để chỉ trợ lý đó dùng tài liệu này, hoặc Tất cả trợ lý."><Select value={botId} onChange={(e) => setBotId(e.target.value)}><option value="">Tất cả trợ lý</option>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Field>
+          </div>
           <Field label="Nội dung"><Textarea value={text} onChange={(e) => setText(e.target.value)} className="min-h-[110px]" /></Field>
         </div>
         <div className="mt-3"><Button variant="sec" onClick={addText}>Thêm nội dung</Button></div>
@@ -172,7 +190,10 @@ export function Channels({ shopId }: { shopId: string }) {
     <div className="space-y-4">
       <Card>
         <CardTitle sub="Kết nối các kênh bán hàng để trợ lý AI trả lời khách trên mọi nơi."
-          right={<Button size="sm" onClick={() => setOpen(true)}><Plug className="w-4 h-4" /> Kết nối kênh</Button>}>Kênh kết nối</CardTitle>
+          right={<div className="flex gap-2">
+            <Button size="sm" variant="sec" onClick={async () => { try { const r = await api.get(`/api/channels/oauth/meta/start?shop_id=${shopId}`); location.href = r.url; } catch (e: any) { alert(e.message); } }}>Kết nối Facebook</Button>
+            <Button size="sm" onClick={() => setOpen(true)}><Plug className="w-4 h-4" /> Kết nối kênh</Button>
+          </div>}>Kênh kết nối</CardTitle>
         <Msg type="err">{err}</Msg>
         {!items ? <Spinner /> : items.length === 0 ? <Empty>Chưa có kênh nào. Bấm Kết nối kênh để bắt đầu.</Empty> :
           <div className="space-y-3">
@@ -462,7 +483,23 @@ export function Settings() {
           : <Empty>Bạn không có quyền chỉnh mô hình. Vui lòng liên hệ quản trị hệ thống.</Empty>}
       </Card>
       {ocr && <OcrCard ocr={ocr} />}
+      <DangerZone />
     </div>
+  );
+}
+function DangerZone() {
+  const [confirm, setConfirm] = useState(""); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  const del = async () => {
+    setOk(""); setErr("");
+    try { await api.del(`/api/org?confirm=${encodeURIComponent(confirm)}`); setOk("Đã xoá tổ chức. Vui lòng đăng xuất."); } catch (e: any) { setErr(e.message); }
+  };
+  return (
+    <Card className="border-bad/40">
+      <CardTitle sub="Xoá vĩnh viễn toàn bộ dữ liệu của tổ chức (cửa hàng, trợ lý, hội thoại, hoá đơn). Không thể hoàn tác. Chỉ Chủ sở hữu thực hiện được.">Dữ liệu & quyền riêng tư</CardTitle>
+      <Field label="Nhập đúng tên tổ chức để xác nhận"><Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Tên tổ chức" /></Field>
+      <div className="mt-3"><Button variant="danger" onClick={del}>Xoá tổ chức</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 function OcrCard({ ocr }: { ocr: any }) {
@@ -513,6 +550,7 @@ export function Admin() {
         <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
       </Card>
       <PaymentCard />
+      <MetaAppCard />
       <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
         <LlmForm initial={s.llm} providers={s.llm_providers} endpoints={{ save: "/api/admin/settings/llm", test: "/api/admin/settings/llm/test", models: "/api/admin/settings/llm/models" }} /></Card>
       <Card><CardTitle sub="Dùng chung toàn nền tảng. Đổi model yêu cầu lập chỉ mục lại; số chiều cố định 384.">Mô hình embedding</CardTitle>
@@ -569,93 +607,149 @@ function PaymentCard() {
 // ============================================================ Bots
 export function Bots({ shopId, role }: { shopId: string; role: string }) {
   const [bots, setBots] = useState<any[] | null>(null); const [err, setErr] = useState("");
-  const [editing, setEditing] = useState<any>(null); const [testing, setTesting] = useState<any>(null);
+  const [selected, setSelected] = useState<any>(null);
   const canManage = role === "owner" || role === "admin";
   const load = () => api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch((e) => setErr(e.message));
-  useEffect(() => { setBots(null); load(); }, [shopId]);
+  useEffect(() => { setBots(null); setSelected(null); load(); }, [shopId]);
+  if (selected) return <BotDetail bot={selected} shopId={shopId} canManage={canManage} onBack={() => { setSelected(null); load(); }} onSaved={(b) => setSelected(b)} />;
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardTitle sub="Mỗi trợ lý có prompt riêng, lời chào và giao diện riêng. Gắn trợ lý vào từng kênh hoặc trang."
-          right={canManage ? <Button size="sm" onClick={() => setEditing({ shop_id: shopId, name: "", persona: "", greeting: "Xin chào! Mình có thể giúp gì cho bạn?", avatar_url: "", accent_color: "#6d7cff" })}><Plus className="w-4 h-4" /> Tạo trợ lý</Button> : undefined}>Trợ lý AI</CardTitle>
-        {!bots ? <Spinner /> : bots.length === 0 ? <Empty>Chưa có trợ lý nào. Bấm Tạo trợ lý để bắt đầu.</Empty> :
-          <div className="grid md:grid-cols-2 gap-3">
-            {bots.map((b) => (
-              <div key={b.id} className="border border-line rounded-xl p-4">
-                <div className="flex items-center gap-3">
-                  <span className="w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: b.accent_color }}>
-                    {b.avatar_url ? <img src={b.avatar_url} className="w-9 h-9 rounded-lg object-cover" /> : <Bot className="w-5 h-5" />}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="font-semibold truncate">{b.name}</div>
-                    <div className="text-xs text-muted">{b.channels} kênh đang dùng</div>
-                  </div>
-                </div>
-                <p className="text-[13px] text-muted mt-3 font-normal line-clamp-2">{b.persona || "Chưa đặt prompt tuỳ chỉnh."}</p>
-                <div className="flex gap-2 mt-3">
-                  <Button size="sm" variant="sec" onClick={() => setTesting(b)}><MessageSquare className="w-3.5 h-3.5" /> Thử</Button>
-                  {canManage && <Button size="sm" variant="ghost" onClick={() => setEditing(b)}>Chỉnh sửa</Button>}
-                  {canManage && <Button size="sm" variant="danger" onClick={async () => { try { await api.del(`/api/bots/${b.id}`); load(); } catch (e: any) { alert(e.message); } }}>Xoá</Button>}
-                </div>
+    <Card>
+      <CardTitle sub="Mỗi trợ lý có prompt riêng, lời chào và giao diện riêng, gắn vào từng kênh hoặc trang."
+        right={canManage ? <Button size="sm" onClick={() => setSelected({ shop_id: shopId, name: "", persona: "", greeting: "Xin chào! Mình có thể giúp gì cho bạn?", avatar_url: "", accent_color: "#6d7cff", config: {} })}><Plus className="w-4 h-4" /> Tạo trợ lý</Button> : undefined}>Trợ lý AI</CardTitle>
+      {!bots ? <Spinner /> : bots.length === 0 ? <Empty>Chưa có trợ lý nào. Bấm Tạo trợ lý để bắt đầu.</Empty> :
+        <div className="grid md:grid-cols-2 gap-3">
+          {bots.map((b) => (
+            <button key={b.id} onClick={() => setSelected(b)} className="text-left border border-line rounded-xl p-4 hover:border-line2 hover:bg-card2 transition">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0 overflow-hidden" style={{ background: b.accent_color }}>
+                  {b.avatar_url ? <img src={b.avatar_url} className="w-9 h-9 object-cover" /> : <Bot className="w-5 h-5" />}
+                </span>
+                <div className="min-w-0"><div className="font-semibold truncate">{b.name}</div><div className="text-xs text-muted">{b.channels} kênh · bấm để cấu hình</div></div>
               </div>
-            ))}
-          </div>}
-        <Msg type="err">{err}</Msg>
-      </Card>
-      <BotEditor bot={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
-      <BotTester bot={testing} onClose={() => setTesting(null)} />
+              <p className="text-[13px] text-muted mt-3 font-normal line-clamp-2">{b.persona || "Chưa đặt prompt tuỳ chỉnh."}</p>
+            </button>
+          ))}
+        </div>}
+      <Msg type="err">{err}</Msg>
+    </Card>
+  );
+}
+
+function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shopId: string; canManage: boolean; onBack: () => void; onSaved: (b: any) => void }) {
+  const [f, setF] = useState<any>({ config: {}, ...bot }); const [busy, setBusy] = useState(false); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  const isNew = !f.id; const fileRef = useRef<HTMLInputElement>(null);
+  const cfg = f.config || {}; const bh = cfg.business_hours || {};
+  const setCfg = (patch: any) => setF({ ...f, config: { ...cfg, ...patch } });
+  const setBH = (patch: any) => setCfg({ business_hours: { ...bh, ...patch } });
+  const save = async () => {
+    setBusy(true); setOk(""); setErr("");
+    try {
+      const body = { shop_id: f.shop_id || shopId, name: f.name, persona: f.persona, greeting: f.greeting, avatar_url: f.avatar_url, accent_color: f.accent_color, config: f.config || {} };
+      if (isNew) { const r = await api.post("/api/bots", body); onSaved({ ...body, id: r.id, config: body.config }); setF({ ...f, id: r.id }); }
+      else await api.put(`/api/bots/${f.id}`, body);
+      setOk("Đã lưu.");
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    try { const r = await api.upload("/api/uploads", fd); setF((s: any) => ({ ...s, avatar_url: r.url })); } catch (ex: any) { setErr(ex.message); }
+    finally { if (fileRef.current) fileRef.current.value = ""; }
+  };
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <Button variant="ghost" size="sm" onClick={onBack}>← Trợ lý</Button>
+        <span className="text-muted text-sm">/</span>
+        <span className="font-semibold">{f.name || "Trợ lý mới"}</span>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4 items-start">
+        {/* settings */}
+        <Card>
+          <CardTitle>Cấu hình trợ lý</CardTitle>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="w-14 h-14 rounded-xl flex items-center justify-center text-white overflow-hidden shrink-0" style={{ background: f.accent_color }}>
+              {f.avatar_url ? <img src={f.avatar_url} className="w-14 h-14 object-cover" /> : <Bot className="w-7 h-7" />}
+            </span>
+            <div>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} />
+              <Button size="sm" variant="sec" onClick={() => fileRef.current?.click()}><Upload className="w-3.5 h-3.5" /> Tải ảnh đại diện</Button>
+              <div className="text-[11px] text-muted mt-1 font-normal">PNG/JPG, tối đa 2MB</div>
+            </div>
+          </div>
+          <Field label="Tên trợ lý"><Input value={f.name || ""} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Trợ lý cửa hàng" /></Field>
+          <div className="mt-3"><Field label="Prompt tuỳ chỉnh" info="Cách trợ lý xưng hô, giọng điệu, điều nên/không nên làm. Để trống sẽ dùng mặc định.">
+            <Textarea value={f.persona || ""} onChange={(e) => setF({ ...f, persona: e.target.value })} className="min-h-[130px]"
+              placeholder="Ví dụ: Xưng mình, gọi khách là bạn; tư vấn size ngắn gọn; luôn gợi ý thêm một sản phẩm phù hợp." /></Field></div>
+          <div className="grid sm:grid-cols-2 gap-3 mt-3">
+            <Field label="Lời chào"><Input value={f.greeting || ""} onChange={(e) => setF({ ...f, greeting: e.target.value })} /></Field>
+            <Field label="Màu widget"><div className="flex gap-2 items-center"><input type="color" value={f.accent_color || "#6d7cff"} onChange={(e) => setF({ ...f, accent_color: e.target.value })} className="w-10 h-9 rounded-lg border border-line bg-bg p-0.5" /><Input value={f.accent_color || ""} onChange={(e) => setF({ ...f, accent_color: e.target.value })} /></div></Field>
+          </div>
+          <div className="border-t border-line/60 mt-4 pt-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-2">Chuyển nhân viên & giờ làm việc</div>
+            <label className="flex items-center gap-2 text-sm font-normal"><input type="checkbox" checked={cfg.handoff_no_context !== false} onChange={(e) => setCfg({ handoff_no_context: e.target.checked })} /> Chuyển nhân viên khi không đủ thông tin</label>
+            <label className="flex items-center gap-2 text-sm font-normal mt-2"><input type="checkbox" checked={!!bh.enabled} onChange={(e) => setBH({ enabled: e.target.checked })} /> Giới hạn giờ làm việc</label>
+            {bh.enabled && <div className="grid sm:grid-cols-3 gap-2 mt-2">
+              <Field label="Từ giờ"><Input type="number" value={bh.start ?? 8} onChange={(e) => setBH({ start: parseInt(e.target.value) })} /></Field>
+              <Field label="Đến giờ"><Input type="number" value={bh.end ?? 22} onChange={(e) => setBH({ end: parseInt(e.target.value) })} /></Field>
+              <Field label="Tin ngoài giờ"><Input value={bh.off_message || ""} onChange={(e) => setBH({ off_message: e.target.value })} placeholder="Ngoài giờ làm việc…" /></Field>
+            </div>}
+          </div>
+          {canManage && <div className="mt-4 flex gap-2"><Button loading={busy} onClick={save}>Lưu</Button>
+            {!isNew && <Button variant="danger" onClick={async () => { if (confirm("Xoá trợ lý này?")) { try { await api.del(`/api/bots/${f.id}`); onBack(); } catch (e: any) { setErr(e.message); } } }}>Xoá</Button>}</div>}
+          <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+        </Card>
+        {/* test chat (side panel, with memory) */}
+        <BotTestPanel botId={f.id} accent={f.accent_color} />
+      </div>
     </div>
   );
 }
 
-function BotEditor({ bot, onClose, onSaved }: { bot: any; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState<any>({}); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
-  useEffect(() => { if (bot) { setF({ ...bot }); setErr(""); } }, [bot]);
-  if (!bot) return null;
-  const isNew = !bot.id;
-  const save = async () => {
-    setBusy(true); setErr("");
-    try {
-      const body = { shop_id: bot.shop_id || f.shop_id, name: f.name, persona: f.persona, greeting: f.greeting, avatar_url: f.avatar_url, accent_color: f.accent_color };
-      if (isNew) await api.post("/api/bots", body); else await api.put(`/api/bots/${bot.id}`, body);
-      onSaved();
-    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
-  };
-  return (
-    <Modal open={!!bot} onClose={onClose} title={isNew ? "Tạo trợ lý" : "Chỉnh sửa trợ lý"} size="lg"
-      footer={<><Button variant="sec" onClick={onClose}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu</Button></>}>
-      <Field label="Tên trợ lý"><Input value={f.name || ""} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Trợ lý cửa hàng" /></Field>
-      <div className="mt-3"><Field label="Prompt tuỳ chỉnh (persona)" info="Hướng dẫn cách trợ lý xưng hô, giọng điệu, việc nên/không nên làm. Để trống sẽ dùng mặc định.">
-        <Textarea value={f.persona || ""} onChange={(e) => setF({ ...f, persona: e.target.value })} className="min-h-[120px]"
-          placeholder="Ví dụ: Bạn là trợ lý thân thiện của cửa hàng, xưng mình gọi khách là bạn, tư vấn size ngắn gọn và luôn gợi ý thêm một sản phẩm phù hợp." />
-      </Field></div>
-      <div className="grid md:grid-cols-2 gap-3 mt-3">
-        <Field label="Lời chào"><Input value={f.greeting || ""} onChange={(e) => setF({ ...f, greeting: e.target.value })} /></Field>
-        <Field label="Màu widget"><div className="flex gap-2 items-center"><input type="color" value={f.accent_color || "#6d7cff"} onChange={(e) => setF({ ...f, accent_color: e.target.value })} className="w-10 h-9 rounded-lg border border-line bg-bg" /><Input value={f.accent_color || ""} onChange={(e) => setF({ ...f, accent_color: e.target.value })} /></div></Field>
-      </div>
-      <div className="mt-3"><Field label="Ảnh đại diện (URL)" info="Ảnh hiển thị trong khung chat. Dán đường dẫn ảnh công khai."><Input value={f.avatar_url || ""} onChange={(e) => setF({ ...f, avatar_url: e.target.value })} placeholder="https://..." /></Field></div>
-      <Msg type="err">{err}</Msg>
-    </Modal>
-  );
-}
-
-function BotTester({ bot, onClose }: { bot: any; onClose: () => void }) {
+function BotTestPanel({ botId, accent }: { botId?: string; accent?: string }) {
   const [msgs, setMsgs] = useState<{ role: string; text: string }[]>([]); const [text, setText] = useState(""); const [busy, setBusy] = useState(false);
-  useEffect(() => { setMsgs([]); setText(""); }, [bot]);
-  if (!bot) return null;
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight; }, [msgs, busy]);
   const send = async () => {
-    if (!text.trim()) return; const q = text; setText(""); setMsgs((m) => [...m, { role: "customer", text: q }]); setBusy(true);
-    try { const r = await api.post(`/api/bots/${bot.id}/test`, { text: q }); setMsgs((m) => [...m, { role: "ai", text: r.reply }]); }
+    if (!text.trim() || !botId) return; const q = text; setText("");
+    const history = msgs.map((m) => ({ role: m.role === "customer" ? "customer" : "ai", content: m.text }));
+    setMsgs((m) => [...m, { role: "customer", text: q }]); setBusy(true);
+    try { const r = await api.post(`/api/bots/${botId}/test`, { text: q, history }); setMsgs((m) => [...m, { role: "ai", text: r.reply }]); }
     catch (e: any) { setMsgs((m) => [...m, { role: "system", text: e.message }]); } finally { setBusy(false); }
   };
   return (
-    <Modal open={!!bot} onClose={onClose} title={`Thử trợ lý — ${bot.name}`} sub="Trò chuyện thử với dữ liệu thật của cửa hàng." size="md"
-      footer={<div className="flex gap-2 w-full"><Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập câu hỏi của khách" onKeyDown={(e) => e.key === "Enter" && send()} /><Button loading={busy} onClick={send}><Send className="w-4 h-4" /></Button></div>}>
-      <div className="min-h-[160px] max-h-[46vh] overflow-auto space-y-2">
-        {msgs.length === 0 ? <Empty>Nhập câu hỏi để thử, ví dụ: "Áo thun size M còn không?"</Empty> :
-          msgs.map((m, i) => <div key={i} className={"px-3 py-2 rounded-xl text-sm max-w-[85%] whitespace-pre-wrap font-normal " + (m.role === "customer" ? "bg-bg border border-line ml-auto" : m.role === "ai" ? "bg-indigo-900/40" : "bg-amber-900/30 text-xs")}>{m.text}</div>)}
+    <Card className="lg:sticky lg:top-20 flex flex-col" >
+      <CardTitle sub="Trò chuyện nhiều lượt với dữ liệu thật, có ghi nhớ hội thoại.">Chạy thử</CardTitle>
+      <div ref={boxRef} className="flex-1 min-h-[300px] max-h-[52vh] overflow-auto space-y-2 pr-1">
+        {!botId ? <Empty>Lưu trợ lý để bắt đầu trò chuyện thử.</Empty> :
+          msgs.length === 0 ? <Empty>Nhập câu hỏi, ví dụ: "Áo thun size M còn không?"</Empty> :
+            msgs.map((m, i) => <div key={i} className={"px-3 py-2 rounded-xl text-sm max-w-[88%] whitespace-pre-wrap font-normal " + (m.role === "customer" ? "text-white ml-auto" : m.role === "ai" ? "bg-card2 border border-line" : "bg-amber-900/30 text-xs")} style={m.role === "customer" ? { background: accent || "#6d7cff" } : undefined}>{m.text}</div>)}
+        {busy && <div className="text-xs text-muted px-1">Đang trả lời…</div>}
       </div>
-    </Modal>
+      <div className="flex gap-2 mt-3">
+        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập câu hỏi của khách" disabled={!botId} onKeyDown={(e) => e.key === "Enter" && send()} />
+        <Button onClick={send} loading={busy} disabled={!botId}><Send className="w-4 h-4" /></Button>
+      </div>
+    </Card>
+  );
+}
+
+function MetaAppCard() {
+  const [c, setC] = useState<any>(null); const [appId, setAppId] = useState(""); const [secret, setSecret] = useState(""); const [vt, setVt] = useState("");
+  const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/settings/meta").then((d) => { setC(d); setAppId(d.app_id || ""); setVt(d.verify_token || "omnishop-verify"); }).catch((e) => setErr(e.message)); }, []);
+  const save = async () => { setOk(""); setErr(""); try { await api.put("/api/admin/settings/meta", { app_id: appId, app_secret: secret || null, verify_token: vt }); setOk("Đã lưu Facebook App."); setSecret(""); } catch (e: any) { setErr(e.message); } };
+  return (
+    <Card>
+      <CardTitle sub="Cấu hình Facebook App của nền tảng để bật nút Kết nối Facebook và webhook Messenger/Instagram cho khách hàng.">Facebook App (Meta)</CardTitle>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="App ID"><Input value={appId} onChange={(e) => setAppId(e.target.value)} /></Field>
+        <Field label="App Secret" info="Dùng cho xác thực webhook và đổi token. Mã hoá khi lưu."><Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={c && c.has_secret ? "•••• (giữ nguyên)" : ""} /></Field>
+      </div>
+      <div className="mt-3"><Field label="Verify token (webhook)"><Input value={vt} onChange={(e) => setVt(e.target.value)} /></Field></div>
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 

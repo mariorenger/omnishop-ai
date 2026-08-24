@@ -22,7 +22,7 @@ export function Card({ className, children }: { className?: string; children: Re
 export function CardTitle({ children, sub, right }: { children: React.ReactNode; sub?: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 mb-4">
-      <div><h3 className="text-[15px] font-bold tracking-tight">{children}</h3>{sub && <p className="text-[13px] text-muted mt-0.5 font-normal">{sub}</p>}</div>
+      <div><h3 className="text-[14px] font-semibold tracking-tight">{children}</h3>{sub && <p className="text-[12.5px] text-muted mt-0.5 font-normal leading-snug">{sub}</p>}</div>
       {right}
     </div>
   );
@@ -95,7 +95,7 @@ export function Empty({ children }: { children: React.ReactNode }) {
 export function Kpi({ n, l, info }: { n: React.ReactNode; l: string; info?: string }) {
   return (
     <div className="bg-gradient-to-b from-card to-card2 border border-line rounded-xl p-4">
-      <div className="text-[22px] font-extrabold tracking-tight leading-none">{n}</div>
+      <div className="text-[20px] font-bold tracking-tight leading-none">{n}</div>
       <div className="text-xs text-muted mt-1.5 flex items-center font-normal">{l}{info && <Info text={info} />}</div>
     </div>
   );
