@@ -313,6 +313,6 @@ GRANT EXECUTE ON FUNCTION resolve_channel_by_public_key(text) TO omni_app;
 
 INSERT INTO plan (code, name, price_month, entitlements) VALUES
   ('free',    'Free',    0,   '{"ai_messages_month": 200,   "shops": 1, "channels": 1, "storage_mb": 100,  "human_handoff": true, "channels_allowed": ["website"]}'),
-  ('starter', 'Starter', 49,  '{"ai_messages_month": 10000, "shops": 3, "channels": 5, "storage_mb": 5000, "human_handoff": true, "channels_allowed": ["website","messenger","instagram"]}'),
-  ('growth',  'Growth',  149, '{"ai_messages_month": 50000, "shops": 10,"channels": 20,"storage_mb": 20000,"human_handoff": true, "channels_allowed": ["website","messenger","instagram","tiktok","shopee"]}')
+  ('starter', 'Starter', 49,  '{"ai_messages_month": 10000, "shops": 3, "channels": 5, "storage_mb": 5000, "human_handoff": true, "channels_allowed": ["website","messenger","instagram","telegram","zalo","whatsapp"]}'),
+  ('growth',  'Growth',  149, '{"ai_messages_month": 50000, "shops": 10,"channels": 20,"storage_mb": 20000,"human_handoff": true, "channels_allowed": ["website","messenger","instagram","telegram","zalo","whatsapp","tiktok","shopee"]}')
 ON CONFLICT (code) DO NOTHING;

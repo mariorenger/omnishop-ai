@@ -189,20 +189,38 @@ def admin_test_llm(body: LLMConfigBody, _: CurrentUser = Depends(require_platfor
 
 PAYMENT_PROVIDERS = [
     {"id": "manual", "label": "Thủ công / chuyển khoản (demo)"},
+    {"id": "vietqr", "label": "VietQR (QR chuyển khoản)"},
+    {"id": "vnpay", "label": "VNPay (thẻ/ATM/QR nội địa)"},
+    {"id": "momo", "label": "MoMo (ví điện tử)"},
     {"id": "stripe", "label": "Stripe (thẻ quốc tế)"},
-    {"id": "vnpay", "label": "VNPay (sắp có)"},
-    {"id": "momo", "label": "MoMo (sắp có)"},
 ]
 
 
 class PaymentConfigBody(BaseModel):
     provider: str
-    api_key: Optional[str] = None       # None = keep; "" = clear
+    api_key: Optional[str] = None       # None = keep; "" = clear. Holds the SECRET:
+                                        # stripe secret / vnpay hash_secret / momo secret_key
+    # stripe
     publishable_key: str = ""
     webhook_secret: str = ""
     success_url: str = ""
     cancel_url: str = ""
     currency: str = "USD"
+    # vietqr
+    bank_bin: str = ""
+    account_no: str = ""
+    account_name: str = ""
+    template: str = "compact2"
+    # vnpay
+    tmn_code: str = ""
+    pay_url: str = ""
+    return_url: str = ""
+    # momo
+    partner_code: str = ""
+    access_key: str = ""
+    redirect_url: str = ""
+    ipn_url: str = ""
+    endpoint: str = ""
 
 
 @router.get("/admin/settings/payment")
@@ -212,8 +230,15 @@ def admin_get_payment(_: CurrentUser = Depends(require_platform_admin)):
 
 @router.put("/admin/settings/payment")
 def admin_set_payment(body: PaymentConfigBody, admin: CurrentUser = Depends(require_platform_admin)):
-    extra = {"publishable_key": body.publishable_key, "webhook_secret": body.webhook_secret,
-             "success_url": body.success_url, "cancel_url": body.cancel_url, "currency": body.currency}
+    extra = {
+        "publishable_key": body.publishable_key, "webhook_secret": body.webhook_secret,
+        "success_url": body.success_url, "cancel_url": body.cancel_url, "currency": body.currency,
+        "bank_bin": body.bank_bin, "account_no": body.account_no,
+        "account_name": body.account_name, "template": body.template or "compact2",
+        "tmn_code": body.tmn_code, "pay_url": body.pay_url, "return_url": body.return_url,
+        "partner_code": body.partner_code, "access_key": body.access_key,
+        "redirect_url": body.redirect_url, "ipn_url": body.ipn_url, "endpoint": body.endpoint,
+    }
     registry.write_config("payment:platform", provider=body.provider, api_key=body.api_key, extra=extra)
     audit.record("admin.payment.update", actor_user_id=admin.id, detail={"provider": body.provider})
     return {"ok": True}

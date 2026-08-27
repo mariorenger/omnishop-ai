@@ -231,7 +231,9 @@ export function Channels({ shopId }: { shopId: string }) {
         <Field label="Loại kênh"><Select value={kind} onChange={(e) => { setKind(e.target.value); setCreds({}); }}>
           {kinds.map((k) => <option key={k.kind} value={k.kind} disabled={!k.allowed}>{k.label}{k.allowed ? "" : " — không có trong gói"}</option>)}
         </Select></Field>
-        {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal">{spec.note}</p>}
+        {spec && !spec.live && <p className="text-[12px] text-warn mt-2 font-normal">Kênh này cần phê duyệt đối tác trước khi hoạt động. Bạn vẫn lưu được thông tin để kích hoạt sau.</p>}
+        {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal leading-relaxed">{spec.note}</p>}
+        {spec?.docs && <a href={spec.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-1.5">Xem tài liệu tích hợp ↗</a>}
         <div className="mt-3"><Field label="Trợ lý xử lý" info="Chọn trợ lý AI sẽ trả lời trên kênh này. Để trống sẽ dùng trợ lý mặc định.">
           <Select value={botId} onChange={(e) => setBotId(e.target.value)}><option value="">Trợ lý mặc định</option>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
         </Field></div>
@@ -242,7 +244,7 @@ export function Channels({ shopId }: { shopId: string }) {
           <>
             <div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec?.label} /></Field></div>
             {(spec?.fields || []).map((f: any) => (
-              <div className="mt-3" key={f.key}><Field label={f.label + (f.required ? "" : " (tuỳ chọn)")}>
+              <div className="mt-3" key={f.key}><Field label={f.label + (f.required ? "" : " (tuỳ chọn)")} info={f.hint}>
                 <Input type={f.secret ? "password" : "text"} value={creds[f.key] || ""} onChange={(e) => setCreds({ ...creds, [f.key]: e.target.value })} />
               </Field></div>
             ))}
@@ -380,7 +382,9 @@ export function Billing({ role }: { role: string }) {
   const cur = sub.entitlements._plan;
   const pick = async (p: any) => {
     if (p.price_month === 0) { await api.post("/api/subscription", { plan_code: p.code }); await load(); return; }
-    const co = await api.post("/api/billing/checkout", { plan_code: p.code }); setCheckout(co);
+    const co = await api.post("/api/billing/checkout", { plan_code: p.code });
+    if (co.redirect_url) { window.location.href = co.redirect_url; return; }  // VNPay/MoMo/Stripe
+    setCheckout(co);  // VietQR (qr_image_url) or manual (instructions)
   };
   const confirm = async () => { setBusy(true); try { await api.post(`/api/billing/checkout/${checkout.invoice_id}/confirm`); setCheckout(null); await load(); } finally { setBusy(false); } };
   return (
@@ -410,13 +414,23 @@ export function Billing({ role }: { role: string }) {
             {invoices.map((iv) => <tr key={iv.id}><Td className="font-normal">{new Date(iv.created_at).toLocaleDateString("vi-VN")}</Td><Td className="font-semibold">{iv.plan}</Td><Td>${iv.amount}</Td><Td><Badge kind={iv.status}>{iv.status === "paid" ? "Đã thanh toán" : iv.status === "pending" ? "Chờ thanh toán" : "Đã huỷ"}</Badge></Td></tr>)}
           </Table>}
       </Card>
-      <Modal open={!!checkout} onClose={() => setCheckout(null)} title="Xác nhận thanh toán"
+      <Modal open={!!checkout} onClose={() => setCheckout(null)} title={checkout?.qr_image_url ? "Quét mã để thanh toán" : "Xác nhận thanh toán"}
         sub={checkout ? `Nâng cấp lên gói ${checkout.plan} — $${checkout.amount}/tháng.` : ""}
-        footer={<><Button variant="sec" onClick={() => setCheckout(null)}>Huỷ</Button><Button loading={busy} onClick={confirm}>Xác nhận & kích hoạt</Button></>}>
-        <div className="flex items-start gap-3 text-sm">
-          <CheckCircle2 className="w-5 h-5 text-ok shrink-0 mt-0.5" />
-          <p className="text-muted font-normal">Đây là luồng thanh toán demo (chuyển khoản thủ công). Cổng thanh toán thực tế như Stripe hoặc VNPay sẽ được tích hợp qua cùng một giao diện.</p>
-        </div>
+        footer={<><Button variant="sec" onClick={() => setCheckout(null)}>Huỷ</Button><Button loading={busy} onClick={confirm}>{checkout?.qr_image_url ? "Tôi đã chuyển khoản" : "Xác nhận & kích hoạt"}</Button></>}>
+        {checkout?.error ? (
+          <Msg type="err">{checkout.error}</Msg>
+        ) : checkout?.qr_image_url ? (
+          <div className="flex flex-col items-center text-center">
+            <div className="bg-white rounded-xl p-3"><img src={checkout.qr_image_url} alt="VietQR" className="w-52 h-52 object-contain" /></div>
+            <p className="text-[13px] text-muted font-normal mt-3">Mở app ngân hàng, quét mã VietQR và giữ nguyên nội dung chuyển khoản
+              {checkout.transfer_note ? <> <b className="text-fg">{checkout.transfer_note}</b></> : null}. Gói sẽ kích hoạt sau khi xác nhận.</p>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3 text-sm">
+            <CheckCircle2 className="w-5 h-5 text-ok shrink-0 mt-0.5" />
+            <p className="text-muted font-normal">{checkout?.instructions || "Xác nhận để kích hoạt gói."}</p>
+          </div>
+        )}
       </Modal>
     </div>
   );
@@ -569,9 +583,12 @@ export function Admin() {
 function PaymentCard() {
   const [cfg, setCfg] = useState<any>(null); const [providers, setProviders] = useState<any[]>([]);
   const [provider, setProvider] = useState("manual"); const [apiKey, setApiKey] = useState("");
-  const [f, setF] = useState({ publishable_key: "", webhook_secret: "", success_url: "", cancel_url: "", currency: "USD" });
+  const [f, setF] = useState<any>({ publishable_key: "", webhook_secret: "", success_url: "", cancel_url: "", currency: "USD",
+    bank_bin: "", account_no: "", account_name: "", template: "compact2",
+    tmn_code: "", pay_url: "", return_url: "", partner_code: "", access_key: "", redirect_url: "", ipn_url: "", endpoint: "" });
   const [ok, setOk] = useState(""); const [err, setErr] = useState("");
-  useEffect(() => { api.get("/api/admin/settings/payment").then((d) => { setProviders(d.providers); setCfg(d.config); if (d.config) setProvider(d.config.provider); }).catch((e) => setErr(e.message)); }, []);
+  const set = (k: string, v: string) => setF((s: any) => ({ ...s, [k]: v }));
+  useEffect(() => { api.get("/api/admin/settings/payment").then((d) => { setProviders(d.providers); setCfg(d.config); if (d.config) { setProvider(d.config.provider); if (d.config.extra) setF((s: any) => ({ ...s, ...d.config.extra })); } }).catch((e) => setErr(e.message)); }, []);
   const save = async () => {
     setOk(""); setErr("");
     try { await api.put("/api/admin/settings/payment", { provider, api_key: apiKey || null, ...f }); setOk("Đã lưu cấu hình thanh toán."); setApiKey(""); } catch (e: any) { setErr(e.message); }
@@ -580,6 +597,8 @@ function PaymentCard() {
     <Card>
       <CardTitle sub="Chọn cổng thanh toán và nhập khoá. Khoá được mã hoá khi lưu. Khách hàng sẽ thanh toán qua cổng này.">Cấu hình thanh toán</CardTitle>
       <Field label="Cổng thanh toán"><Select value={provider} onChange={(e) => setProvider(e.target.value)}>{providers.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</Select></Field>
+      {({ vietqr: "https://www.vietqr.io/en/danh-sach-api/link-tao-ma-nhanh/", vnpay: "https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html", momo: "https://developers.momo.vn/v3/docs/payment/api/payment-api/init", stripe: "https://stripe.com/docs/payments/checkout" } as any)[provider] &&
+        <a href={({ vietqr: "https://www.vietqr.io/en/danh-sach-api/link-tao-ma-nhanh/", vnpay: "https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html", momo: "https://developers.momo.vn/v3/docs/payment/api/payment-api/init", stripe: "https://stripe.com/docs/payments/checkout" } as any)[provider]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-1.5">Xem tài liệu tích hợp của cổng ↗</a>}
       {provider === "stripe" && (
         <>
           <div className="grid md:grid-cols-2 gap-3 mt-3">
@@ -597,7 +616,32 @@ function PaymentCard() {
         </>
       )}
       {provider === "manual" && <p className="text-[13px] text-muted mt-2 font-normal">Chế độ thủ công: khách xác nhận trong ứng dụng (phù hợp demo hoặc chuyển khoản).</p>}
-      {(provider === "vnpay" || provider === "momo") && <p className="text-[13px] text-warn mt-2 font-normal">Cổng này sẽ sớm được hỗ trợ. Lưu thông tin trước để kích hoạt sau.</p>}
+      {provider === "vietqr" && (
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          <Field label="Mã ngân hàng (BIN)" info="Ví dụ Vietcombank 970436, Techcombank 970407, MBBank 970422."><Input value={f.bank_bin} onChange={(e) => set("bank_bin", e.target.value)} placeholder="970436" /></Field>
+          <Field label="Số tài khoản"><Input value={f.account_no} onChange={(e) => set("account_no", e.target.value)} placeholder="0123456789" /></Field>
+          <Field label="Tên chủ tài khoản"><Input value={f.account_name} onChange={(e) => set("account_name", e.target.value)} placeholder="CONG TY OMNISHOP" /></Field>
+          <Field label="Mẫu QR" info="compact2 (mặc định), compact, qr_only, print."><Input value={f.template} onChange={(e) => set("template", e.target.value)} placeholder="compact2" /></Field>
+        </div>
+      )}
+      {provider === "vnpay" && (
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          <Field label="TMN Code"><Input value={f.tmn_code} onChange={(e) => set("tmn_code", e.target.value)} placeholder="OMNI0001" /></Field>
+          <Field label="Hash Secret" info="Chuỗi bí mật để ký HMAC-SHA512 — mã hoá khi lưu."><Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="••••••••" /></Field>
+          <Field label="Pay URL" info="Sandbox mặc định; go-live đổi sang https://pay.vnpay.vn/vpcpay.html."><Input value={f.pay_url} onChange={(e) => set("pay_url", e.target.value)} placeholder="https://sandbox.vnpayment.vn/paymentv2/vpcpay.html" /></Field>
+          <Field label="Return URL"><Input value={f.return_url} onChange={(e) => set("return_url", e.target.value)} placeholder="https://app.cua-ban.com/api/billing/return/vnpay" /></Field>
+        </div>
+      )}
+      {provider === "momo" && (
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          <Field label="Partner Code"><Input value={f.partner_code} onChange={(e) => set("partner_code", e.target.value)} placeholder="MOMOXXXX" /></Field>
+          <Field label="Access Key"><Input value={f.access_key} onChange={(e) => set("access_key", e.target.value)} placeholder="..." /></Field>
+          <Field label="Secret Key" info="Ký HMAC-SHA256 — mã hoá khi lưu."><Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="••••••••" /></Field>
+          <Field label="Endpoint" info="Sandbox mặc định; đổi sang payment.momo.vn khi go-live."><Input value={f.endpoint} onChange={(e) => set("endpoint", e.target.value)} placeholder="https://test-payment.momo.vn/v2/gateway/api/create" /></Field>
+          <Field label="Redirect URL"><Input value={f.redirect_url} onChange={(e) => set("redirect_url", e.target.value)} placeholder="https://app.cua-ban.com/?paid=1" /></Field>
+          <Field label="IPN URL"><Input value={f.ipn_url} onChange={(e) => set("ipn_url", e.target.value)} placeholder="https://app.cua-ban.com/api/billing/ipn/momo" /></Field>
+        </div>
+      )}
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
     </Card>

@@ -22,7 +22,7 @@ from .. import audit
 from ..config import config
 from ..db import no_tenant, tenant_tx
 from ..errors import bad_request, not_found
-from ..providers.channels import meta
+from ..providers.channels import meta, telegram, whatsapp, zalo
 from ..security import decrypt_secret, encrypt_secret
 from ..tenancy import OrgContext, get_org_context, require_role
 from . import orchestrator
@@ -32,42 +32,105 @@ from .bots import get_or_create_default_bot
 router = APIRouter(prefix="/api", tags=["channel"])
 
 # Per-kind connection spec: which fields to collect, which are secret/routing.
+# Fields, notes and doc links follow each platform's official integration docs so a
+# tenant can self-configure the connection to THEIR own endpoint. `hint` on a field
+# tells the user exactly where to find that value.
 KIND_SPECS = {
-    "website": {"label": "Tiện ích website", "live": True, "note": "", "fields": []},
+    "website": {"label": "Tiện ích website", "live": True, "note": "",
+                "docs": "", "fields": []},
     "messenger": {
         "label": "Facebook Messenger", "live": True,
-        "note": "Cần một Facebook App đã được duyệt quyền nhắn tin. Nhập Page ID và Page Access Token.",
+        "note": "Kết nối nhanh bằng nút \"Kết nối Facebook\" (OAuth), hoặc nhập thủ công Page ID và "
+                "Page Access Token từ Facebook App của bạn (quyền pages_messaging).",
+        "docs": "https://developers.facebook.com/docs/messenger-platform/get-started",
         "fields": [
-            {"key": "page_id", "label": "Page ID", "secret": False, "required": True},
-            {"key": "page_access_token", "label": "Page Access Token", "secret": True, "required": True},
+            {"key": "page_id", "label": "Page ID", "secret": False, "required": True,
+             "hint": "ID trang Facebook — xem trong Meta Business Suite → Cài đặt trang."},
+            {"key": "page_access_token", "label": "Page Access Token", "secret": True, "required": True,
+             "hint": "Tạo trong Facebook App → Messenger → Access Tokens (token của Trang)."},
         ],
     },
     "instagram": {
         "label": "Instagram", "live": True,
-        "note": "Dùng chung Facebook App. Nhập IG Page ID và Page Access Token.",
+        "note": "Dùng chung Facebook App (Instagram Messaging). Instagram phải là tài khoản Doanh nghiệp "
+                "liên kết với một Trang Facebook. Nhập IG Page ID và Page Access Token.",
+        "docs": "https://developers.facebook.com/docs/messenger-platform/instagram",
         "fields": [
-            {"key": "page_id", "label": "IG Page ID", "secret": False, "required": True},
-            {"key": "page_access_token", "label": "Page Access Token", "secret": True, "required": True},
+            {"key": "page_id", "label": "IG-linked Page ID", "secret": False, "required": True,
+             "hint": "ID Trang Facebook được liên kết với tài khoản Instagram doanh nghiệp."},
+            {"key": "page_access_token", "label": "Page Access Token", "secret": True, "required": True,
+             "hint": "Token của Trang, có quyền instagram_manage_messages."},
+        ],
+    },
+    "telegram": {
+        "label": "Telegram", "live": True,
+        "note": "Chat với @BotFather → /newbot → dán Bot Token vào đây. Webhook sẽ tự đăng ký. "
+                "Không cần phê duyệt — chạy thật ngay.",
+        "docs": "https://core.telegram.org/bots/api",
+        "fields": [
+            {"key": "bot_token", "label": "Bot Token", "secret": True, "required": True,
+             "hint": "Dạng 123456789:AA... do @BotFather cấp khi tạo bot."},
+        ],
+    },
+    "zalo": {
+        "label": "Zalo OA", "live": True,
+        "note": "Cần Official Account đã kết nối tới một Zalo App (developers.zalo.me). Access Token OA hết "
+                "hạn ~1 ngày, cần làm mới bằng refresh token; nhập App Secret để hệ thống xác thực webhook.",
+        "docs": "https://developers.zalo.me/docs/official-account/bat-dau",
+        "fields": [
+            {"key": "oa_id", "label": "OA ID", "secret": False, "required": True,
+             "hint": "ID Official Account — trong Zalo OA Manager → Thông tin OA."},
+            {"key": "access_token", "label": "OA Access Token", "secret": True, "required": True,
+             "hint": "Lấy qua OAuth v4 (oauth.zaloapp.com/v4/oa/access_token). Hết hạn ~25 giờ."},
+            {"key": "app_secret", "label": "App Secret (xác thực webhook)", "secret": True, "required": False,
+             "hint": "App Secret của Zalo App — dùng kiểm tra chữ ký X-ZEvent-Signature. Tuỳ chọn."},
+        ],
+    },
+    "whatsapp": {
+        "label": "WhatsApp Cloud", "live": True,
+        "note": "Dùng WhatsApp Business Account trên Meta. Webhook dùng chung cấu hình Meta (verify token + "
+                "App Secret của nền tảng). Nhập Phone Number ID và Access Token.",
+        "docs": "https://developers.facebook.com/docs/whatsapp/cloud-api/get-started",
+        "fields": [
+            {"key": "phone_number_id", "label": "Phone Number ID", "secret": False, "required": True,
+             "hint": "ID nội bộ của số gửi (KHÔNG phải số điện thoại) — WhatsApp Manager → API Setup."},
+            {"key": "access_token", "label": "Access Token", "secret": True, "required": True,
+             "hint": "Token hệ thống (System User) dài hạn, hoặc token tạm 24 giờ khi thử nghiệm."},
         ],
     },
     "tiktok": {
         "label": "TikTok Shop", "live": False,
-        "note": "Đang chờ phê duyệt đối tác TikTok Shop. Lưu thông tin để kích hoạt sau.",
+        "note": "Cần App trên TikTok Shop Partner Center + shop uỷ quyền (OAuth) để có access_token và "
+                "shop_cipher. Mọi request phải ký (sign) bằng App Secret. Lưu thông tin để kích hoạt khi "
+                "app được duyệt.",
+        "docs": "https://partner.tiktokshop.com/docv2/page/authorization-overview-202407",
         "fields": [
-            {"key": "shop_id", "label": "Shop ID", "secret": False, "required": True},
-            {"key": "app_key", "label": "App Key", "secret": False, "required": True},
-            {"key": "app_secret", "label": "App Secret", "secret": True, "required": True},
-            {"key": "access_token", "label": "Access Token", "secret": True, "required": False},
+            {"key": "shop_id", "label": "Shop ID", "secret": False, "required": True,
+             "hint": "ID cửa hàng TikTok Shop nhận được sau khi uỷ quyền."},
+            {"key": "shop_cipher", "label": "Shop Cipher", "secret": False, "required": False,
+             "hint": "Mã shop_cipher trả về cùng access_token, dùng trong hầu hết API v2."},
+            {"key": "app_key", "label": "App Key", "secret": False, "required": True,
+             "hint": "Cấp khi tạo App trong Partner Center."},
+            {"key": "app_secret", "label": "App Secret", "secret": True, "required": True,
+             "hint": "Dùng để ký HMAC-SHA256 mọi request."},
+            {"key": "access_token", "label": "Access Token", "secret": True, "required": False,
+             "hint": "Nhận qua OAuth; cần refresh định kỳ."},
         ],
     },
     "shopee": {
         "label": "Shopee", "live": False,
-        "note": "Đang chờ phê duyệt đối tác Shopee Open Platform. Lưu thông tin để kích hoạt sau.",
+        "note": "Cần App trên Shopee Open Platform + shop uỷ quyền (OAuth). Access token hết hạn 4 giờ (cần "
+                "refresh). Mọi request ký HMAC-SHA256 từ Partner Key. Lưu thông tin để kích hoạt khi duyệt.",
+        "docs": "https://open.shopee.com/documents",
         "fields": [
-            {"key": "shop_id", "label": "Shop ID", "secret": False, "required": True},
-            {"key": "partner_id", "label": "Partner ID", "secret": False, "required": True},
-            {"key": "partner_key", "label": "Partner Key", "secret": True, "required": True},
-            {"key": "access_token", "label": "Access Token", "secret": True, "required": False},
+            {"key": "shop_id", "label": "Shop ID", "secret": False, "required": True,
+             "hint": "ID cửa hàng nhận được sau khi shop uỷ quyền cho app."},
+            {"key": "partner_id", "label": "Partner ID", "secret": False, "required": True,
+             "hint": "Partner ID của app trong Shopee Open Platform Console."},
+            {"key": "partner_key", "label": "Partner Key", "secret": True, "required": True,
+             "hint": "Khoá ký HMAC-SHA256 (partner_id + path + timestamp + access_token + shop_id)."},
+            {"key": "access_token", "label": "Access Token", "secret": True, "required": False,
+             "hint": "Nhận qua OAuth; hết hạn 4 giờ, làm mới bằng refresh token."},
         ],
     },
 }
@@ -92,7 +155,7 @@ def channel_kinds(ctx: OrgContext = Depends(get_org_context)):
     out = []
     for kind, spec in KIND_SPECS.items():
         out.append({"kind": kind, "label": spec["label"], "fields": spec["fields"],
-                    "live": spec["live"], "note": spec["note"],
+                    "live": spec["live"], "note": spec["note"], "docs": spec.get("docs", ""),
                     "allowed": channel_allowed(ctx.org_id, kind)})
     return out
 
@@ -140,6 +203,24 @@ def create_channel(body: ChannelBody, ctx: OrgContext = Depends(require_role("ad
             status = "pending"
         elif kind in ("messenger", "instagram"):
             ok, info = meta.verify_page_token(creds.get("page_access_token", ""))
+            status = "connected" if ok else "degraded"
+            note = info
+        elif kind == "telegram":
+            public_key = "tg_" + secrets.token_urlsafe(16)
+            ok, info = telegram.verify_token(creds.get("bot_token", ""))
+            status = "connected" if ok else "degraded"
+            note = info
+            # auto-register the Telegram webhook when a public callback base is set
+            if ok and config.OAUTH_REDIRECT_BASE:
+                hook = f"{config.OAUTH_REDIRECT_BASE.rstrip('/')}/api/channels/webhook/telegram/{public_key}"
+                wok, winfo = telegram.set_webhook(creds["bot_token"], hook)
+                note = f"{info} · webhook: {'đã đặt' if wok else winfo}"
+        elif kind == "zalo":
+            ok, info = zalo.verify_token(creds.get("access_token", ""))
+            status = "connected" if ok else "degraded"
+            note = info
+        elif kind == "whatsapp":
+            ok, info = whatsapp.verify_token(creds.get("access_token", ""), cfg.get("phone_number_id", ""))
             status = "connected" if ok else "degraded"
             note = info
 
@@ -195,15 +276,27 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
         if not r:
             raise not_found("channel not found")
         kind = r["kind"]
-        if kind not in ("messenger", "instagram"):
-            return {"status": r and "connected", "note": "Kênh này không cần kiểm tra token."}
-        token = ""
+        if kind not in ("messenger", "instagram", "telegram", "zalo", "whatsapp"):
+            return {"status": "connected", "note": "Kênh này không cần kiểm tra token."}
+        creds = {}
         if r["credentials_enc"]:
             try:
-                token = json.loads(decrypt_secret(bytes(r["credentials_enc"]))).get("page_access_token", "")
+                creds = json.loads(decrypt_secret(bytes(r["credentials_enc"])))
             except Exception:  # noqa: BLE001
-                token = ""
-        ok, info = meta.verify_page_token(token) if token else (False, "chưa có token")
+                creds = {}
+        cfg = dict(r["config"] or {})
+        if kind in ("messenger", "instagram"):
+            tok = creds.get("page_access_token", "")
+            ok, info = meta.verify_page_token(tok) if tok else (False, "chưa có token")
+        elif kind == "telegram":
+            tok = creds.get("bot_token", "")
+            ok, info = telegram.verify_token(tok) if tok else (False, "chưa có token")
+        elif kind == "zalo":
+            tok = creds.get("access_token", "")
+            ok, info = zalo.verify_token(tok) if tok else (False, "chưa có token")
+        else:  # whatsapp
+            tok = creds.get("access_token", "")
+            ok, info = whatsapp.verify_token(tok, cfg.get("phone_number_id", "")) if tok else (False, "chưa có token")
         status = "connected" if ok else "degraded"
         conn.execute("UPDATE channel SET status=%s WHERE id=%s", (status, channel_id))
     audit.record("channel.verify", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=channel_id,
@@ -273,6 +366,19 @@ async def meta_webhook(request: Request):
     ):
         return PlainTextResponse("bad signature", status_code=403)
     payload = json.loads(body or b"{}")
+    # WhatsApp Cloud shares this app + endpoint but a different body shape.
+    if payload.get("object") == "whatsapp_business_account":
+        for pnid, sender, text in whatsapp.normalize_entries(payload):
+            row = _resolve_by_cfg("whatsapp", "phone_number_id", pnid)
+            if not row:
+                continue
+            result = orchestrator.handle_incoming(
+                str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text
+            )
+            creds = _creds(row["credentials_enc"])
+            if creds.get("access_token"):
+                whatsapp.send_message(creds["access_token"], pnid, sender, result["reply"])
+        return {"ok": True}
     for page_id, sender, text in meta.normalize_entries(payload):
         with no_tenant() as conn:
             ch = conn.execute("SELECT * FROM resolve_channel_by_meta(%s)", (page_id,)).fetchone()
@@ -281,12 +387,74 @@ async def meta_webhook(request: Request):
         result = orchestrator.handle_incoming(
             str(ch["organization_id"]), str(ch["shop_id"]), str(ch["channel_id"]), sender, text
         )
-        token = ""
-        if ch["credentials_enc"]:
-            try:
-                token = json.loads(decrypt_secret(bytes(ch["credentials_enc"]))).get("page_access_token", "")
-            except Exception:  # noqa: BLE001
-                token = ""
+        token = _creds(ch["credentials_enc"]).get("page_access_token", "")
         if token:
             meta.send_message(token, sender, result["reply"])
+    return {"ok": True}
+
+
+# --------------------------- other channel webhooks -------------------------
+
+def _creds(enc) -> dict:
+    if not enc:
+        return {}
+    try:
+        return json.loads(decrypt_secret(bytes(enc)))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _resolve_by_cfg(kind: str, key: str, value: str):
+    """Resolve a live channel by a non-secret routing key in its config, without a
+    tenant context (webhooks are anonymous). Uses the superuser connection."""
+    from ..db import admin_tx
+    if not value:
+        return None
+    with admin_tx() as conn:
+        return conn.execute(
+            "SELECT id, organization_id, shop_id, credentials_enc FROM channel "
+            "WHERE kind=%s AND config->>%s = %s LIMIT 1",
+            (kind, key, value),
+        ).fetchone()
+
+
+@router.post("/channels/webhook/telegram/{public_key}")
+async def telegram_webhook(public_key: str, request: Request):
+    from ..db import admin_tx
+    update = json.loads(await request.body() or b"{}")
+    chat_id, text = telegram.normalize_update(update)
+    if not chat_id:
+        return {"ok": True}
+    with admin_tx() as conn:
+        ch = conn.execute(
+            "SELECT id, organization_id, shop_id, credentials_enc FROM channel "
+            "WHERE kind='telegram' AND public_key=%s LIMIT 1",
+            (public_key,),
+        ).fetchone()
+    if not ch:
+        return {"ok": True}
+    result = orchestrator.handle_incoming(
+        str(ch["organization_id"]), str(ch["shop_id"]), str(ch["id"]), chat_id, text
+    )
+    token = _creds(ch["credentials_enc"]).get("bot_token", "")
+    if token:
+        telegram.send_message(token, chat_id, result["reply"])
+    return {"ok": True}
+
+
+@router.post("/channels/webhook/zalo")
+async def zalo_webhook(request: Request):
+    payload = json.loads(await request.body() or b"{}")
+    oa_id, sender, text = zalo.normalize_event(payload)
+    if not oa_id:
+        return {"ok": True}
+    row = _resolve_by_cfg("zalo", "oa_id", oa_id)
+    if not row:
+        return {"ok": True}
+    result = orchestrator.handle_incoming(
+        str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text
+    )
+    creds = _creds(row["credentials_enc"])
+    if creds.get("access_token"):
+        zalo.send_message(creds["access_token"], sender, result["reply"])
     return {"ok": True}

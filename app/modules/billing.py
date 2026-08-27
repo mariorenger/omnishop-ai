@@ -127,28 +127,29 @@ def checkout(body: Checkout, ctx: OrgContext = Depends(require_role("owner"))):
     return {"invoice_id": invoice_id, "amount": float(plan["price_month"]), "plan": plan["code"], **co}
 
 
-def _activate_invoice(invoice_id: str) -> None:
-    """Mark an invoice paid and activate its subscription (webhook / admin path,
-    no org context — uses the superuser connection)."""
+def _activate_invoice(invoice_id: str, provider: str = "stripe") -> bool:
+    """Mark an invoice paid and activate its subscription (webhook / callback path,
+    no org context — uses the superuser connection). Returns True if activated."""
     from ..db import admin_tx
     with admin_tx() as conn:
         inv = conn.execute(
             "SELECT organization_id, plan_code, amount, currency, status FROM invoice WHERE id=%s", (invoice_id,)
         ).fetchone()
         if not inv or inv["status"] == "paid":
-            return
+            return False
         conn.execute("UPDATE invoice SET status='paid', paid_at=now() WHERE id=%s", (invoice_id,))
         conn.execute(
             """INSERT INTO payment (organization_id, invoice_id, amount, currency, provider, status)
-               VALUES (%s,%s,%s,%s,'stripe','succeeded')""",
-            (inv["organization_id"], invoice_id, inv["amount"], inv["currency"]),
+               VALUES (%s,%s,%s,%s,%s,'succeeded')""",
+            (inv["organization_id"], invoice_id, inv["amount"], inv["currency"], provider),
         )
         conn.execute(
-            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,'stripe')
+            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,%s)
                ON CONFLICT (organization_id)
-               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider='stripe'""",
-            (inv["organization_id"], inv["plan_code"]),
+               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider=EXCLUDED.provider""",
+            (inv["organization_id"], inv["plan_code"], provider),
         )
+    return True
 
 
 @router.post("/billing/webhook/stripe")
@@ -172,6 +173,59 @@ async def stripe_webhook(request: Request):
         invoice_id = (obj.get("metadata") or {}).get("invoice_id") or obj.get("client_reference_id")
         if invoice_id:
             _activate_invoice(invoice_id)
+    return {"ok": True}
+
+
+def _web_base() -> str:
+    from ..config import config as _cfg
+    origins = getattr(_cfg, "CORS_ORIGINS", []) or []
+    for o in origins:
+        if o and o != "*":
+            return o.rstrip("/")
+    return "http://localhost:3000"
+
+
+@router.get("/billing/return/vnpay")
+def vnpay_return(request: Request):
+    """Customer is redirected here by VNPay after paying. Verify + activate, then
+    bounce back to the web app with a status flag."""
+    from fastapi.responses import RedirectResponse
+    from ..providers.payment import get_payment
+    params = dict(request.query_params)
+    prov = get_payment()
+    ok = getattr(prov, "verify", lambda p: False)(params) if prov.name == "vnpay" else False
+    if ok:
+        _activate_invoice(params.get("vnp_TxnRef", ""), provider="vnpay")
+    return RedirectResponse(url=f"{_web_base()}/?paid={'1' if ok else '0'}", status_code=302)
+
+
+@router.post("/billing/ipn/vnpay")
+async def vnpay_ipn(request: Request):
+    """Server-to-server confirmation (source of truth for VNPay)."""
+    from ..providers.payment import get_payment
+    params = dict(request.query_params)
+    prov = get_payment()
+    if prov.name != "vnpay":
+        return {"RspCode": "99", "Message": "gateway not active"}
+    if not prov.verify(params):
+        return {"RspCode": "97", "Message": "Invalid signature"}
+    _activate_invoice(params.get("vnp_TxnRef", ""), provider="vnpay")
+    return {"RspCode": "00", "Message": "Confirm Success"}
+
+
+@router.post("/billing/ipn/momo")
+async def momo_ipn(request: Request):
+    """MoMo IPN (source of truth). Verify signature, then activate."""
+    import json as _json
+    from ..providers.payment import get_payment
+    body = await request.body()
+    params = _json.loads(body or b"{}")
+    prov = get_payment()
+    if prov.name != "momo":
+        return {"ok": False, "error": "gateway not active"}
+    if not prov.verify(params):
+        return {"ok": False, "error": "bad signature"}
+    _activate_invoice(str(params.get("orderId", "")), provider="momo")
     return {"ok": True}
 
 
