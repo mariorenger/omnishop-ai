@@ -64,6 +64,7 @@ export function Badge({ kind = "default", children }: { kind?: string; children:
     human: "text-ok border-ok/40 bg-ok/10",
     needs_human: "text-warn border-warn/40 bg-warn/10",
     pending: "text-warn border-warn/40 bg-warn/10",
+    queued: "text-warn border-warn/40 bg-warn/10",
     processing: "text-warn border-warn/40 bg-warn/10",
     error: "text-bad border-bad/40 bg-bad/10",
     void: "text-bad border-bad/40 bg-bad/10",

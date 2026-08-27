@@ -5,17 +5,19 @@ import json
 import time
 
 from .config import config
-from .db import tenant_tx, wait_ready
+from .db import no_tenant, tenant_tx, wait_ready
+from .ingest.parse import extract_text
 from .modules import usage
+from .modules.knowledge import chunk_text
 from .providers.embeddings import to_pgvector
-from .providers.registry import get_embedder
+from .providers.registry import get_embedder, get_ocr
 from .providers.queue import mark, pop
 
 
-def embed_document(org_id: str, document_id: str) -> None:
+def _embed_doc_chunks(org_id: str, document_id: str) -> None:
+    """Embed any not-yet-embedded chunks of a document."""
     embedder = get_embedder()
     with tenant_tx(org_id) as conn:
-        conn.execute("UPDATE document SET status='processing' WHERE id=%s", (document_id,))
         chunks = conn.execute(
             "SELECT id, content FROM chunk WHERE document_id=%s AND embedding IS NULL", (document_id,)
         ).fetchall()
@@ -26,8 +28,59 @@ def embed_document(org_id: str, document_id: str) -> None:
             for c, v in zip(chunks, vecs):
                 conn.execute("UPDATE chunk SET embedding=%s::vector WHERE id=%s", (to_pgvector(v), c["id"]))
         usage.record_embedding(org_id, tokens)
+
+
+def embed_document(org_id: str, document_id: str) -> None:
     with tenant_tx(org_id) as conn:
-        conn.execute("UPDATE document SET status='ready' WHERE id=%s", (document_id,))
+        conn.execute("UPDATE document SET status='processing' WHERE id=%s", (document_id,))
+    _embed_doc_chunks(org_id, document_id)
+    with tenant_tx(org_id) as conn:
+        conn.execute("UPDATE document SET status='ready', error=NULL WHERE id=%s", (document_id,))
+
+
+def ingest_document(org_id: str, document_id: str, file_asset_id: str, filename: str) -> None:
+    """Full async pipeline for an uploaded file: extract -> chunk -> embed.
+    Heavy work (PDF/OCR) lives here, off the request path, so concurrent uploads
+    from many tenants never block the API."""
+    with tenant_tx(org_id) as conn:
+        conn.execute("UPDATE document SET status='processing', error=NULL WHERE id=%s", (document_id,))
+        row = conn.execute(
+            "SELECT knowledge_base_id, bot_id FROM document WHERE id=%s", (document_id,)
+        ).fetchone()
+    if not row:
+        return
+    with no_tenant() as conn:
+        asset = conn.execute("SELECT bytes FROM file_asset WHERE id=%s", (file_asset_id,)).fetchone()
+    if not asset:
+        _fail(org_id, document_id, "Không tìm thấy tệp đã tải lên.")
+        return
+    try:
+        text = extract_text(filename, bytes(asset["bytes"]), ocr=get_ocr(org_id))
+    except Exception as e:  # noqa: BLE001
+        _fail(org_id, document_id, f"Lỗi trích xuất: {e}")
+        return
+    if not text.strip():
+        _fail(org_id, document_id,
+              "Không trích xuất được văn bản (tệp scan cần bật OCR trong Cài đặt).")
+        return
+    chunks = chunk_text(text)
+    with tenant_tx(org_id) as conn:
+        conn.execute("DELETE FROM chunk WHERE document_id=%s", (document_id,))
+        for i, ch in enumerate(chunks):
+            conn.execute(
+                """INSERT INTO chunk (organization_id, knowledge_base_id, document_id, ordinal, content, bot_id)
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                (org_id, row["knowledge_base_id"], document_id, i, ch, row["bot_id"]),
+            )
+        conn.execute("UPDATE document SET char_count=%s WHERE id=%s", (len(text), document_id))
+    _embed_doc_chunks(org_id, document_id)
+    with tenant_tx(org_id) as conn:
+        conn.execute("UPDATE document SET status='ready', error=NULL WHERE id=%s", (document_id,))
+
+
+def _fail(org_id: str, document_id: str, msg: str) -> None:
+    with tenant_tx(org_id) as conn:
+        conn.execute("UPDATE document SET status='error', error=%s WHERE id=%s", (msg[:500], document_id))
 
 
 def embed_product(org_id: str, product_id: str) -> None:
@@ -52,7 +105,9 @@ def process(job: dict) -> None:
     kind, payload, org_id, job_id = job["kind"], job["payload"], job.get("organization_id"), job["job_id"]
     mark(job_id, "running")
     try:
-        if kind == "embed_document":
+        if kind == "ingest_document":
+            ingest_document(org_id, payload["document_id"], payload["file_asset_id"], payload.get("filename", "upload"))
+        elif kind == "embed_document":
             embed_document(org_id, payload["document_id"])
         elif kind == "embed_product":
             embed_product(org_id, payload["product_id"])
@@ -61,10 +116,9 @@ def process(job: dict) -> None:
         mark(job_id, "done")
     except Exception as e:  # noqa: BLE001
         mark(job_id, "error", str(e))
-        if kind == "embed_document" and org_id:
+        if kind in ("embed_document", "ingest_document") and org_id:
             try:
-                with tenant_tx(org_id) as conn:
-                    conn.execute("UPDATE document SET status='error' WHERE id=%s", (payload.get("document_id"),))
+                _fail(org_id, payload.get("document_id"), str(e))
             except Exception:  # noqa: BLE001
                 pass
         print(f"[worker] job {job_id} ({kind}) failed: {e}", flush=True)

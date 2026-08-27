@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars } from "./charts";
-import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus } from "lucide-react";
+import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight } from "lucide-react";
 import QRCode from "qrcode";
 
 const fmt = (n: number) => n.toLocaleString("vi-VN");
@@ -125,26 +125,32 @@ export function Products({ shopId }: { shopId: string }) {
 export function Knowledge({ shopId }: { shopId: string }) {
   const [docs, setDocs] = useState<any[] | null>(null);
   const [title, setTitle] = useState(""); const [text, setText] = useState(""); const [botId, setBotId] = useState("");
-  const [bots, setBots] = useState<any[]>([]);
-  const [msg, setMsg] = useState(""); const [err, setErr] = useState("");
+  const [bots, setBots] = useState<any[]>([]); const [kb, setKb] = useState<any>(null); const [kbName, setKbName] = useState(""); const [editKb, setEditKb] = useState(false);
+  const [msg, setMsg] = useState(""); const [err, setErr] = useState(""); const [open, setOpen] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const load = () => { api.get(`/api/knowledge/documents?shop_id=${shopId}`).then((d) => { setDocs(d); if (d.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(load, 2000); }).catch((e) => setErr(e.message)); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
-  useEffect(() => { setDocs(null); load(); }, [shopId]);
-  const addText = async () => { setErr(""); setMsg(""); try { await api.post("/api/knowledge/documents", { shop_id: shopId, title, text, bot_id: botId || null }); setTitle(""); setText(""); setMsg("Đã thêm tài liệu, đang xử lý nội dung."); load(); } catch (e: any) { setErr(e.message); } };
+  const load = () => { api.get(`/api/knowledge/documents?shop_id=${shopId}`).then((d) => { setDocs(d); if (d.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(load, 2000); }).catch((e) => setErr(e.message)); };
+  useEffect(() => { setDocs(null); load(); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); api.get(`/api/knowledge/kb?shop_id=${shopId}`).then((k) => { setKb(k); setKbName(k.name); }).catch(() => {}); }, [shopId]);
+  const addText = async () => { setErr(""); setMsg(""); if (!text.trim()) { setErr("Nội dung trống"); return; } try { await api.post("/api/knowledge/documents", { shop_id: shopId, title, text, bot_id: botId || null }); setTitle(""); setText(""); setMsg("Đã thêm tài liệu, đang lập chỉ mục."); load(); } catch (e: any) { setErr(e.message); } };
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; setErr(""); setMsg(`Đang xử lý ${file.name}`);
+    const file = e.target.files?.[0]; if (!file) return; setErr(""); setMsg(`Đang tải ${file.name}…`);
     const fd = new FormData(); fd.append("shop_id", shopId); fd.append("file", file); if (botId) fd.append("bot_id", botId);
-    try { const r = await api.upload("/api/knowledge/upload", fd); setMsg(`Đã tải ${file.name}: ${fmt(r.extracted_chars)} ký tự, ${r.chunks} đoạn.`); load(); }
+    try { await api.upload("/api/knowledge/upload", fd); setMsg(`Đã nhận ${file.name} — đang trích xuất & lập chỉ mục ở nền.`); load(); }
     catch (ex: any) { setErr(ex.message); setMsg(""); } finally { if (fileRef.current) fileRef.current.value = ""; }
   };
+  const saveKb = async () => { try { await api.put("/api/knowledge/kb", { shop_id: shopId, name: kbName }); setKb({ ...kb, name: kbName }); setEditKb(false); } catch (e: any) { setErr(e.message); } };
+  const del = async (id: string) => { if (!confirm("Xoá tài liệu này?")) return; try { await api.del(`/api/knowledge/documents/${id}`); setOpen(null); load(); } catch (e: any) { setErr(e.message); } };
+  const reprocess = async (id: string) => { try { await api.post(`/api/knowledge/documents/${id}/reprocess`, {}); setOpen(null); load(); } catch (e: any) { setErr(e.message); } };
   return (
     <div className="space-y-4">
       <Card>
-        <CardTitle sub="Nhập nội dung hoặc tải tệp. Nội dung được xử lý và lập chỉ mục để trợ lý AI tra cứu.">Tài liệu kiến thức</CardTitle>
+        <CardTitle sub="Nhập nội dung hoặc tải tệp. Nội dung được trích xuất, chunk và nhúng vector để trợ lý AI tra cứu (RAG)."
+          right={kb && (editKb
+            ? <span className="flex items-center gap-2"><Input value={kbName} onChange={(e) => setKbName(e.target.value)} className="w-44 h-8 py-1" /><Button size="sm" onClick={saveKb}>Lưu</Button></span>
+            : <button onClick={() => setEditKb(true)} className="text-[12px] text-muted hover:text-fg font-semibold inline-flex items-center gap-1"><Pencil className="w-3.5 h-3.5" /> {kb.name}</button>)}>Kho kiến thức</CardTitle>
         <div onClick={() => fileRef.current?.click()} className="border border-dashed border-line rounded-xl p-6 text-center text-muted cursor-pointer hover:border-accent hover:text-fg transition flex flex-col items-center gap-2">
           <Upload className="w-6 h-6" />
           <div className="text-sm font-medium text-fg">Tải tệp lên</div>
-          <div className="text-xs font-normal">Hỗ trợ PDF, Word, PowerPoint, Excel, CSV, HTML, văn bản và hình ảnh. Ảnh và PDF scan được nhận dạng bằng OCR.</div>
+          <div className="text-xs font-normal">PDF, Word, PowerPoint, Excel, CSV, JSON, HTML, văn bản và hình ảnh. Ảnh/PDF scan nhận dạng bằng OCR. Tối đa 25MB.</div>
         </div>
         <input ref={fileRef} type="file" className="hidden" onChange={onFile} />
         <div className="mt-4 grid gap-3">
@@ -158,16 +164,46 @@ export function Knowledge({ shopId }: { shopId: string }) {
         <Msg type="ok">{msg}</Msg><Msg type="err">{err}</Msg>
       </Card>
       <Card>
-        <CardTitle>Tài liệu đã tải</CardTitle>
+        <CardTitle sub="Bấm một tài liệu để xem văn bản đã trích xuất, trạng thái xử lý và thao tác.">Tài liệu đã tải</CardTitle>
         {!docs ? <Spinner /> : docs.length === 0 ? <Empty>Chưa có tài liệu nào.</Empty> :
-          <Table head={["Tiêu đề", "Nguồn", "Trạng thái", "Số đoạn"]}>
-            {docs.map((d) => <tr key={d.id}><Td className="font-semibold">{d.title}</Td><Td className="text-muted">{d.source || "Nhập tay"}</Td><Td><Badge kind={d.status}>{docStatus(d.status)}</Badge></Td><Td>{d.chunks}</Td></tr>)}
+          <Table head={["Tiêu đề", "Nguồn", "Trạng thái", "Ký tự", "Số đoạn", ""]}>
+            {docs.map((d) => <tr key={d.id} onClick={() => setOpen(d.id)} className="cursor-pointer hover:bg-card2/60 transition">
+              <Td className="font-semibold">{d.title}</Td>
+              <Td className="text-muted">{d.source || "Nhập tay"}</Td>
+              <Td><Badge kind={d.status}>{docStatus(d.status)}</Badge>{d.status === "error" && d.error ? <span className="block text-[11px] text-bad mt-0.5">{d.error}</span> : null}</Td>
+              <Td>{d.char_count ? fmt(d.char_count) : "—"}</Td>
+              <Td>{d.chunks}</Td>
+              <Td className="text-right text-muted"><ChevronRight className="w-4 h-4 inline" /></Td>
+            </tr>)}
           </Table>}
       </Card>
+      <DocDetail id={open} onClose={() => setOpen(null)} onDelete={del} onReprocess={reprocess} />
     </div>
   );
 }
-const docStatus = (s: string) => ({ pending: "Đang chờ", processing: "Đang xử lý", ready: "Sẵn sàng", error: "Lỗi" } as any)[s] || s;
+const docStatus = (s: string) => ({ queued: "Trong hàng đợi", pending: "Đang chờ", processing: "Đang xử lý", ready: "Sẵn sàng", error: "Lỗi" } as any)[s] || s;
+
+function DocDetail({ id, onClose, onDelete, onReprocess }: { id: string | null; onClose: () => void; onDelete: (id: string) => void; onReprocess: (id: string) => void }) {
+  const [d, setD] = useState<any>(null);
+  useEffect(() => { setD(null); if (id) api.get(`/api/knowledge/documents/${id}`).then(setD).catch(() => {}); }, [id]);
+  return (
+    <Modal open={!!id} onClose={onClose} size="lg" title={d?.title || "Tài liệu"} sub={d ? `${d.source || "Nhập tay"} · ${d.mime || ""}` : ""}
+      footer={d ? <><Button variant="sec" onClick={() => onReprocess(d.id)}>Xử lý lại</Button><Button variant="danger" onClick={() => onDelete(d.id)}>Xoá</Button></> : undefined}>
+      {!d ? <Spinner /> : (
+        <div>
+          <div className="flex flex-wrap gap-4 text-[13px] mb-3">
+            <span className="flex items-center gap-1.5"><Badge kind={d.status}>{docStatus(d.status)}</Badge></span>
+            <span className="text-muted font-normal">Ký tự: <b className="text-fg">{d.char_count ? fmt(d.char_count) : "—"}</b></span>
+            <span className="text-muted font-normal">Số đoạn: <b className="text-fg">{d.chunks}</b></span>
+          </div>
+          {d.error && <Msg type="err">{d.error}</Msg>}
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1.5">Văn bản đã trích xuất</div>
+          <pre className="bg-bg border border-line rounded-lg p-3 text-[12.5px] text-fg font-normal whitespace-pre-wrap max-h-[46vh] overflow-auto leading-relaxed">{d.text || "(trống)"}</pre>
+        </div>
+      )}
+    </Modal>
+  );
+}
 
 // ============================================================ Channels
 const channelStatus = (s: string) => ({ connected: "Đang hoạt động", degraded: "Cần kiểm tra", pending: "Chờ kích hoạt", disconnected: "Đã ngắt" } as any)[s] || s;
@@ -563,6 +599,7 @@ export function Admin() {
         <label className="flex items-center gap-2 text-sm font-normal"><input type="checkbox" checked={!!pol.allow_tenant_ocr} onChange={(e) => setPol({ ...pol, allow_tenant_ocr: e.target.checked })} /> Cho phép khách hàng tự cấu hình OCR</label>
         <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
       </Card>
+      <BrandingCard />
       <PaymentCard />
       <MetaAppCard />
       <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
@@ -577,6 +614,41 @@ export function Admin() {
           </Table>}
       </Card>
     </div>
+  );
+}
+
+function BrandingCard() {
+  const [b, setB] = useState<any>(null); const [name, setName] = useState(""); const [accent, setAccent] = useState("#818cf8");
+  const [ok, setOk] = useState(""); const [err, setErr] = useState(""); const logoRef = useRef<HTMLInputElement>(null);
+  const load = () => api.get("/api/admin/branding").then((d) => { setB(d); setName(d.app_name); setAccent(d.accent_color || "#818cf8"); }).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  const save = async () => { setOk(""); setErr(""); try { const d = await api.put("/api/admin/branding", { app_name: name, accent_color: accent }); setB(d); setOk("Đã lưu. Tải lại trang để áp dụng toàn hệ thống."); } catch (e: any) { setErr(e.message); } };
+  const onLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return; setOk(""); setErr("");
+    const fd = new FormData(); fd.append("file", file);
+    try { const d = await api.upload("/api/admin/branding/logo", fd); setB(d); setOk("Đã cập nhật logo. Tải lại trang để áp dụng."); } catch (ex: any) { setErr(ex.message); }
+    finally { if (logoRef.current) logoRef.current.value = ""; }
+  };
+  return (
+    <Card>
+      <CardTitle sub="Đặt tên và logo hiển thị cho toàn hệ thống (mọi tenant thấy). Là cấu hình — không cần sửa code.">Thương hiệu hệ thống</CardTitle>
+      <div className="flex items-center gap-3 mb-3">
+        <span className="w-14 h-14 rounded-xl bg-pastel flex items-center justify-center overflow-hidden shrink-0">
+          {b?.logo_url ? <img src={b.logo_url} className="w-14 h-14 object-contain" /> : <Bot className="w-7 h-7 text-[#0b0e1a]" />}
+        </span>
+        <div>
+          <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={onLogo} />
+          <Button size="sm" variant="sec" onClick={() => logoRef.current?.click()}><Upload className="w-3.5 h-3.5" /> Tải logo</Button>
+          <div className="text-[11px] text-muted mt-1 font-normal">PNG/SVG nền trong suốt, tối đa 2MB</div>
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="Tên hệ thống"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="OmniShop AI" /></Field>
+        <Field label="Màu nhấn"><div className="flex gap-2 items-center"><input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} className="w-10 h-9 rounded-lg border border-line bg-bg p-0.5" /><Input value={accent} onChange={(e) => setAccent(e.target.value)} /></div></Field>
+      </div>
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 

@@ -25,3 +25,5 @@ cho chú thích, biểu đồ theo dataviz.
 | Trợ lý AI — tạo/sửa bot (prompt tuỳ chỉnh) | [15-bot-editor.png](15-bot-editor.png) |
 | Trợ lý AI — trò chuyện thử | [16-bot-test.png](16-bot-test.png) |
 | Trợ lý AI — cấu hình + chạy thử (chat bên phải, có memory) | [17-bot-detail.png](17-bot-detail.png) |
+| Kiến thức — chi tiết tài liệu (văn bản trích xuất + trạng thái) | [18-knowledge-detail.png](18-knowledge-detail.png) |
+| Quản trị — thương hiệu hệ thống (logo + tên, config) | [19-admin-branding.png](19-admin-branding.png) |

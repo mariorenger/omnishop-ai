@@ -28,6 +28,9 @@ export default function App() {
   const [shops, setShops] = useState<any[]>([]);
   const [shop, setShop] = useState<any>(null);
   const [tab, setTab] = useState<string>(localStorage.getItem("omnishop.tab") || "overview");
+  const [brand, setBrand] = useState<{ app_name: string; logo_url: string | null }>({ app_name: "OmniShop AI", logo_url: null });
+  useEffect(() => { api.get("/api/branding").then(setBrand).catch(() => {}); }, []);
+  useEffect(() => { document.title = brand.app_name; }, [brand]);
 
   const setActiveOrg = async (o: Org | null) => {
     setOrg(o); saveAuth({ token: loadAuth().token, orgId: o?.id });
@@ -59,8 +62,9 @@ export default function App() {
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr]">
       <aside className="border-r border-line bg-panel/70 backdrop-blur px-3 py-4 md:min-h-screen sticky top-0 z-20 overflow-y-auto hidden md:block">
         <div className="flex items-center gap-2 px-2 pb-4 font-extrabold text-lg">
-          <span className="w-8 h-8 rounded-lg bg-pastel flex items-center justify-center shadow-[0_4px_16px_rgba(129,140,248,.4)]"><Bot className="w-5 h-5 text-[#0b0e1a]" /></span>
-          <span>OmniShop<span className="text-muted text-xs font-semibold"> AI</span></span>
+          <span className="w-8 h-8 rounded-lg bg-pastel flex items-center justify-center shadow-[0_4px_16px_rgba(129,140,248,.4)] overflow-hidden">
+            {brand.logo_url ? <img src={brand.logo_url} className="w-8 h-8 object-contain" /> : <Bot className="w-5 h-5 text-[#0b0e1a]" />}</span>
+          <span>{brand.app_name}</span>
         </div>
         {groups.map((g, gi) => (
           <div key={gi} className="mb-1.5">
