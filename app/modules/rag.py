@@ -33,20 +33,28 @@ def rag_query(body: RagQuery, ctx: OrgContext = Depends(get_org_context)):
     qvec = embedder.embed_one(body.query)
     products, chunks, context = [], [], []
     with tenant_tx(ctx.org_id) as conn:
+        def _keep(row):
+            return float(row.get("vscore", 0)) >= body.min_score or \
+                (bool(row.get("kw")) and float(row.get("kwscore", 0)) >= 0.35)
         if body.include_products:
-            for p in search_products(conn, body.shop_id, qvec, k=top_k):
-                if float(p["score"]) >= body.min_score:
+            for p in search_products(conn, body.shop_id, qvec, query_text=body.query, k=top_k):
+                if _keep(p):
                     vs = [{"name": v["name"], "stock": int(v["stock"]),
                            "price": float(v["price"]) if v["price"] is not None else None}
                           for v in variants_for(conn, p["id"])]
-                    products.append({"id": str(p["id"]), "name": p["name"], "score": round(float(p["score"]), 4),
+                    products.append({"id": str(p["id"]), "name": p["name"],
+                                     "score": round(float(p["score"]), 4),
+                                     "vscore": round(float(p.get("vscore", 0)), 4),
+                                     "kwscore": round(float(p.get("kwscore", 0)), 4),
                                      "price": float(p["price"]) if p["price"] is not None else None,
                                      "currency": p["currency"], "variants": vs})
                     context.append(ContextBlock(source="product", title=p["name"], body=p["description"] or ""))
         if body.include_knowledge:
-            for c in search_chunks(conn, body.shop_id, qvec, k=top_k):
-                if float(c["score"]) >= body.min_score:
+            for c in search_chunks(conn, body.shop_id, qvec, query_text=body.query, k=top_k):
+                if _keep(c):
                     chunks.append({"title": c["title"], "score": round(float(c["score"]), 4),
+                                   "vscore": round(float(c.get("vscore", 0)), 4),
+                                   "kwscore": round(float(c.get("kwscore", 0)), 4),
                                    "content": c["content"][:400]})
                     context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
     out = {"products": products, "chunks": chunks, "context_blocks": len(context)}

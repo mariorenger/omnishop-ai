@@ -17,7 +17,14 @@ from . import usage
 from .billing import check_ai_quota
 
 _HISTORY = 16  # per-customer conversation memory window (real runs remember context)
-_SCORE_MIN = 0.05
+_SCORE_MIN = 0.05     # min semantic cosine to trust a vector-only hit
+_KW_MIN = 0.35        # min lexical word-similarity to trust a keyword-only hit
+
+
+def _relevant(row) -> bool:
+    """A hybrid hit is kept if it is semantically close OR a strong keyword match."""
+    return float(row.get("vscore", row.get("score", 0))) >= _SCORE_MIN or \
+        (bool(row.get("kw")) and float(row.get("kwscore", 0)) >= _KW_MIN)
 
 _PRODUCT_HINTS = ("giá", "size", "cỡ", "màu", "còn hàng", "tồn", "stock", "price",
                   "mua", "sản phẩm", "bao nhiêu", "variant", "mẫu")
@@ -113,11 +120,11 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
     qvec = embedder.embed_one(text)
     context: List[ContextBlock] = []
     with tenant_tx(org_id) as conn:
-        for p in search_products(conn, shop_id, qvec, k=3, bot_id=bot_id):
-            if float(p["score"]) >= _SCORE_MIN:
+        for p in search_products(conn, shop_id, qvec, query_text=text, k=3, bot_id=bot_id):
+            if _relevant(p):
                 context.append(_product_block(conn, p))
-        for c in search_chunks(conn, shop_id, qvec, k=3, bot_id=bot_id):
-            if float(c["score"]) >= _SCORE_MIN:
+        for c in search_chunks(conn, shop_id, qvec, query_text=text, k=3, bot_id=bot_id):
+            if _relevant(c):
                 context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
 
     # 4) LLM answer

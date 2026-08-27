@@ -48,8 +48,21 @@ trích xuất, số **đoạn (chunk)**. Bấm vào một tài liệu để:
 - **Xử lý lại** (re-extract + re-embed) hoặc **Xoá**.
 Đổi tên **Kho kiến thức** ngay tại tiêu đề.
 
-## Truy hồi (retrieval)
+## Truy hồi (retrieval) — Hybrid search
 
-Câu hỏi của khách được nhúng vector rồi tìm `chunk` gần nhất (pgvector), lọc
-theo `shop_id` và `bot_id` (tài liệu gán cho một trợ lý hoặc dùng chung). Kết
-hợp với sản phẩm liên quan, đưa vào ngữ cảnh cho LLM — LLM không truy vấn DB.
+Truy hồi là **hybrid**: kết hợp hai cách xếp hạng rồi hợp nhất bằng **RRF
+(Reciprocal Rank Fusion)**:
+
+1. **Ngữ nghĩa (semantic/dense):** khoảng cách cosine vector (pgvector) — bắt được
+   câu hỏi diễn đạt khác từ ("áo giá bao nhiêu" ~ "báo giá sản phẩm").
+2. **Từ khoá (lexical):** `word_similarity` của pg_trgm trên văn bản thô — bắt
+   đúng **mã SKU, thuật ngữ, tên riêng, từ hiếm** mà vector làm "mờ".
+
+Ví dụ thực đo: truy vấn `SKU-GIAY` cho điểm từ khoá **kw=1.0** trên đúng sản phẩm
+trong khi vector chỉ ~0.5 — hybrid giúp không bỏ sót. Câu hỏi diễn đạt tự nhiên
+thì vector dẫn dắt. Một kết quả được giữ nếu **gần về ngữ nghĩa HOẶC khớp mạnh từ
+khoá**.
+
+Tất cả lọc theo `shop_id` và `bot_id` (tài liệu gán cho một trợ lý hoặc dùng
+chung), chạy trong `tenant_tx` nên RLS vẫn cô lập tenant. Kết quả (kiến thức +
+sản phẩm liên quan) đưa vào ngữ cảnh cho LLM — LLM không tự truy vấn DB.

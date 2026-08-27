@@ -13,6 +13,12 @@ from ..errors import bad_request, not_found
 from ..providers.llm import ContextBlock
 from ..providers.registry import get_embedder, get_llm
 from ..providers.vectorstore import search_chunks, search_products, variants_for
+
+
+def _hit(row) -> bool:
+    """Keep a hybrid hit that is semantically close OR a strong keyword match."""
+    return float(row.get("vscore", row.get("score", 0))) >= 0.05 or \
+        (bool(row.get("kw")) and float(row.get("kwscore", 0)) >= 0.35)
 from ..tenancy import OrgContext, get_org_context, require_role
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
@@ -126,14 +132,14 @@ def test_bot(bot_id: str, body: TestBody, ctx: OrgContext = Depends(get_org_cont
     qvec = get_embedder().embed_one(body.text)
     context = []
     with tenant_tx(ctx.org_id) as conn:
-        for p in search_products(conn, shop_id, qvec, k=3, bot_id=bot_id):
-            if float(p["score"]) >= 0.05:
+        for p in search_products(conn, shop_id, qvec, query_text=body.text, k=3, bot_id=bot_id):
+            if _hit(p):
                 vs = variants_for(conn, p["id"])
                 vt = ("; ".join(f"{v['name']}: còn {v['stock']}" for v in vs)) if vs else ""
                 context.append(ContextBlock(source="product", title=p["name"],
                                             body=f"{p['description'] or ''} {vt}".strip()))
-        for c in search_chunks(conn, shop_id, qvec, k=3, bot_id=bot_id):
-            if float(c["score"]) >= 0.05:
+        for c in search_chunks(conn, shop_id, qvec, query_text=body.text, k=3, bot_id=bot_id):
+            if _hit(c):
                 context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
     history = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in (body.history or [])][-8:]
     res = get_llm(ctx.org_id).answer(question=body.text, context=context, history=history, shop_name=shop_name, persona=persona)
