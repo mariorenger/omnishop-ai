@@ -1,8 +1,10 @@
 # Ảnh giao diện (web service)
 
-Chụp thực tế từ web service (`web/`, Vite + React + Tailwind) chạy trên nền
-backend thật (Postgres + pgvector + Redis). Giao diện theo phong cách Linear /
-shadcn: dark-first, tối giản, tooltip (i) cho chú thích, biểu đồ theo dataviz.
+Chụp thực tế ở độ phân giải **Full HD (1920×1080 @2x)** từ web service (`web/`,
+Vite + React + Tailwind) chạy trên nền backend thật (Postgres + pgvector +
+Redis). Giao diện dark-first, hiện đại với **gradient pastel** tương phản cao,
+font **Plus Jakarta Sans** tự host (không phụ thuộc Google Fonts), tooltip (i)
+cho chú thích, biểu đồ theo dataviz.
 
 | Màn hình | Ảnh |
 |---|---|

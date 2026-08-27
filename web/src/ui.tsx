@@ -8,7 +8,7 @@ export function Button({ variant = "primary", size = "md", className, children, 
   const base = "inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none";
   const sizes = { sm: "text-xs px-2.5 py-1.5", md: "text-sm px-3.5 py-2" }[size];
   const variants = {
-    primary: "text-white bg-gradient-to-b from-accent to-[#5a68e6] hover:brightness-110 shadow-[0_4px_20px_rgba(109,124,255,.25)]",
+    primary: "text-[#0b0e1a] font-bold bg-pastel hover:brightness-105 shadow-[0_6px_24px_rgba(129,140,248,.35)]",
     sec: "bg-card2 border border-line hover:border-line2 text-fg",
     ghost: "bg-transparent border border-line hover:bg-card text-fg",
     danger: "bg-transparent border border-bad/60 text-bad hover:bg-bad/10",
@@ -17,7 +17,7 @@ export function Button({ variant = "primary", size = "md", className, children, 
 }
 
 export function Card({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cx("bg-gradient-to-b from-card to-card2 border border-line rounded-2xl p-5 shadow-soft", className)}>{children}</div>;
+  return <div className={cx("relative bg-gradient-to-b from-card to-card2 border border-line/90 rounded-2xl p-5 shadow-soft before:absolute before:inset-x-0 before:top-0 before:h-px before:rounded-t-2xl before:bg-gradient-to-r before:from-transparent before:via-white/12 before:to-transparent", className)}>{children}</div>;
 }
 export function CardTitle({ children, sub, right }: { children: React.ReactNode; sub?: React.ReactNode; right?: React.ReactNode }) {
   return (
@@ -94,9 +94,10 @@ export function Empty({ children }: { children: React.ReactNode }) {
 }
 export function Kpi({ n, l, info }: { n: React.ReactNode; l: string; info?: string }) {
   return (
-    <div className="bg-gradient-to-b from-card to-card2 border border-line rounded-xl p-4">
-      <div className="text-[20px] font-bold tracking-tight leading-none">{n}</div>
-      <div className="text-xs text-muted mt-1.5 flex items-center font-normal">{l}{info && <Info text={info} />}</div>
+    <div className="relative overflow-hidden bg-gradient-to-b from-card to-card2 border border-line rounded-xl p-4">
+      <div className="absolute -right-6 -top-8 w-24 h-24 rounded-full bg-pastel-soft blur-2xl" />
+      <div className="relative text-[22px] font-extrabold tracking-tight leading-none">{n}</div>
+      <div className="relative text-xs text-muted mt-1.5 flex items-center font-normal">{l}{info && <Info text={info} />}</div>
     </div>
   );
 }

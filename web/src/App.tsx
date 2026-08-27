@@ -59,7 +59,7 @@ export default function App() {
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr]">
       <aside className="border-r border-line bg-panel/70 backdrop-blur px-3 py-4 md:min-h-screen sticky top-0 z-20 overflow-y-auto hidden md:block">
         <div className="flex items-center gap-2 px-2 pb-4 font-extrabold text-lg">
-          <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-accent2 flex items-center justify-center"><Bot className="w-5 h-5 text-white" /></span>
+          <span className="w-8 h-8 rounded-lg bg-pastel flex items-center justify-center shadow-[0_4px_16px_rgba(129,140,248,.4)]"><Bot className="w-5 h-5 text-[#0b0e1a]" /></span>
           <span>OmniShop<span className="text-muted text-xs font-semibold"> AI</span></span>
         </div>
         {groups.map((g, gi) => (
@@ -97,7 +97,7 @@ export default function App() {
           <Button variant="ghost" size="sm" onClick={() => { clearAuth(); location.reload(); }}><LogOut className="w-4 h-4" /></Button>
         </header>
 
-        <main className="p-4 md:p-6 w-full max-w-[1440px]">
+        <main className="p-4 md:p-6 w-full max-w-[1680px] mx-auto">
           {needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
             : tab === "overview" ? <Overview shopId={shop.id} />
             : tab === "inbox" ? <Inbox shopId={shop.id} />
@@ -143,10 +143,12 @@ function Login({ onAuthed }: { onAuthed: () => void }) {
   };
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-panel to-bg border-r border-line">
-        <div className="flex items-center gap-2 font-extrabold text-xl"><span className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-accent2 flex items-center justify-center"><Bot className="w-5 h-5 text-white" /></span> OmniShop AI</div>
-        <div>
-          <h1 className="text-4xl font-extrabold leading-tight tracking-tight">Nhiều trợ lý AI,<br />mọi kênh bán hàng</h1>
+      <div className="hidden lg:flex flex-col justify-between p-12 border-r border-line relative overflow-hidden">
+        <div className="absolute -top-24 -left-16 w-96 h-96 rounded-full bg-pastel-soft blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 rounded-full bg-pastel-soft blur-3xl opacity-70" />
+        <div className="relative flex items-center gap-2 font-extrabold text-xl"><span className="w-9 h-9 rounded-xl bg-pastel flex items-center justify-center shadow-[0_6px_20px_rgba(129,140,248,.45)]"><Bot className="w-5 h-5 text-[#0b0e1a]" /></span> OmniShop AI</div>
+        <div className="relative">
+          <h1 className="text-[2.7rem] font-extrabold leading-[1.08] tracking-tight">Nhiều trợ lý AI,<br /><span className="text-gradient">mọi kênh bán hàng</span></h1>
           <p className="text-muted mt-4 max-w-md font-normal">Tạo trợ lý riêng cho từng cửa hàng và từng trang, kết nối vào Website, Facebook, Instagram và hơn thế. Trả lời khách tự động, chuyển nhân viên khi cần.</p>
           <div className="flex gap-4 mt-8 text-sm text-muted font-normal">
             <span className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-accent" /> Prompt tuỳ chỉnh cho mỗi trợ lý</span>
