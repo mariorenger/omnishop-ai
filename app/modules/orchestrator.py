@@ -151,7 +151,7 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
     usage.record_ai_message(
         org_id, shop_id=shop_id, channel_id=channel_id, conversation_id=conv_id,
         model=res.model, input_tokens=res.input_tokens, output_tokens=res.output_tokens,
-        retrieval_count=len(context), latency_ms=latency_ms,
+        retrieval_count=len(context), latency_ms=latency_ms, customer_ref=customer_ref,
     )
 
     return {"conversation_id": conv_id, "reply": res.text, "status": status,

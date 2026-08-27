@@ -32,15 +32,16 @@ def record_ai_message(
     output_tokens: int,
     retrieval_count: int,
     latency_ms: int,
+    customer_ref: Optional[str] = None,
 ) -> float:
     cost = estimate_cost(input_tokens, output_tokens)
     with tenant_tx(org_id) as conn:
         conn.execute(
             """INSERT INTO usage_event
-               (organization_id, shop_id, channel_id, conversation_id, kind, llm_model,
+               (organization_id, shop_id, channel_id, conversation_id, customer_ref, kind, llm_model,
                 input_tokens, output_tokens, retrieval_count, latency_ms, estimated_cost)
-               VALUES (%s,%s,%s,%s,'ai_message',%s,%s,%s,%s,%s,%s)""",
-            (org_id, shop_id, channel_id, conversation_id, model,
+               VALUES (%s,%s,%s,%s,%s,'ai_message',%s,%s,%s,%s,%s,%s)""",
+            (org_id, shop_id, channel_id, conversation_id, customer_ref, model,
              input_tokens, output_tokens, retrieval_count, latency_ms, cost),
         )
     return cost
@@ -72,6 +73,46 @@ def summary(org_id: str) -> dict:
     return {k: (float(v) if k == "total_cost" else int(v)) for k, v in row.items()}
 
 
+def token_usage(org_id: str) -> dict:
+    """Tokens used this billing period (input+output) for quota/PAYG accounting."""
+    with tenant_tx(org_id) as conn:
+        row = conn.execute(
+            """SELECT coalesce(sum(input_tokens),0) AS inp, coalesce(sum(output_tokens),0) AS outp,
+                      count(*) FILTER (WHERE kind='ai_message') AS messages,
+                      coalesce(sum(estimated_cost),0) AS cost
+               FROM usage_event
+               WHERE created_at >= date_trunc('month', now())"""
+        ).fetchone()
+    tokens = int(row["inp"]) + int(row["outp"])
+    return {"tokens": tokens, "input_tokens": int(row["inp"]), "output_tokens": int(row["outp"]),
+            "messages": int(row["messages"]), "cost": float(row["cost"])}
+
+
+def by_customer(org_id: str, limit: int = 50) -> list:
+    """Per-end-user usage this month (tokens/messages/cost) for token management."""
+    with tenant_tx(org_id) as conn:
+        rows = conn.execute(
+            """SELECT customer_ref,
+                      count(*) AS messages,
+                      coalesce(sum(input_tokens+output_tokens),0) AS tokens,
+                      coalesce(sum(estimated_cost),0) AS cost,
+                      max(created_at) AS last_at
+               FROM usage_event
+               WHERE kind='ai_message' AND customer_ref IS NOT NULL
+                 AND created_at >= date_trunc('month', now())
+               GROUP BY customer_ref ORDER BY tokens DESC LIMIT %s""",
+            (limit,),
+        ).fetchall()
+    return [{"customer_ref": r["customer_ref"], "messages": int(r["messages"]),
+             "tokens": int(r["tokens"]), "cost": float(r["cost"]),
+             "last_at": r["last_at"].isoformat() if r["last_at"] else None} for r in rows]
+
+
 @router.get("/summary")
 def get_summary(ctx: OrgContext = Depends(get_org_context)):
     return summary(ctx.org_id)
+
+
+@router.get("/by-customer")
+def get_by_customer(ctx: OrgContext = Depends(get_org_context)):
+    return by_customer(ctx.org_id)

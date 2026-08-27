@@ -405,13 +405,27 @@ export function Members({ role }: { role: string }) {
 const roleLabel = (r: string) => ({ owner: "Chủ sở hữu", admin: "Quản trị", agent: "Nhân viên", viewer: "Người xem" } as any)[r] || r;
 
 // ============================================================ Billing
+const modeLabel = (llm: string, bill: string) => bill === "payg" ? "Trả theo dùng" : llm === "managed" ? "Trọn gói AI" : "Tự nhập khoá AI";
+
+function UsageBar({ used, total, unit, note }: { used: number; total: number; unit: string; note?: string }) {
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  const over = total > 0 && used >= total;
+  return (
+    <div>
+      <div className="flex justify-between text-[13px] font-normal mb-1.5"><span className="text-muted">Đã dùng {unit} tháng này</span><span className="font-semibold">{fmt(used)}{total > 0 ? ` / ${fmt(total)}` : ""}</span></div>
+      <div className="h-2 rounded-full bg-bg border border-line overflow-hidden"><div className={"h-full rounded-full " + (over ? "bg-bad" : "bg-pastel")} style={{ width: `${total > 0 ? pct : (used > 0 ? 100 : 0)}%` }} /></div>
+      {note && <div className="text-[12px] text-muted font-normal mt-1.5">{note}</div>}
+    </div>
+  );
+}
+
 export function Billing({ role }: { role: string }) {
   const [plans, setPlans] = useState<any[] | null>(null); const [sub, setSub] = useState<any>(null);
-  const [invoices, setInvoices] = useState<any[]>([]); const [err, setErr] = useState("");
+  const [invoices, setInvoices] = useState<any[]>([]); const [err, setErr] = useState(""); const [customers, setCustomers] = useState<any[]>([]);
   const [checkout, setCheckout] = useState<any>(null); const [busy, setBusy] = useState(false);
   const isOwner = role === "owner";
-  const load = () => Promise.all([api.get("/api/plans"), api.get("/api/subscription"), api.get("/api/billing/invoices")])
-    .then(([p, s, i]) => { setPlans(p); setSub(s); setInvoices(i); }).catch((e) => setErr(e.message));
+  const load = () => Promise.all([api.get("/api/plans"), api.get("/api/subscription"), api.get("/api/billing/invoices"), api.get("/api/usage/by-customer")])
+    .then(([p, s, i, c]) => { setPlans(p); setSub(s); setInvoices(i); setCustomers(c); }).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   if (err) return <Msg type="err">{err}</Msg>;
   if (!plans || !sub) return <Spinner />;
@@ -426,23 +440,47 @@ export function Billing({ role }: { role: string }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardTitle sub={`Hạn mức tin nhắn AI: ${fmt(sub.quota.used)} / ${fmt(sub.quota.limit)} trong tháng.`}>Gói hiện tại: {sub.entitlements._plan_name}</CardTitle>
-        {!isOwner && <p className="text-[13px] text-muted font-normal">Chỉ Chủ sở hữu mới thay đổi được gói dịch vụ.</p>}
+        <CardTitle right={<Badge kind="ai">{modeLabel(sub.quota.llm_mode, sub.quota.billing_mode)}</Badge>}>Gói hiện tại: {sub.entitlements._plan_name}</CardTitle>
+        {sub.quota.billing_mode === "payg" ? (
+          <div className="text-[13px] font-normal">
+            <div className="flex justify-between"><span className="text-muted">Đã dùng tháng này</span><span className="font-semibold">{fmt(sub.quota.tokens_used)} token · {fmt(sub.quota.messages_used)} tin nhắn</span></div>
+            <div className="flex justify-between mt-1"><span className="text-muted">Ước tính chi phí</span><span className="font-semibold">${sub.quota.cost.toFixed(4)}</span></div>
+          </div>
+        ) : sub.quota.llm_mode === "managed" ? (
+          <UsageBar used={sub.quota.tokens_used} total={sub.quota.tokens_included} unit="token" note={sub.quota.overage_per_1k > 0 ? `Vượt hạn mức: $${sub.quota.overage_per_1k}/1k token` : "Hết hạn mức sẽ tạm dừng trả lời tự động"} />
+        ) : (
+          <div><UsageBar used={sub.quota.messages_used} total={sub.quota.messages_limit} unit="tin nhắn" note="Bạn dùng khoá AI của mình — chỉ tính phí phần mềm, không tính token." />
+            <div className="text-[12px] text-muted font-normal mt-1.5">Đã tiêu thụ {fmt(sub.quota.tokens_used)} token (bằng khoá của bạn).</div></div>
+        )}
+        {!isOwner && <p className="text-[13px] text-muted font-normal mt-2">Chỉ Chủ sở hữu mới thay đổi được gói dịch vụ.</p>}
       </Card>
-      <div className="grid md:grid-cols-3 gap-4">
-        {plans.map((p) => (
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {plans.map((p) => { const e = p.entitlements; return (
           <Card key={p.code} className={cur === p.code ? "border-accent shadow-glow" : ""}>
-            <div className="flex items-baseline justify-between"><span className="font-bold text-[15px]">{p.name}</span><span className="text-muted text-sm font-normal">${p.price_month}<span className="text-xs">/tháng</span></span></div>
+            <div className="flex items-start justify-between gap-2"><span className="font-bold text-[15px]">{p.name}</span><Badge kind={e.llm_mode === "managed" ? "ai" : "default"}>{modeLabel(e.llm_mode, e.billing_mode)}</Badge></div>
+            <div className="mt-2 mb-1">{e.billing_mode === "payg"
+              ? <span className="text-2xl font-extrabold">${e.payg_per_1k}<span className="text-xs text-muted font-semibold">/1k token</span></span>
+              : <span className="text-2xl font-extrabold">${p.price_month}<span className="text-xs text-muted font-semibold">/tháng</span></span>}</div>
             <ul className="text-[13px] text-muted mt-3 space-y-1.5 font-normal">
-              <li>{fmt(p.entitlements.ai_messages_month)} tin nhắn AI mỗi tháng</li>
-              <li>{p.entitlements.shops} cửa hàng</li>
-              <li>Kênh: {(p.entitlements.channels_allowed || []).join(", ")}</li>
+              {e.llm_mode === "managed"
+                ? <li className="text-fg">{e.billing_mode === "payg" ? "Trả theo token thực dùng" : `${fmt(e.ai_tokens_month)} token AI/tháng`}</li>
+                : <li className="text-fg">Tự nhập khoá OpenAI / Gemini / Claude</li>}
+              {e.llm_mode === "byok" && <li>{e.ai_messages_month ? `${fmt(e.ai_messages_month)} tin nhắn/tháng` : "Không giới hạn tin nhắn"}</li>}
+              {e.overage_per_1k > 0 && <li>Vượt hạn mức ${e.overage_per_1k}/1k token</li>}
+              <li>{e.shops} cửa hàng · {(e.channels_allowed || []).length} loại kênh</li>
             </ul>
             <div className="mt-4">{cur === p.code ? <Badge kind="active">Đang sử dụng</Badge> :
-              isOwner ? <Button variant={p.price_month ? "primary" : "sec"} onClick={() => pick(p)}>{p.price_month ? "Nâng cấp" : "Chuyển gói"}</Button> : <span className="text-xs text-muted">—</span>}</div>
+              isOwner ? <Button variant={p.price_month || e.billing_mode === "payg" ? "primary" : "sec"} onClick={() => pick(p)}>{p.price_month || e.billing_mode === "payg" ? "Chọn gói" : "Chuyển gói"}</Button> : <span className="text-xs text-muted">—</span>}</div>
           </Card>
-        ))}
+        ); })}
       </div>
+      <Card>
+        <CardTitle sub="Token và chi phí ước tính theo từng khách hàng cuối trong tháng — để theo dõi và quản lý mức dùng.">Sử dụng theo khách</CardTitle>
+        {customers.length === 0 ? <Empty>Chưa có dữ liệu sử dụng tháng này.</Empty> :
+          <Table head={["Khách", "Tin nhắn", "Token", "Chi phí ước tính"]}>
+            {customers.map((c) => <tr key={c.customer_ref}><Td className="font-semibold">{c.customer_ref}</Td><Td>{fmt(c.messages)}</Td><Td>{fmt(c.tokens)}</Td><Td className="text-muted">${c.cost.toFixed(5)}</Td></tr>)}
+          </Table>}
+      </Card>
       <Card>
         <CardTitle>Hoá đơn</CardTitle>
         {invoices.length === 0 ? <Empty>Chưa có hoá đơn nào.</Empty> :

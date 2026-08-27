@@ -50,10 +50,37 @@ def ai_messages_used(org_id: str) -> int:
 
 
 def check_ai_quota(org_id: str) -> dict:
+    """Mode-aware gate, checked server-side before each managed AI call.
+
+    - managed subscription: allow until the token allowance is spent; if the plan
+      permits overage (overage_per_1k > 0) keep going and meter it, else hard-cap.
+    - payg (managed): never blocked — every token is metered and billed.
+    - byok: tenant pays their own tokens, so we only apply a message fair-use cap.
+    """
+    from . import usage as _usage
     ent = resolve_entitlements(org_id)
-    limit = int(ent.get("ai_messages_month", 0))
-    used = ai_messages_used(org_id)
-    return {"allowed": used < limit, "used": used, "limit": limit, "plan": ent["_plan"]}
+    mode = ent.get("llm_mode", "byok")
+    billing_mode = ent.get("billing_mode", "subscription")
+    tu = _usage.token_usage(org_id)
+    tokens_used, msgs_used = tu["tokens"], tu["messages"]
+    tokens_inc = int(ent.get("ai_tokens_month", 0) or 0)
+    msg_limit = int(ent.get("ai_messages_month", 0) or 0)
+    overage = float(ent.get("overage_per_1k", 0) or 0)
+
+    if billing_mode == "payg":
+        allowed = True
+    elif mode == "managed":
+        allowed = tokens_inc == 0 or tokens_used < tokens_inc or overage > 0
+    else:  # byok
+        allowed = msg_limit == 0 or msgs_used < msg_limit
+
+    return {"allowed": allowed, "plan": ent["_plan"], "llm_mode": mode, "billing_mode": billing_mode,
+            "tokens_used": tokens_used, "tokens_included": tokens_inc,
+            "messages_used": msgs_used, "messages_limit": msg_limit,
+            "overage_per_1k": overage, "payg_per_1k": float(ent.get("payg_per_1k", 0) or 0),
+            "cost": tu["cost"],
+            # legacy fields for existing UI
+            "used": msgs_used, "limit": msg_limit}
 
 
 def channel_allowed(org_id: str, kind: str) -> bool:
