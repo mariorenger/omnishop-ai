@@ -53,6 +53,17 @@ class Config:
     COST_OUTPUT_PER_M = float(_get("COST_OUTPUT_PER_M", "25.0"))
     COST_EMBEDDING_PER_M = float(_get("COST_EMBEDDING_PER_M", "0.02"))
 
+    # Google Sign-In (OAuth). Client id/secret can also be set in-app (admin).
+    GOOGLE_CLIENT_ID = _get("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET = _get("GOOGLE_CLIENT_SECRET", "")
+
+    # Platform admin bootstrap — the deployer's known admin login. On startup, if
+    # this user is absent it is created (and promoted) so the operator can sign in.
+    BOOTSTRAP_ADMIN_EMAIL = _get("BOOTSTRAP_ADMIN_EMAIL", "")
+    BOOTSTRAP_ADMIN_PASSWORD = _get("BOOTSTRAP_ADMIN_PASSWORD", "")
+    # Google emails auto-promoted to platform admin on first sign-in (comma list).
+    PLATFORM_ADMIN_EMAILS = [e.strip().lower() for e in _get("PLATFORM_ADMIN_EMAILS", "").split(",") if e.strip()]
+
     # Token estimate fallback when the provider does not report usage.
     @staticmethod
     def est_tokens(text: str) -> int:

@@ -364,3 +364,24 @@ def admin_set_cost(body: CostBody, admin: CurrentUser = Depends(require_platform
     usage._rates_cache["val"] = None    # invalidate cache immediately
     audit.record("admin.cost.update", actor_user_id=admin.id)
     return usage.cost_rates()
+
+
+# ============================ admin: Google Sign-In ==========================
+
+class GoogleBody(BaseModel):
+    client_id: str = ""
+    client_secret: Optional[str] = None     # None = keep; "" = clear
+
+
+@router.get("/admin/settings/google")
+def admin_get_google(_: CurrentUser = Depends(require_platform_admin)):
+    v = registry.public_view("auth:google") or {}
+    return {"client_id": v.get("model", ""), "has_secret": v.get("has_key", False)}
+
+
+@router.put("/admin/settings/google")
+def admin_set_google(body: GoogleBody, admin: CurrentUser = Depends(require_platform_admin)):
+    registry.write_config("auth:google", provider="google", model=body.client_id,
+                          api_key=body.client_secret, extra={})
+    audit.record("admin.google.update", actor_user_id=admin.id, detail={"client_id": body.client_id})
+    return {"ok": True}

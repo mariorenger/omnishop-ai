@@ -23,6 +23,7 @@ class CurrentUser:
     id: str
     email: str
     is_platform_admin: bool
+    platform_role: Optional[str] = None   # 'admin' | 'manager' | None
 
 
 @dataclass
@@ -41,11 +42,13 @@ def get_current_user(authorization: str = Header(default="")) -> CurrentUser:
         raise unauthorized("invalid or expired token")
     with no_tenant() as conn:
         row = conn.execute(
-            "SELECT id, email, is_platform_admin FROM app_user WHERE id = %s", (user_id,)
+            "SELECT id, email, is_platform_admin, platform_role FROM app_user WHERE id = %s", (user_id,)
         ).fetchone()
     if not row:
         raise unauthorized()
-    return CurrentUser(id=str(row["id"]), email=row["email"], is_platform_admin=row["is_platform_admin"])
+    prole = row["platform_role"] or ("admin" if row["is_platform_admin"] else None)
+    return CurrentUser(id=str(row["id"]), email=row["email"],
+                       is_platform_admin=(prole == "admin"), platform_role=prole)
 
 
 def get_org_context(
@@ -73,6 +76,14 @@ def require_role(min_role: str):
 
 
 def require_platform_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    if not user.is_platform_admin:
+    """Write access to the control plane — platform admins only."""
+    if user.platform_role != "admin":
         raise forbidden("platform admin only")
+    return user
+
+
+def require_platform_reader(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Read access to the control plane — platform admin OR manager (read-only)."""
+    if user.platform_role not in ("admin", "manager"):
+        raise forbidden("platform admin or manager only")
     return user

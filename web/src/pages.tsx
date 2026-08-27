@@ -610,42 +610,55 @@ function OcrCard({ ocr }: { ocr: any }) {
 }
 
 // ============================================================ Admin
-export function Admin() {
+export function Admin({ role = "admin" }: { role?: string }) {
+  const isAdmin = role === "admin";
   const [ov, setOv] = useState<any>(null); const [s, setS] = useState<any>(null); const [tenants, setTenants] = useState<any[]>([]);
   const [an, setAn] = useState<any>(null); const [pol, setPol] = useState<any>({}); const [polMsg, setPolMsg] = useState(""); const [err, setErr] = useState("");
   useEffect(() => {
     api.get("/api/admin/overview").then(setOv).catch((e) => setErr(e.message));
-    api.get("/api/admin/settings").then((d) => { setS(d); setPol(d.policy); }).catch((e) => setErr(e.message));
     api.get("/api/admin/tenants").then(setTenants).catch(() => {});
     api.get("/api/admin/analytics").then(setAn).catch(() => {});
+    if (isAdmin) api.get("/api/admin/settings").then((d) => { setS(d); setPol(d.policy); }).catch((e) => setErr(e.message));
   }, []);
   if (err) return <Msg type="err">{err}</Msg>;
-  if (!ov || !s) return <Spinner />;
+  if (!ov || (isAdmin && !s)) return <Spinner />;
   const embProviders = [{ id: "local", label: "Cục bộ (không cần khoá)" }, { id: "openai_compatible", label: "OpenAI-compatible", base_url: "https://api.openai.com/v1" }, { id: "gemini", label: "Gemini" }];
   const savePolicy = async () => { await api.put("/api/admin/settings/policy", pol); setPolMsg("Đã lưu chính sách."); };
   const series = an ? an.series.map((x: any) => ({ day: x.day, ai: x.ai_messages, human: 0 })) : [];
   return (
     <div className="space-y-4">
+      {!isAdmin && <div className="text-[13px] text-muted font-normal">Vai trò <b className="text-fg">Quản lý</b>: xem thống kê và xuất báo cáo. Không có quyền chỉnh cấu hình hay khách hàng.</div>}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
         <Kpi n={fmt(ov.tenants)} l="Khách hàng" /><Kpi n={fmt(ov.shops)} l="Cửa hàng" /><Kpi n={fmt(ov.conversations)} l="Hội thoại" />
         <Kpi n={fmt(ov.ai_messages_month)} l="Tin AI tháng này" /><Kpi n={`$${ov.cost_month.toFixed(2)}`} l="Chi phí tháng này" />
       </div>
       {an && <Card><CardTitle sub="14 ngày gần nhất, toàn nền tảng">Tin nhắn AI theo ngày</CardTitle><StackedBars data={series} /></Card>}
       <Card>
-        <CardTitle sub="Cho phép khách hàng tự chọn nhà cung cấp AI hay không.">Chính sách nền tảng</CardTitle>
-        <label className="flex items-center gap-2 text-sm mb-2 font-normal"><input type="checkbox" checked={!!pol.allow_tenant_llm} onChange={(e) => setPol({ ...pol, allow_tenant_llm: e.target.checked })} /> Cho phép khách hàng tự cấu hình mô hình ngôn ngữ</label>
-        <label className="flex items-center gap-2 text-sm font-normal"><input type="checkbox" checked={!!pol.allow_tenant_ocr} onChange={(e) => setPol({ ...pol, allow_tenant_ocr: e.target.checked })} /> Cho phép khách hàng tự cấu hình OCR</label>
-        <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
+        <CardTitle sub="Xuất số liệu tình trạng hệ thống ra CSV để làm báo cáo.">Xuất báo cáo</CardTitle>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="sec" onClick={() => api.download("/api/admin/reports/tenants.csv", "omnishop-tenants.csv")}>Báo cáo khách hàng (CSV)</Button>
+          <Button variant="sec" onClick={() => api.download("/api/admin/reports/usage.csv", "omnishop-usage.csv")}>Sử dụng 30 ngày (CSV)</Button>
+        </div>
       </Card>
-      <BrandingCard />
-      <PlansCard />
-      <CostCard />
-      <PaymentCard />
-      <MetaAppCard />
-      <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
-        <LlmForm initial={s.llm} providers={s.llm_providers} endpoints={{ save: "/api/admin/settings/llm", test: "/api/admin/settings/llm/test", models: "/api/admin/settings/llm/models" }} /></Card>
-      <Card><CardTitle sub="Dùng chung toàn nền tảng. Đổi model yêu cầu lập chỉ mục lại; số chiều cố định 384.">Mô hình embedding</CardTitle>
-        <LlmForm initial={s.embedding} providers={embProviders} endpoints={{ save: "/api/admin/settings/embedding", test: "/api/admin/settings/embedding/test", models: "/api/admin/settings/embedding/models" }} /></Card>
+      {isAdmin && <>
+        <Card>
+          <CardTitle sub="Cho phép khách hàng tự chọn nhà cung cấp AI hay không.">Chính sách nền tảng</CardTitle>
+          <label className="flex items-center gap-2 text-sm mb-2 font-normal"><input type="checkbox" checked={!!pol.allow_tenant_llm} onChange={(e) => setPol({ ...pol, allow_tenant_llm: e.target.checked })} /> Cho phép khách hàng tự cấu hình mô hình ngôn ngữ</label>
+          <label className="flex items-center gap-2 text-sm font-normal"><input type="checkbox" checked={!!pol.allow_tenant_ocr} onChange={(e) => setPol({ ...pol, allow_tenant_ocr: e.target.checked })} /> Cho phép khách hàng tự cấu hình OCR</label>
+          <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
+        </Card>
+        <StaffCard />
+        <GoogleCard />
+        <BrandingCard />
+        <PlansCard />
+        <CostCard />
+        <PaymentCard />
+        <MetaAppCard />
+        <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
+          <LlmForm initial={s.llm} providers={s.llm_providers} endpoints={{ save: "/api/admin/settings/llm", test: "/api/admin/settings/llm/test", models: "/api/admin/settings/llm/models" }} /></Card>
+        <Card><CardTitle sub="Dùng chung toàn nền tảng. Đổi model yêu cầu lập chỉ mục lại; số chiều cố định 384.">Mô hình embedding</CardTitle>
+          <LlmForm initial={s.embedding} providers={embProviders} endpoints={{ save: "/api/admin/settings/embedding", test: "/api/admin/settings/embedding/test", models: "/api/admin/settings/embedding/models" }} /></Card>
+      </>}
       <Card>
         <CardTitle>Danh sách khách hàng</CardTitle>
         {tenants.length === 0 ? <Empty>Chưa có khách hàng.</Empty> :
@@ -654,6 +667,46 @@ export function Admin() {
           </Table>}
       </Card>
     </div>
+  );
+}
+
+function StaffCard() {
+  const [rows, setRows] = useState<any[]>([]); const [email, setEmail] = useState(""); const [role, setRole] = useState("manager");
+  const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  const load = () => api.get("/api/auth/staff").then(setRows).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  const grant = async () => { setOk(""); setErr(""); try { await api.put("/api/auth/staff", { email, platform_role: role }); setEmail(""); setOk("Đã cập nhật vai trò."); load(); } catch (e: any) { setErr(e.message); } };
+  const revoke = async (e2: string) => { try { await api.put("/api/auth/staff", { email: e2, platform_role: "none" }); load(); } catch (e: any) { setErr(e.message); } };
+  return (
+    <Card>
+      <CardTitle sub="Cấp quyền Quản trị (toàn quyền) hoặc Quản lý (chỉ xem & xuất báo cáo). Người dùng phải đã có tài khoản.">Nhân sự vận hành</CardTitle>
+      <div className="grid md:grid-cols-[1fr_180px_auto] gap-2 items-end">
+        <Field label="Email"><Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nguoivanhanh@congty.com" /></Field>
+        <Field label="Vai trò"><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="manager">Quản lý (xem + báo cáo)</option><option value="admin">Quản trị (toàn quyền)</option></Select></Field>
+        <Button variant="sec" onClick={grant}>Cấp quyền</Button>
+      </div>
+      {rows.length > 0 && <div className="mt-3"><Table head={["Email", "Vai trò", ""]}>
+        {rows.map((r) => <tr key={r.email}><Td className="font-semibold">{r.email}</Td><Td><Badge kind={r.platform_role === "admin" ? "ai" : "active"}>{r.platform_role === "admin" ? "Quản trị" : "Quản lý"}</Badge></Td><Td className="text-right"><button className="text-[12px] text-bad font-semibold" onClick={() => revoke(r.email)}>Thu hồi</button></Td></tr>)}
+      </Table></div>}
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
+  );
+}
+
+function GoogleCard() {
+  const [c, setC] = useState<any>(null); const [cid, setCid] = useState(""); const [secret, setSecret] = useState(""); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/settings/google").then((d) => { setC(d); setCid(d.client_id || ""); }).catch((e) => setErr(e.message)); }, []);
+  const save = async () => { setOk(""); setErr(""); try { await api.put("/api/admin/settings/google", { client_id: cid, client_secret: secret || null }); setOk("Đã lưu Google Sign-In."); setSecret(""); } catch (e: any) { setErr(e.message); } };
+  return (
+    <Card>
+      <CardTitle sub="Bật đăng nhập bằng Google cho mọi người dùng. Redirect URI cần đăng ký ở Google Cloud: <base>/api/auth/google/callback.">Đăng nhập Google (OAuth)</CardTitle>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="Client ID"><Input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="...apps.googleusercontent.com" /></Field>
+        <Field label="Client Secret" info="Mã hoá khi lưu."><Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={c && c.has_secret ? "•••• (giữ nguyên)" : ""} /></Field>
+      </div>
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 

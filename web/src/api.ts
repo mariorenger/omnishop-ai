@@ -30,4 +30,12 @@ export const api = {
   put: (p: string, body?: any) => fetch(p, { method: "PUT", headers: headers(), body: body ? JSON.stringify(body) : undefined }).then(handle),
   del: (p: string) => fetch(p, { method: "DELETE", headers: headers() }).then(handle),
   upload: (p: string, form: FormData) => fetch(p, { method: "POST", headers: headers(false), body: form }).then(handle),
+  download: async (p: string, filename: string) => {
+    const res = await fetch(p, { headers: headers(false) });
+    if (!res.ok) throw new Error("Không tải được báo cáo");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  },
 };

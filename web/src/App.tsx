@@ -7,7 +7,7 @@ import {
   CreditCard, Settings as Cog, Shield, LifeBuoy, LogOut, Store, Sparkles,
 } from "lucide-react";
 
-type User = { id: string; email: string; is_platform_admin: boolean };
+type User = { id: string; email: string; is_platform_admin: boolean; platform_role?: string | null };
 type Org = { id: string; name: string; role: string };
 
 const GROUPS: { section: string | null; items: [string, any, string][] }[] = [
@@ -37,6 +37,10 @@ export default function App() {
     if (o) { try { const s = await api.get("/api/shops"); setShops(s); setShop(s[0] || null); } catch { setShops([]); setShop(null); } }
   };
   const boot = async () => {
+    // capture a token handed back by an OAuth redirect (?token=...), then clean the URL
+    const params = new URLSearchParams(location.search);
+    const oauthToken = params.get("token");
+    if (oauthToken) { saveAuth({ token: oauthToken }); history.replaceState({}, "", location.pathname); }
     const a = loadAuth();
     if (!a.token) { setReady(true); return; }
     try {
@@ -52,8 +56,9 @@ export default function App() {
   if (!ready) return <div className="h-screen flex items-center justify-center text-muted">…</div>;
   if (!user) return <Login onAuthed={boot} />;
 
-  const groups = user.is_platform_admin
-    ? [...GROUPS, { section: "Quản trị", items: [["admin", Shield, "Quản trị hệ thống"]] as [string, any, string][] }]
+  const isStaff = user.platform_role === "admin" || user.platform_role === "manager";
+  const groups = isStaff
+    ? [...GROUPS, { section: "Quản trị", items: [["admin", Shield, user.platform_role === "manager" ? "Báo cáo hệ thống" : "Quản trị hệ thống"]] as [string, any, string][] }]
     : GROUPS;
   const needShop = !shop && NEEDS_SHOP.includes(tab);
   const role = org?.role || "viewer";
@@ -113,7 +118,7 @@ export default function App() {
             : tab === "billing" ? <Billing role={role} />
             : tab === "settings" ? <Settings />
             : tab === "help" ? <Help />
-            : tab === "admin" ? <Admin />
+            : tab === "admin" ? <Admin role={user.platform_role || ""} />
             : null}
         </main>
       </div>
@@ -137,6 +142,9 @@ function ShopSetup({ onCreated }: { onCreated: () => void }) {
 function Login({ onAuthed }: { onAuthed: () => void }) {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [orgName, setOrgName] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [mode, setMode] = useState<"login" | "signup">("login");
+  const [google, setGoogle] = useState(false);
+  useEffect(() => { api.get("/api/auth/google/config").then((d) => setGoogle(!!d.enabled)).catch(() => {}); }, []);
+  const googleLogin = async () => { try { const d = await api.get("/api/auth/google/start"); if (d.url) location.href = d.url; else setErr(d.error || "Google chưa cấu hình"); } catch (e: any) { setErr(e.message); } };
   const go = async () => {
     setBusy(true); setErr("");
     try {
@@ -170,6 +178,15 @@ function Login({ onAuthed }: { onAuthed: () => void }) {
           <div className="mt-3"><Field label="Mật khẩu"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Tối thiểu 8 ký tự" onKeyDown={(e) => e.key === "Enter" && go()} /></Field></div>
           {mode === "signup" && <div className="mt-3"><Field label="Tên workspace"><Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Cửa hàng của tôi" /></Field></div>}
           <div className="mt-4"><Button loading={busy} onClick={go} className="w-full">{mode === "login" ? "Đăng nhập" : "Đăng ký"}</Button></div>
+          {google && (
+            <>
+              <div className="flex items-center gap-3 my-3 text-[12px] text-muted"><span className="h-px bg-line flex-1" />hoặc<span className="h-px bg-line flex-1" /></div>
+              <button onClick={googleLogin} className="w-full inline-flex items-center justify-center gap-2 text-sm font-semibold rounded-lg py-2 bg-white text-[#1f2328] hover:brightness-95 transition">
+                <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45 24c0-1.6-.1-2.8-.4-4H24v7.6h12c-.2 1.9-1.5 4.7-4.3 6.6l-.1.3 6.2 4.8.4.1C42.5 35.9 45 30.5 45 24z"/><path fill="#34A853" d="M24 46c5.7 0 10.5-1.9 14-5.1l-6.7-5.2c-1.8 1.2-4.2 2.1-7.3 2.1-5.6 0-10.3-3.7-12-8.8l-.3.1-6.4 5-.1.3C8.6 41.1 15.7 46 24 46z"/><path fill="#FBBC05" d="M12 29c-.4-1.3-.7-2.6-.7-4s.3-2.7.6-4l-.1-.3-6.5-5-.2.1C3.9 14.7 3 19.2 3 24s.9 9.3 2.6 13.2L12 29z"/><path fill="#EA4335" d="M24 10.8c3.9 0 6.6 1.7 8.1 3.1l5.9-5.8C34.5 4.7 29.7 2.7 24 2.7 15.7 2.7 8.6 7.6 5.1 14.7l6.9 5.3c1.7-5.1 6.4-9.2 12-9.2z"/></svg>
+                Tiếp tục với Google
+              </button>
+            </>
+          )}
           <Msg type="err">{err}</Msg>
           <button className="text-[13px] text-accent mt-3 font-semibold" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setErr(""); }}>
             {mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}

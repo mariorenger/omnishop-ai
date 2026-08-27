@@ -9,7 +9,7 @@ from .. import audit
 from ..db import admin_tx, no_tenant, tenant_tx
 from ..errors import bad_request, unauthorized
 from ..security import hash_password, issue_token, verify_password
-from ..tenancy import CurrentUser, get_current_user
+from ..tenancy import CurrentUser, get_current_user, require_platform_admin
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -79,7 +79,7 @@ def login(body: LoginBody):
         row = conn.execute(
             "SELECT id, password_hash FROM app_user WHERE email=%s", (body.email,)
         ).fetchone()
-    if not row or not verify_password(body.password, row["password_hash"]):
+    if not row or not row["password_hash"] or not verify_password(body.password, row["password_hash"]):
         raise unauthorized("invalid credentials")
     user_id = str(row["id"])
     return {"token": issue_token(user_id), "user": {"id": user_id, "email": body.email},
@@ -88,5 +88,57 @@ def login(body: LoginBody):
 
 @router.get("/me")
 def me(user: CurrentUser = Depends(get_current_user)):
-    return {"user": {"id": user.id, "email": user.email, "is_platform_admin": user.is_platform_admin},
+    return {"user": {"id": user.id, "email": user.email, "is_platform_admin": user.is_platform_admin,
+                     "platform_role": user.platform_role},
             "orgs": _my_orgs(user.id)}
+
+
+# ---- platform staff management (admin grants manager/admin) -----------------
+
+class StaffBody(BaseModel):
+    email: str
+    platform_role: str          # 'admin' | 'manager' | 'none'
+
+
+@router.get("/staff")
+def list_staff(_: CurrentUser = Depends(require_platform_admin)):
+    with no_tenant() as conn:
+        rows = conn.execute(
+            "SELECT email, platform_role FROM app_user WHERE platform_role IS NOT NULL ORDER BY email"
+        ).fetchall()
+    return [{"email": r["email"], "platform_role": r["platform_role"]} for r in rows]
+
+
+@router.put("/staff")
+def set_staff(body: StaffBody, admin: CurrentUser = Depends(require_platform_admin)):
+    role = body.platform_role if body.platform_role in ("admin", "manager") else None
+    with no_tenant() as conn:
+        row = conn.execute("SELECT id FROM app_user WHERE lower(email)=lower(%s)", (body.email,)).fetchone()
+        if not row:
+            raise bad_request("người dùng chưa có tài khoản — họ cần đăng nhập/đăng ký trước")
+        conn.execute("UPDATE app_user SET platform_role=%s, is_platform_admin=%s WHERE id=%s",
+                     (role, role == "admin", row["id"]))
+    audit.record("admin.staff.update", actor_user_id=admin.id, target=body.email,
+                 detail={"platform_role": role})
+    return {"email": body.email, "platform_role": role}
+
+
+def bootstrap_admin() -> None:
+    """Ensure the deployer's platform admin exists (BOOTSTRAP_ADMIN_EMAIL). Idempotent."""
+    from ..config import config
+    email = config.BOOTSTRAP_ADMIN_EMAIL.strip()
+    if not email:
+        return
+    with no_tenant() as conn:
+        row = conn.execute("SELECT id, platform_role FROM app_user WHERE lower(email)=lower(%s)", (email,)).fetchone()
+        if row:
+            if row["platform_role"] != "admin":
+                conn.execute("UPDATE app_user SET platform_role='admin', is_platform_admin=true WHERE id=%s", (row["id"],))
+            return
+        pw = config.BOOTSTRAP_ADMIN_PASSWORD or "change-me-now-123"
+        conn.execute(
+            "INSERT INTO app_user (email, password_hash, full_name, is_platform_admin, platform_role) "
+            "VALUES (%s,%s,'Platform Admin',true,'admin')",
+            (email, hash_password(pw)),
+        )
+    print(f"[auth] bootstrapped platform admin: {email}", flush=True)

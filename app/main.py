@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import config
 from .errors import new_correlation_id
 from .modules import (admin, analytics, auth, billing, bots, branding, channel, conversation,
-                      knowledge, oauth_meta, product, rag, settings, tenant, uploads, usage)
+                      knowledge, oauth_google, oauth_meta, product, rag, settings, tenant, uploads, usage)
 
 app = FastAPI(title="OmniShop AI", version="0.1.0")
 
@@ -44,7 +44,7 @@ def health():
 for r in (auth.router, tenant.router, billing.router, usage.router, channel.router,
           knowledge.router, product.router, conversation.router, admin.router, settings.router,
           analytics.router, rag.router, bots.router, uploads.router, oauth_meta.router,
-          branding.router):
+          oauth_google.router, branding.router):
     app.include_router(r)
 
 
@@ -61,5 +61,7 @@ def _startup():
         from .db import run_migrations, wait_ready
         wait_ready(30)
         run_migrations()
+        from .modules.auth import bootstrap_admin
+        bootstrap_admin()
     except Exception as e:  # noqa: BLE001
         print(f"[api] startup: database not ready / migration deferred: {e}", flush=True)

@@ -28,3 +28,5 @@ cho chú thích, biểu đồ theo dataviz.
 | Kiến thức — chi tiết tài liệu (văn bản trích xuất + trạng thái) | [18-knowledge-detail.png](18-knowledge-detail.png) |
 | Quản trị — thương hiệu hệ thống (logo + tên, config) | [19-admin-branding.png](19-admin-branding.png) |
 | Quản trị — gói dịch vụ, định giá & đơn giá token (admin làm chủ) | [20-admin-pricing.png](20-admin-pricing.png) |
+| Quản trị — nhân sự (admin/manager) & đăng nhập Google | [21-admin-staff.png](21-admin-staff.png) |
+| Vai trò Quản lý — chỉ xem thống kê & xuất báo cáo | [22-manager-reports.png](22-manager-reports.png) |
