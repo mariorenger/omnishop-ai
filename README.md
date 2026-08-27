@@ -1,101 +1,90 @@
-# OmniShop AI
+<h1 align="center">OmniShop AI</h1>
 
-**Multi-tenant SaaS AI chatbot platform for social- and e-commerce merchants.**
+<p align="center">
+  <b>Nền tảng SaaS chatbot AI đa tenant cho nhà bán hàng social & thương mại điện tử.</b><br/>
+  Đăng ký → kết nối kênh → trợ lý RAG tự trả lời khách, đa kênh, tự chuyển nhân viên khi cần.
+</p>
 
-A merchant signs up, picks a plan, pays, connects their sales channels
-(Facebook, Instagram, TikTok Shop, Shopee…), imports products/knowledge, and an
-AI RAG chatbot starts answering their customers automatically — across every
-channel, with human handoff when needed.
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-18%20%2B%20Vite-61DAFB?logo=react&logoColor=black">
+  <img alt="Postgres" src="https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-4169E1?logo=postgresql&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-37%20passing-2ea44f">
+</p>
 
-> **Pay → Connect → AI works.**
-> The merchant never has to know there is a vector DB, an LLM, OAuth, webhooks,
-> Docker or Kubernetes behind it.
+<p align="center">
+  <img src="docs/screenshots/02-overview.png" alt="Dashboard tổng quan" width="90%">
+</p>
+
+> **Pay → Connect → AI works.** Người bán không cần biết phía sau có vector DB,
+> LLM, OAuth, webhook hay Docker.
 
 ---
 
-## Status: Milestone 1 — runnable MVP (core loop working)
+## Tính năng
 
-The **discovery docs** (Milestone 0) are in [`docs/`](docs/). On top of them, a
-first **runnable product** now implements the core loop end-to-end and has been
-verified against real Postgres+pgvector+RLS+Redis. See
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) for what's built and how it maps to the
-milestones.
+- 🧩 **Đa tenant, cô lập 3 lớp** — app scoping + PostgreSQL Row-Level Security + lọc metadata vector.
+- 🤖 **Nhiều trợ lý / cửa hàng** — prompt riêng, avatar, giờ làm việc, chuyển nhân viên; chạy thử full màn có memory.
+- 🔎 **RAG hybrid** — pgvector (ngữ nghĩa) + pg_trgm (từ khoá) hợp nhất bằng RRF; ingest **bất đồng bộ** ở worker, xem được văn bản trích xuất & trạng thái.
+- 🔌 **Đa kênh** — Website, Messenger/Instagram, Telegram, Zalo OA, WhatsApp Cloud, TikTok Shop, Shopee.
+- 💳 **Thanh toán** — VietQR, VNPay, MoMo, Stripe (ký giao dịch thật, có return/IPN/webhook).
+- 💰 **Định giá linh hoạt** — gói tự-nhập-khoá (BYOK) / trọn gói AI / trả-theo-dùng; quản lý token theo tenant & theo từng khách.
+- 🎛️ **Admin làm chủ mọi cấu hình trên UI** — LLM/OCR, cổng thanh toán, Facebook App, Google Sign-In, gói & đơn giá, thương hiệu (logo/tên).
+- 🔐 **Đăng nhập** email/mật khẩu + **Google OAuth**; vai trò nền tảng **admin / manager (chỉ đọc + xuất báo cáo)**; nhật ký hoạt động; thu hồi phiên.
+- 🧠 **Đa nhà cung cấp AI** — Anthropic / OpenAI / Gemini / vLLM-local (chọn model + test ngay trong app).
 
-### Run it (no API key required)
+## Ảnh giao diện
+
+| Trợ lý — chạy thử (memory + RAG) | Định giá & token |
+|---|---|
+| ![Bot](docs/screenshots/17-bot-detail.png) | ![Billing](docs/screenshots/08-billing.png) |
+
+| Sản phẩm | Kết nối kênh |
+|---|---|
+| ![Products](docs/screenshots/04-products.png) | ![Channels](docs/screenshots/12-channel-connect.png) |
+
+Xem đầy đủ 22 ảnh Full HD: [`docs/screenshots/`](docs/screenshots/README.md).
+
+## Chạy thử (không cần API key)
 
 ```bash
-docker compose up -d --build                       # db, valkey, api, worker, web
-docker compose exec api python -m scripts.seed     # demo tenant, products, knowledge
-# open http://localhost:3000   (login: demo@omnishop.local / demo12345)
+docker compose up -d --build                    # db(pgvector) · redis · api · worker · web
+docker compose exec api python -m scripts.seed  # tenant demo + sản phẩm + kiến thức
+# mở http://localhost:3000   (đăng nhập: demo@omnishop.local / demo12345)
 ```
 
-The polished product UI is the **`web`** service (Vite + React + Tailwind, a
-Linear/shadcn-style dashboard) at **http://localhost:3000** — it reverse-proxies
-`/api` to the backend. The FastAPI service (`:8000`) still serves the API, the
-customer widget, and a simple built-in dashboard as a fallback.
+API tự chạy migration và bootstrap admin lúc khởi động. Chọn nhà cung cấp AI, cổng
+thanh toán, kênh… ngay trong UI Quản trị. Chạy test: `pytest`.
 
-**Choose your AI provider in-app** (Settings → Cài đặt AI): Anthropic (Claude),
-**OpenAI**, **Google Gemini**, or **vLLM / local** (any OpenAI-compatible server)
-— with a **model dropdown** (fetched live from the provider) and a **Test**
-button. Platform admins set the default and whether tenants may override.
+## Kiến trúc (tóm tắt)
 
-The seed prints a widget URL — open it and ask *"Áo thun size M màu đen còn
-không?"*. It answers from the merchant's **product + inventory** data. Runs with a
-retrieval-grounded stub LLM out of the box; set `ANTHROPIC_API_KEY` in `.env` for
-real Claude. Verify tenant isolation: `docker compose exec api python -m
-scripts.test_isolation`.
+```
+web (Vite/React)  ──/api──►  FastAPI  ──►  PostgreSQL 16 + pgvector (RLS)
+                                 │
+                                 ├─►  Redis (hàng đợi)  ──►  worker (extract · chunk · embed)
+                                 └─►  Providers: LLM · Embedding · Vector · Channel · Payment · Email · OCR
+```
 
-> **Guiding principle:** Do not build from scratch what good OSS already solves.
-> Do not depend on OSS where it costs us business control, tenant isolation, cost
-> visibility, or core differentiation. Do not optimize for scale before there is
-> real workload.
+Backend Python 3.11 + FastAPI + psycopg3; frontend tách riêng (Tailwind, font
+Plus Jakarta Sans tự host). Mọi nhà cung cấp đứng sau interface có thể thay thế.
 
-### Where to start reading
+## Tài liệu
 
-| Document | What it is |
+| Chủ đề | Tài liệu |
 |---|---|
-| [`docs/README.md`](docs/README.md) | **Milestone 0 index** — read this first |
-| [`docs/product/vision.md`](docs/product/vision.md) | Product vision, target users, the "Pay → Connect → AI" journey |
-| [`docs/research/oss-scorecard.md`](docs/research/oss-scorecard.md) | OSS candidates evaluated per module, **with verified licenses** |
-| [`docs/platform/platform-capability-matrix.md`](docs/platform/platform-capability-matrix.md) | Facebook / Instagram / TikTok Shop / Shopee capability matrix |
-| [`docs/research/build-vs-buy-matrix.md`](docs/research/build-vs-buy-matrix.md) | Per-module BUILD / OSS / BUY / DEFER decisions |
-| [`docs/architecture/overview.md`](docs/architecture/overview.md) | Control plane / data plane, multi-tenancy, MVP → 5-year scaling |
-| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (ADR-001 … ADR-008) |
-| [`docs/operations/cost-model.md`](docs/operations/cost-model.md) | Cost model at 100 / 1k / 10k / 100k tenants |
-| [`docs/operations/risk-register.md`](docs/operations/risk-register.md) | Risk register (platform, license, AI cost, isolation, privacy…) |
+| Triển khai & sao lưu | [docs/deployment.md](docs/deployment.md) |
+| Định giá & quản lý token | [docs/pricing.md](docs/pricing.md) |
+| RAG & xử lý tài liệu | [docs/rag-and-ingestion.md](docs/rag-and-ingestion.md) |
+| Tích hợp thanh toán & kênh | [docs/integrations.md](docs/integrations.md) |
+| Đăng nhập & phân quyền | [docs/auth-and-roles.md](docs/auth-and-roles.md) |
+| Cấu hình & mô hình bán lại | [docs/operations/config-and-reseller.md](docs/operations/config-and-reseller.md) |
+| Tự phản biện & giới hạn | [docs/self-review.md](docs/self-review.md) |
+| Kiến trúc / ADR / cost / risk | [docs/](docs/) |
 
-### The headline decisions (details in the docs)
+## Bảo mật (giai đoạn đầu)
 
-- **Core SaaS IP — BUILD:** tenant/org model, billing state, entitlements,
-  usage metering, cost accounting, channel-connection state, conversation
-  orchestration, admin control plane.
-- **AI/RAG — OSS libraries + our own orchestration:** build the `RagEngine`
-  ourselves on top of MIT/Apache libraries (LlamaIndex, parsers), **not** on a
-  platform whose license forbids multi-tenant SaaS.
-- **Two licenses block our exact use case:** **Dify** (no multi-tenant SaaS
-  without a written commercial license) and **n8n** (no offering as a hosted
-  service). Both are RED-FLAGGED for the core product.
-- **First real channel — Meta (Facebook Messenger + Instagram):** the most
-  mature *messaging* APIs, which is where the chatbot's value lives.
-  TikTok Shop & Shopee are commerce-first; their messaging APIs are
-  partner-gated — layer them in later for product/order sync.
-
----
-
-## Repository layout
-
-```
-omnishop-ai/
-├── README.md              ← you are here
-├── IMPLEMENTATION.md      ← what the running app does + how to run/verify
-├── docker-compose.yml     ← postgres+pgvector, valkey, api, worker
-├── app/                   ← modular monolith (FastAPI) + worker
-│   ├── providers/         ← LLM, embeddings, vector, queue, channel (swappable)
-│   ├── modules/           ← auth, tenant, billing, usage, knowledge, product,
-│   │                        channel, conversation (+orchestrator), admin
-│   └── static/            ← dashboard + customer chat widget
-├── db/001_init.sql        ← schema + Row-Level Security + pgvector + seed plans
-├── scripts/               ← seed.py, test_isolation.py
-└── docs/                  ← Milestone 0 discovery
-    ├── product/  research/  platform/  architecture/  decisions/  operations/
-```
+Cô lập tenant bằng RLS (có test), secret **mã hoá khi lưu**, không API nào trả key
+thô về client, mật khẩu PBKDF2, token ký HS256, rate-limit đăng nhập. Trước khi
+phục vụ thật: đặt **`APP_SECRET`** mạnh, đổi mật khẩu DB, chạy sau **HTTPS** — xem
+[docs/deployment.md](docs/deployment.md).
