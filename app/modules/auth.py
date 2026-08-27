@@ -82,8 +82,18 @@ def login(body: LoginBody):
     if not row or not row["password_hash"] or not verify_password(body.password, row["password_hash"]):
         raise unauthorized("invalid credentials")
     user_id = str(row["id"])
+    audit.record("auth.login", actor_user_id=user_id, detail={"via": "password"})
     return {"token": issue_token(user_id), "user": {"id": user_id, "email": body.email},
             "orgs": _my_orgs(user_id)}
+
+
+@router.post("/logout-all")
+def logout_all(user: CurrentUser = Depends(get_current_user)):
+    """Revoke every session for this user (tokens issued before now stop working)."""
+    with no_tenant() as conn:
+        conn.execute("UPDATE app_user SET tokens_valid_after=now() WHERE id=%s", (user.id,))
+    audit.record("auth.logout_all", actor_user_id=user.id)
+    return {"ok": True}
 
 
 @router.get("/me")

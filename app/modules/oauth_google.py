@@ -127,5 +127,7 @@ def callback(code: str = "", state: str = ""):
     if not email or not info.get("email_verified", True):
         return HTMLResponse("<h3>Không lấy được email đã xác minh từ Google.</h3>", status_code=400)
     user_id = _find_or_create_user(email, info.get("name", ""))
+    from .. import audit
+    audit.record("auth.login", actor_user_id=user_id, detail={"via": "google"})
     token = issue_token(user_id)
     return RedirectResponse(f"{_web_base()}/?token={token}", status_code=302)

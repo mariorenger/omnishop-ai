@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, clearAuth } from "./api";
 import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars } from "./charts";
 import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight } from "lucide-react";
@@ -571,8 +571,24 @@ export function Settings() {
           : <Empty>Bạn không có quyền chỉnh mô hình. Vui lòng liên hệ quản trị hệ thống.</Empty>}
       </Card>
       {ocr && <OcrCard ocr={ocr} />}
+      <SecurityCard />
       <DangerZone />
     </div>
+  );
+}
+
+function SecurityCard() {
+  const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  const logoutAll = async () => {
+    if (!confirm("Đăng xuất khỏi tất cả thiết bị? Bạn sẽ cần đăng nhập lại.")) return;
+    try { await api.post("/api/auth/logout-all", {}); clearAuth(); location.reload(); } catch (e: any) { setErr(e.message); }
+  };
+  return (
+    <Card>
+      <CardTitle sub="Thu hồi mọi phiên đăng nhập hiện có trên mọi thiết bị.">Bảo mật phiên</CardTitle>
+      <Button variant="ghost" onClick={logoutAll}>Đăng xuất tất cả thiết bị</Button>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 function DangerZone() {
@@ -640,6 +656,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
           <Button variant="sec" onClick={() => api.download("/api/admin/reports/usage.csv", "omnishop-usage.csv")}>Sử dụng 30 ngày (CSV)</Button>
         </div>
       </Card>
+      <AuditCard />
       {isAdmin && <>
         <Card>
           <CardTitle sub="Cho phép khách hàng tự chọn nhà cung cấp AI hay không.">Chính sách nền tảng</CardTitle>
@@ -667,6 +684,25 @@ export function Admin({ role = "admin" }: { role?: string }) {
           </Table>}
       </Card>
     </div>
+  );
+}
+
+function AuditCard() {
+  const [rows, setRows] = useState<any[] | null>(null);
+  useEffect(() => { api.get("/api/admin/audit?limit=60").then(setRows).catch(() => setRows([])); }, []);
+  return (
+    <Card>
+      <CardTitle sub="Ai đã đăng nhập, đổi cấu hình, cấp quyền hay thu hồi — mới nhất trước.">Nhật ký hoạt động</CardTitle>
+      {!rows ? <Spinner /> : rows.length === 0 ? <Empty>Chưa có hoạt động.</Empty> :
+        <div className="max-h-[360px] overflow-auto"><Table head={["Thời gian", "Người thực hiện", "Hành động", "Đối tượng"]}>
+          {rows.map((r, i) => <tr key={i}>
+            <Td className="text-muted whitespace-nowrap">{new Date(r.created_at).toLocaleString("vi-VN")}</Td>
+            <Td className="font-normal">{r.actor || "—"}</Td>
+            <Td className="font-semibold">{r.action}</Td>
+            <Td className="text-muted">{r.target || ""}</Td>
+          </tr>)}
+        </Table></div>}
+    </Card>
   );
 }
 

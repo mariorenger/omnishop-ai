@@ -105,3 +105,17 @@ def export_usage_csv(_: CurrentUser = Depends(require_platform_reader)):
         ).fetchall()
     data = [[str(r["day"]), int(r["ai_messages"]), int(r["tokens"]), round(float(r["cost"]), 6)] for r in rows]
     return _csv_response(["day", "ai_messages", "tokens", "cost_usd"], data, "omnishop-usage.csv")
+
+
+@router.get("/audit")
+def audit_log(limit: int = 100, _: CurrentUser = Depends(require_platform_reader)):
+    """Recent privileged actions (who did what, when) — admins & managers can view."""
+    with admin_tx() as conn:
+        rows = conn.execute(
+            """SELECT a.action, a.target, a.detail, a.created_at, u.email AS actor
+               FROM audit_log a LEFT JOIN app_user u ON u.id = a.actor_user_id
+               ORDER BY a.created_at DESC LIMIT %s""",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+    return [{"action": r["action"], "target": r["target"], "detail": r["detail"],
+             "actor": r["actor"], "created_at": r["created_at"].isoformat()} for r in rows]

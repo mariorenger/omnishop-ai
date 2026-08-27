@@ -47,14 +47,14 @@ def _b64d(s: str) -> bytes:
 
 def issue_token(user_id: str, ttl_s: int = 7 * 24 * 3600) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
-    payload = {"sub": str(user_id), "iat": int(time.time()), "exp": int(time.time()) + ttl_s}
+    payload = {"sub": str(user_id), "iat": round(time.time(), 3), "exp": int(time.time()) + ttl_s}
     seg = f"{_b64(json.dumps(header).encode())}.{_b64(json.dumps(payload).encode())}"
     sig = hmac.new(config.APP_SECRET.encode(), seg.encode(), hashlib.sha256).digest()
     return f"{seg}.{_b64(sig)}"
 
 
-def verify_token(token: str) -> Optional[str]:
-    """Return the user id (sub) if valid, else None."""
+def decode_token(token: str) -> Optional[dict]:
+    """Return the verified payload ({sub, iat, exp}) if valid, else None."""
     try:
         header_b64, payload_b64, sig_b64 = token.split(".")
         seg = f"{header_b64}.{payload_b64}"
@@ -64,9 +64,15 @@ def verify_token(token: str) -> Optional[str]:
         payload = json.loads(_b64d(payload_b64))
         if int(payload.get("exp", 0)) < int(time.time()):
             return None
-        return str(payload["sub"])
+        return payload
     except Exception:  # noqa: BLE001
         return None
+
+
+def verify_token(token: str) -> Optional[str]:
+    """Return the user id (sub) if valid, else None."""
+    p = decode_token(token)
+    return str(p["sub"]) if p else None
 
 
 # --- lightweight symmetric encryption for stored credentials (R-17) ---------

@@ -12,7 +12,7 @@ from fastapi import Depends, Header
 
 from .db import no_tenant, tenant_tx
 from .errors import unauthorized, forbidden
-from .security import verify_token
+from .security import decode_token
 
 # role hierarchy for RBAC checks
 _ROLE_RANK = {"viewer": 0, "agent": 1, "admin": 2, "owner": 3}
@@ -37,15 +37,19 @@ def get_current_user(authorization: str = Header(default="")) -> CurrentUser:
     if not authorization.lower().startswith("bearer "):
         raise unauthorized()
     token = authorization.split(" ", 1)[1].strip()
-    user_id = verify_token(token)
-    if not user_id:
+    payload = decode_token(token)
+    if not payload:
         raise unauthorized("invalid or expired token")
+    user_id = str(payload["sub"])
     with no_tenant() as conn:
         row = conn.execute(
-            "SELECT id, email, is_platform_admin, platform_role FROM app_user WHERE id = %s", (user_id,)
+            "SELECT id, email, is_platform_admin, platform_role, extract(epoch from tokens_valid_after) AS tva "
+            "FROM app_user WHERE id = %s", (user_id,)
         ).fetchone()
     if not row:
         raise unauthorized()
+    if row["tva"] and float(payload.get("iat", 0)) < float(row["tva"]):
+        raise unauthorized("session revoked — please sign in again")
     prole = row["platform_role"] or ("admin" if row["is_platform_admin"] else None)
     return CurrentUser(id=str(row["id"]), email=row["email"],
                        is_platform_admin=(prole == "admin"), platform_role=prole)
