@@ -12,11 +12,41 @@ from ..tenancy import OrgContext, get_org_context
 router = APIRouter(prefix="/api/usage", tags=["usage"])
 
 
+import time as _time
+
+_rates_cache: dict = {"at": 0.0, "val": None}
+
+
+def cost_rates() -> dict:
+    """Admin-configured $/1M-token rates (platform_settings), cached 60s, with
+    env fallback. Lets the admin own pricing from the UI without a redeploy."""
+    now = _time.time()
+    if _rates_cache["val"] is not None and now - _rates_cache["at"] < 60:
+        return _rates_cache["val"]
+    inp, outp, emb = config.COST_INPUT_PER_M, config.COST_OUTPUT_PER_M, config.COST_EMBEDDING_PER_M
+    try:
+        from ..db import no_tenant
+        with no_tenant() as conn:
+            r = conn.execute(
+                "SELECT cost_input_per_m, cost_output_per_m, cost_embedding_per_m FROM platform_settings WHERE id=1"
+            ).fetchone()
+        if r:
+            inp = float(r["cost_input_per_m"]) if r["cost_input_per_m"] is not None else inp
+            outp = float(r["cost_output_per_m"]) if r["cost_output_per_m"] is not None else outp
+            emb = float(r["cost_embedding_per_m"]) if r["cost_embedding_per_m"] is not None else emb
+    except Exception:  # noqa: BLE001
+        pass
+    val = {"input": inp, "output": outp, "embedding": emb}
+    _rates_cache.update(at=now, val=val)
+    return val
+
+
 def estimate_cost(input_tokens: int, output_tokens: int, embedding_tokens: int = 0) -> float:
+    r = cost_rates()
     return round(
-        input_tokens / 1_000_000 * config.COST_INPUT_PER_M
-        + output_tokens / 1_000_000 * config.COST_OUTPUT_PER_M
-        + embedding_tokens / 1_000_000 * config.COST_EMBEDDING_PER_M,
+        input_tokens / 1_000_000 * r["input"]
+        + output_tokens / 1_000_000 * r["output"]
+        + embedding_tokens / 1_000_000 * r["embedding"],
         6,
     )
 

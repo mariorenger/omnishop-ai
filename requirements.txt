@@ -17,3 +17,6 @@ pillow==10.4.0
 # OCR (optional backends; tesseract binary + poppler installed in the image)
 pytesseract==0.3.13
 pdf2image==1.17.0
+
+# tests (dev)
+pytest>=8,<10

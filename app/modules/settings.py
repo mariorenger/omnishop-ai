@@ -287,3 +287,80 @@ def admin_test_embedding(body: LLMConfigBody, _: CurrentUser = Depends(require_p
         return {"ok": True, "dim": len(v)}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
+
+
+# ============================ admin: plans & cost rates ======================
+# Everything an operator prices from is editable here — no redeploy, no code.
+
+_PLAN_ENT_KEYS = ("llm_mode", "billing_mode", "ai_tokens_month", "overage_per_1k",
+                  "payg_per_1k", "ai_messages_month", "shops", "channels", "storage_mb",
+                  "human_handoff", "channels_allowed")
+
+
+class PlanBody(BaseModel):
+    name: Optional[str] = None
+    price_month: Optional[float] = None
+    entitlements: Optional[dict] = None      # merged into existing entitlements
+
+
+@router.get("/admin/plans")
+def admin_list_plans(_: CurrentUser = Depends(require_platform_admin)):
+    from ..db import no_tenant
+    with no_tenant() as conn:
+        rows = conn.execute(
+            "SELECT code, name, price_month, entitlements FROM plan ORDER BY price_month"
+        ).fetchall()
+    return [{"code": r["code"], "name": r["name"], "price_month": float(r["price_month"]),
+             "entitlements": r["entitlements"]} for r in rows]
+
+
+@router.put("/admin/plans/{code}")
+def admin_update_plan(code: str, body: PlanBody, admin: CurrentUser = Depends(require_platform_admin)):
+    import json as _json
+    from ..db import no_tenant
+    from ..errors import not_found
+    with no_tenant() as conn:
+        cur = conn.execute("SELECT name, price_month, entitlements FROM plan WHERE code=%s", (code,)).fetchone()
+        if not cur:
+            raise not_found("plan not found")
+        ent = dict(cur["entitlements"] or {})
+        for k, v in (body.entitlements or {}).items():
+            if k in _PLAN_ENT_KEYS:
+                ent[k] = v
+        name = body.name if body.name is not None else cur["name"]
+        price = body.price_month if body.price_month is not None else float(cur["price_month"])
+        conn.execute("UPDATE plan SET name=%s, price_month=%s, entitlements=%s WHERE code=%s",
+                     (name, price, _json.dumps(ent), code))
+    audit.record("admin.plan.update", actor_user_id=admin.id, target=code,
+                 detail={"price_month": price})
+    return {"code": code, "name": name, "price_month": price, "entitlements": ent}
+
+
+class CostBody(BaseModel):
+    cost_input_per_m: Optional[float] = None
+    cost_output_per_m: Optional[float] = None
+    cost_embedding_per_m: Optional[float] = None
+
+
+@router.get("/admin/settings/cost")
+def admin_get_cost(_: CurrentUser = Depends(require_platform_admin)):
+    from . import usage
+    return usage.cost_rates()
+
+
+@router.put("/admin/settings/cost")
+def admin_set_cost(body: CostBody, admin: CurrentUser = Depends(require_platform_admin)):
+    from ..db import no_tenant
+    from . import usage
+    with no_tenant() as conn:
+        conn.execute(
+            """UPDATE platform_settings
+               SET cost_input_per_m=coalesce(%s, cost_input_per_m),
+                   cost_output_per_m=coalesce(%s, cost_output_per_m),
+                   cost_embedding_per_m=coalesce(%s, cost_embedding_per_m)
+               WHERE id=1""",
+            (body.cost_input_per_m, body.cost_output_per_m, body.cost_embedding_per_m),
+        )
+    usage._rates_cache["val"] = None    # invalidate cache immediately
+    audit.record("admin.cost.update", actor_user_id=admin.id)
+    return usage.cost_rates()

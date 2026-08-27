@@ -638,6 +638,8 @@ export function Admin() {
         <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
       </Card>
       <BrandingCard />
+      <PlansCard />
+      <CostCard />
       <PaymentCard />
       <MetaAppCard />
       <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
@@ -652,6 +654,62 @@ export function Admin() {
           </Table>}
       </Card>
     </div>
+  );
+}
+
+function PlansCard() {
+  const [plans, setPlans] = useState<any[] | null>(null); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/plans").then(setPlans).catch((e) => setErr(e.message)); }, []);
+  const setField = (i: number, patch: any) => setPlans((ps) => ps!.map((p, j) => j === i ? { ...p, ...patch } : p));
+  const setEnt = (i: number, patch: any) => setPlans((ps) => ps!.map((p, j) => j === i ? { ...p, entitlements: { ...p.entitlements, ...patch } } : p));
+  const save = async (p: any) => { setOk(""); setErr(""); try { await api.put(`/api/admin/plans/${p.code}`, { name: p.name, price_month: Number(p.price_month), entitlements: p.entitlements }); setOk(`Đã lưu gói ${p.name}.`); } catch (e: any) { setErr(e.message); } };
+  const num = (v: any) => v === "" || v === null || v === undefined ? 0 : Number(v);
+  return (
+    <Card>
+      <CardTitle sub="Toàn quyền định giá: admin chỉnh tên, giá, kiểu AI, hạn mức token và giá vượt/PAYG cho từng gói ngay tại đây.">Gói dịch vụ & định giá</CardTitle>
+      {!plans ? <Spinner /> : (
+        <div className="space-y-3">
+          {plans.map((p, i) => (
+            <div key={p.code} className="border border-line rounded-xl p-3">
+              <div className="grid md:grid-cols-4 gap-2 items-end">
+                <Field label={`Gói · ${p.code}`}><Input value={p.name} onChange={(e) => setField(i, { name: e.target.value })} /></Field>
+                <Field label="Giá / tháng ($)"><Input type="number" value={p.price_month} onChange={(e) => setField(i, { price_month: e.target.value })} /></Field>
+                <Field label="Kiểu AI"><Select value={p.entitlements.llm_mode || "byok"} onChange={(e) => setEnt(i, { llm_mode: e.target.value })}><option value="byok">Tự nhập khoá</option><option value="managed">Trọn gói (nền tảng)</option></Select></Field>
+                <Field label="Thanh toán"><Select value={p.entitlements.billing_mode || "subscription"} onChange={(e) => setEnt(i, { billing_mode: e.target.value })}><option value="subscription">Thuê bao</option><option value="payg">Trả theo dùng</option></Select></Field>
+              </div>
+              <div className="grid md:grid-cols-4 gap-2 items-end mt-2">
+                <Field label="Token/tháng" info="Gói trọn gói: token AI kèm theo."><Input type="number" value={num(p.entitlements.ai_tokens_month)} onChange={(e) => setEnt(i, { ai_tokens_month: num(e.target.value) })} /></Field>
+                <Field label="Vượt hạn mức ($/1k)"><Input type="number" step="0.001" value={num(p.entitlements.overage_per_1k)} onChange={(e) => setEnt(i, { overage_per_1k: num(e.target.value) })} /></Field>
+                <Field label="PAYG ($/1k)"><Input type="number" step="0.001" value={num(p.entitlements.payg_per_1k)} onChange={(e) => setEnt(i, { payg_per_1k: num(e.target.value) })} /></Field>
+                <Field label="Trần tin nhắn" info="Gói tự nhập khoá: 0 = không giới hạn."><Input type="number" value={num(p.entitlements.ai_messages_month)} onChange={(e) => setEnt(i, { ai_messages_month: num(e.target.value) })} /></Field>
+              </div>
+              <div className="mt-2"><Button size="sm" variant="sec" onClick={() => save(p)}>Lưu gói</Button></div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
+  );
+}
+
+function CostCard() {
+  const [c, setC] = useState<any>(null); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/settings/cost").then(setC).catch((e) => setErr(e.message)); }, []);
+  const save = async () => { setOk(""); setErr(""); try { const d = await api.put("/api/admin/settings/cost", { cost_input_per_m: Number(c.input), cost_output_per_m: Number(c.output), cost_embedding_per_m: Number(c.embedding) }); setC(d); setOk("Đã lưu đơn giá."); } catch (e: any) { setErr(e.message); } };
+  return (
+    <Card>
+      <CardTitle sub="Đơn giá token ($/1 triệu token) dùng để ước tính chi phí và tính PAYG. Admin chỉnh trực tiếp, không cần deploy.">Đơn giá token (COGS)</CardTitle>
+      {!c ? <Spinner /> : (
+        <div className="grid md:grid-cols-3 gap-3">
+          <Field label="Đầu vào ($/1M)"><Input type="number" step="0.01" value={c.input} onChange={(e) => setC({ ...c, input: e.target.value })} /></Field>
+          <Field label="Đầu ra ($/1M)"><Input type="number" step="0.01" value={c.output} onChange={(e) => setC({ ...c, output: e.target.value })} /></Field>
+          <Field label="Embedding ($/1M)"><Input type="number" step="0.001" value={c.embedding} onChange={(e) => setC({ ...c, embedding: e.target.value })} /></Field>
+        </div>
+      )}
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 
