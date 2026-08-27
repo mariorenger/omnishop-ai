@@ -54,8 +54,17 @@ if os.path.isdir(_static_dir):
     app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
 
 
+_WEAK_SECRETS = {"dev-only-change-me", "dev-only-change-me-please-32bytes-minimum",
+                 "test-secret-please-change-32bytes-minimum"}
+
+
 @app.on_event("startup")
 def _startup():
+    # Loud warning if deployed with a default/weak APP_SECRET — every stored
+    # credential and login token is protected by it, so it MUST be changed.
+    if config.APP_SECRET in _WEAK_SECRETS or len(config.APP_SECRET) < 32:
+        print("[api] SECURITY WARNING: APP_SECRET is default or too short (<32 chars). "
+              "Set a strong random APP_SECRET before serving real traffic.", flush=True)
     # Best-effort DB readiness wait (does not crash under --reload if DB is slow).
     try:
         from .db import run_migrations, wait_ready
