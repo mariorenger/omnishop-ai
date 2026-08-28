@@ -18,6 +18,26 @@ class ShopBody(BaseModel):
     name: str
 
 
+class OrgBody(BaseModel):
+    name: str
+
+
+@router.post("/orgs")
+def create_org(body: OrgBody, user: CurrentUser = Depends(get_current_user)):
+    """Create a new workspace owned by the current user (any logged-in user,
+    including a platform admin who also wants a merchant workspace)."""
+    name = (body.name or "").strip() or f"{user.email.split('@')[0]}'s workspace"
+    with no_tenant() as conn:
+        org = conn.execute("INSERT INTO organization (name) VALUES (%s) RETURNING id", (name,)).fetchone()
+        org_id = str(org["id"])
+        conn.execute("INSERT INTO subscription (organization_id, plan_code) VALUES (%s,'free')", (org_id,))
+    with tenant_tx(org_id) as conn:
+        conn.execute("INSERT INTO membership (organization_id, user_id, role) VALUES (%s,%s,'owner')",
+                     (org_id, user.id))
+    audit.record("org.create", organization_id=org_id, actor_user_id=user.id, detail={"name": name})
+    return {"id": org_id, "name": name, "role": "owner"}
+
+
 class MemberBody(BaseModel):
     email: str
     role: str = "agent"

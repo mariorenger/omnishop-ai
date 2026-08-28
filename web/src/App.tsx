@@ -47,6 +47,8 @@ export default function App() {
       const me = await api.get("/api/auth/me");
       setUser(me.user); setOrgs(me.orgs);
       await setActiveOrg(me.orgs.find((o: Org) => o.id === a.orgId) || me.orgs[0] || null);
+      // a platform admin/manager with no workspace lands on the control panel, not a broken shop screen
+      if (!me.orgs.length && (me.user.platform_role === "admin" || me.user.platform_role === "manager")) setTab("admin");
     } catch { clearAuth(); }
     setReady(true);
   };
@@ -60,7 +62,9 @@ export default function App() {
   const groups = isStaff
     ? [...GROUPS, { section: "Quản trị", items: [["admin", Shield, user.platform_role === "manager" ? "Báo cáo hệ thống" : "Quản trị hệ thống"]] as [string, any, string][] }]
     : GROUPS;
-  const needShop = !shop && NEEDS_SHOP.includes(tab);
+  const TENANT_TABS = [...NEEDS_SHOP, "members", "billing", "settings"];
+  const needOrg = !org && TENANT_TABS.includes(tab);   // no workspace yet
+  const needShop = !!org && !shop && NEEDS_SHOP.includes(tab);
   const role = org?.role || "viewer";
 
   return (
@@ -107,7 +111,8 @@ export default function App() {
         </header>
 
         <main className="p-4 md:p-6 w-full max-w-[1680px] mx-auto">
-          {needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
+          {needOrg ? <WorkspaceSetup onCreated={boot} isAdmin={isStaff} />
+            : needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
             : tab === "overview" ? <Overview shopId={shop.id} />
             : tab === "inbox" ? <Inbox shopId={shop.id} />
             : tab === "bots" ? <Bots shopId={shop.id} role={role} />
@@ -123,6 +128,31 @@ export default function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+function WorkspaceSetup({ onCreated, isAdmin }: { onCreated: () => void; isAdmin: boolean }) {
+  const [name, setName] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const create = async () => {
+    setBusy(true); setErr("");
+    try {
+      const o = await api.post("/api/orgs", { name: name || "Cửa hàng của tôi" });
+      saveAuth({ token: loadAuth().token, orgId: o.id });
+      onCreated();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Card className="max-w-md">
+      <div className="text-[15px] font-bold mb-1">Tạo workspace</div>
+      <p className="text-[13px] text-muted mb-3 font-normal">
+        {isAdmin
+          ? "Tài khoản quản trị hệ thống chưa có workspace bán hàng. Tạo một workspace nếu bạn cũng muốn dùng như người bán, hoặc vào “Quản trị hệ thống” để quản lý nền tảng."
+          : "Bạn cần một workspace để tạo cửa hàng, trợ lý AI và kết nối kênh."}
+      </p>
+      <Field label="Tên workspace"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cửa hàng của tôi" onKeyDown={(e) => e.key === "Enter" && create()} /></Field>
+      <div className="mt-3"><Button loading={busy} onClick={create}>Tạo workspace</Button></div>
+      <Msg type="err">{err}</Msg>
+    </Card>
   );
 }
 

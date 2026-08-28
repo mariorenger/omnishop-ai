@@ -32,3 +32,16 @@ def test_cross_tenant_isolation(client, tenant):
     # B cannot list products under A's shop (RLS: shop not visible)
     resp = client.get(f"/api/products?shop_id={a['shop_id']}", headers=hb)
     assert resp.status_code >= 400 or resp.json() == []
+
+
+@requires_db
+def test_create_additional_workspace(client, tenant):
+    # a logged-in user can create another workspace (org) in-app and own it
+    before = len(client.get("/api/auth/me", headers=tenant["headers"]).json()["orgs"])
+    r = client.post("/api/orgs", json={"name": "Workspace 2"}, headers=tenant["headers"])
+    assert r.status_code == 200 and r.json()["role"] == "owner"
+    orgs = client.get("/api/auth/me", headers=tenant["headers"]).json()["orgs"]
+    assert len(orgs) == before + 1
+    # the new org works as a tenant context (create a shop in it)
+    h2 = {"Authorization": tenant["headers"]["Authorization"], "X-Org-Id": r.json()["id"]}
+    assert client.post("/api/shops", json={"name": "Shop 2"}, headers=h2).status_code == 200
