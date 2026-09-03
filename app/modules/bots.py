@@ -123,24 +123,27 @@ def test_bot(bot_id: str, body: TestBody, ctx: OrgContext = Depends(get_org_cont
     if not body.text.strip():
         raise bad_request("nhập câu hỏi để thử")
     with tenant_tx(ctx.org_id) as conn:
-        b = conn.execute("SELECT shop_id, persona FROM bot WHERE id=%s", (bot_id,)).fetchone()
+        b = conn.execute("SELECT shop_id, persona, config FROM bot WHERE id=%s", (bot_id,)).fetchone()
         if not b:
             raise not_found("bot not found")
         shop_id = str(b["shop_id"]); persona = b["persona"] or ""
+        bot_cfg = b["config"] or {}
         shop = conn.execute("SELECT name FROM shop WHERE id=%s", (shop_id,)).fetchone()
         shop_name = shop["name"] if shop else "cửa hàng"
+    top_k = max(1, min(8, int(bot_cfg.get("rag_top_k") or 3)))
     qvec = get_embedder().embed_one(body.text)
     context = []
     with tenant_tx(ctx.org_id) as conn:
-        for p in search_products(conn, shop_id, qvec, query_text=body.text, k=3, bot_id=bot_id):
+        for p in search_products(conn, shop_id, qvec, query_text=body.text, k=top_k, bot_id=bot_id):
             if _hit(p):
                 vs = variants_for(conn, p["id"])
                 vt = ("; ".join(f"{v['name']}: còn {v['stock']}" for v in vs)) if vs else ""
                 context.append(ContextBlock(source="product", title=p["name"],
                                             body=f"{p['description'] or ''} {vt}".strip()))
-        for c in search_chunks(conn, shop_id, qvec, query_text=body.text, k=3, bot_id=bot_id):
+        for c in search_chunks(conn, shop_id, qvec, query_text=body.text, k=top_k, bot_id=bot_id):
             if _hit(c):
                 context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
     history = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in (body.history or [])][-8:]
-    res = get_llm(ctx.org_id).answer(question=body.text, context=context, history=history, shop_name=shop_name, persona=persona)
+    res = get_llm(ctx.org_id, model=(bot_cfg.get("model") or None)).answer(
+        question=body.text, context=context, history=history, shop_name=shop_name, persona=persona)
     return {"reply": res.text, "model": res.model, "retrieved": len(context)}

@@ -115,20 +115,21 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
             conn.execute("UPDATE conversation SET status='needs_human', last_at=now() WHERE id=%s", (conv_id,))
         return {"conversation_id": conv_id, "reply": reply, "status": "needs_human", "quota_exceeded": True}
 
-    # 3) retrieve tenant-scoped context
+    # 3) retrieve tenant-scoped context (per-bot RAG top_k, default 3, clamped 1..8)
+    top_k = max(1, min(8, int(bot_cfg.get("rag_top_k") or 3)))
     embedder = get_embedder()
     qvec = embedder.embed_one(text)
     context: List[ContextBlock] = []
     with tenant_tx(org_id) as conn:
-        for p in search_products(conn, shop_id, qvec, query_text=text, k=3, bot_id=bot_id):
+        for p in search_products(conn, shop_id, qvec, query_text=text, k=top_k, bot_id=bot_id):
             if _relevant(p):
                 context.append(_product_block(conn, p))
-        for c in search_chunks(conn, shop_id, qvec, query_text=text, k=3, bot_id=bot_id):
+        for c in search_chunks(conn, shop_id, qvec, query_text=text, k=top_k, bot_id=bot_id):
             if _relevant(c):
                 context.append(ContextBlock(source="knowledge", title=c["title"], body=c["content"]))
 
-    # 4) LLM answer
-    llm = get_llm(org_id)
+    # 4) LLM answer (per-bot model override if set)
+    llm = get_llm(org_id, model=(bot_cfg.get("model") or None))
     res = llm.answer(question=text, context=context, history=history, shop_name=shop_name, persona=persona)
     latency_ms = int((time.time() - started) * 1000)
 

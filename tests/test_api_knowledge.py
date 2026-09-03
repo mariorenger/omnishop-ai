@@ -35,6 +35,31 @@ def test_upload_ingest_view_delete(client, tenant):
 
 
 @requires_db
+def test_document_deactivate_excludes_from_retrieval(client, tenant):
+    h, shop = tenant["headers"], tenant["shop_id"]
+    r = client.post("/api/knowledge/documents", json={"shop_id": shop, "title": "Giờ mở cửa",
+                    "text": "Cửa hàng mở cửa từ 8 giờ sáng đến 10 giờ tối mỗi ngày."}, headers=h)
+    doc_id = r.json()["id"]
+    drain_jobs()
+
+    q = {"shop_id": shop, "query": "cửa hàng mở cửa mấy giờ", "top_k": 5}
+    titles = [c["title"] for c in client.post("/api/rag/query", json=q, headers=h).json()["chunks"]]
+    assert any("Giờ mở cửa" in t for t in titles), "active doc should be retrievable"
+
+    # deactivate -> excluded from retrieval but still listed
+    assert client.put(f"/api/knowledge/documents/{doc_id}/active", json={"active": False}, headers=h).json()["active"] is False
+    row = next(d for d in client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json() if d["id"] == doc_id)
+    assert row["active"] is False
+    titles2 = [c["title"] for c in client.post("/api/rag/query", json=q, headers=h).json()["chunks"]]
+    assert all("Giờ mở cửa" not in t for t in titles2), "inactive doc must not be retrieved"
+
+    # reactivate -> retrievable again
+    client.put(f"/api/knowledge/documents/{doc_id}/active", json={"active": True}, headers=h)
+    titles3 = [c["title"] for c in client.post("/api/rag/query", json=q, headers=h).json()["chunks"]]
+    assert any("Giờ mở cửa" in t for t in titles3)
+
+
+@requires_db
 def test_knowledge_base_rename(client, tenant):
     h, shop = tenant["headers"], tenant["shop_id"]
     client.get(f"/api/knowledge/kb?shop_id={shop}", headers=h)   # ensure exists

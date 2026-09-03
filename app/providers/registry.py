@@ -154,9 +154,14 @@ def _sig(c: dict) -> tuple:
             tuple(sorted((c.get("extra") or {}).items())))
 
 
-def get_llm(org_id: Optional[str] = None):
+def get_llm(org_id: Optional[str] = None, model: Optional[str] = None):
+    """Resolve the LLM for an org. A non-empty `model` overrides the resolved
+    model (used for per-bot model selection) while keeping the same provider,
+    endpoint and credentials."""
     from .llm import build_llm
     cfg = resolve_llm_config(org_id)
+    if model:
+        cfg = dict(cfg, model=model)
     key = _sig(cfg)
     if key not in _llm_cache:
         _llm_cache[key] = build_llm(cfg)

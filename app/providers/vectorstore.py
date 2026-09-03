@@ -46,7 +46,7 @@ def search_chunks(conn: psycopg.Connection, shop_id: str, query_vec: List[float]
             FROM chunk c
             JOIN knowledge_base kb ON kb.id = c.knowledge_base_id
             JOIN document d ON d.id = c.document_id
-            WHERE kb.shop_id = %s AND c.embedding IS NOT NULL {bot_clause}
+            WHERE kb.shop_id = %s AND c.embedding IS NOT NULL AND d.active {bot_clause}
             ORDER BY c.embedding <=> %s::vector LIMIT %s""",
         tuple(vp),
     ).fetchall()
@@ -64,7 +64,7 @@ def search_chunks(conn: psycopg.Connection, shop_id: str, query_vec: List[float]
                 FROM chunk c
                 JOIN knowledge_base kb ON kb.id = c.knowledge_base_id
                 JOIN document d ON d.id = c.document_id
-                WHERE kb.shop_id = %s AND c.embedding IS NOT NULL {bot_clause}
+                WHERE kb.shop_id = %s AND c.embedding IS NOT NULL AND d.active {bot_clause}
                   AND word_similarity(%s, c.content) > 0.1
                 ORDER BY word_similarity(%s, c.content) DESC LIMIT %s""",
             tuple(kp),

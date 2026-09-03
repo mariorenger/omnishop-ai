@@ -96,14 +96,14 @@ def store_document(org_id: str, shop_id: str, title: str, source: Optional[str],
 def list_documents(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         rows = conn.execute(
-            """SELECT d.id, d.title, d.status, d.source, d.error, d.char_count, d.mime, d.created_at,
+            """SELECT d.id, d.title, d.status, d.source, d.error, d.char_count, d.mime, d.active, d.created_at,
                       (SELECT count(*) FROM chunk c WHERE c.document_id = d.id) AS chunks
                FROM document d JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
                WHERE kb.shop_id = %s ORDER BY d.created_at DESC""",
             (shop_id,),
         ).fetchall()
     return [{"id": str(r["id"]), "title": r["title"], "status": r["status"], "source": r["source"],
-             "error": r["error"], "char_count": r["char_count"], "mime": r["mime"],
+             "error": r["error"], "char_count": r["char_count"], "mime": r["mime"], "active": bool(r["active"]),
              "chunks": int(r["chunks"]), "created_at": r["created_at"].isoformat()} for r in rows]
 
 
@@ -111,7 +111,7 @@ def list_documents(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
 def get_document(doc_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         r = conn.execute(
-            "SELECT id, title, status, source, error, char_count, mime, created_at FROM document WHERE id=%s",
+            "SELECT id, title, status, source, error, char_count, mime, active, created_at FROM document WHERE id=%s",
             (doc_id,),
         ).fetchone()
         if not r:
@@ -121,9 +121,25 @@ def get_document(doc_id: str, ctx: OrgContext = Depends(get_org_context)):
         ).fetchall()
     text = "\n\n".join(p["content"] for p in parts)
     return {"id": str(r["id"]), "title": r["title"], "status": r["status"], "source": r["source"],
-            "error": r["error"], "char_count": r["char_count"], "mime": r["mime"],
+            "error": r["error"], "char_count": r["char_count"], "mime": r["mime"], "active": bool(r["active"]),
             "chunks": len(parts), "created_at": r["created_at"].isoformat(),
             "text": text[:200_000]}
+
+
+class ActiveBody(BaseModel):
+    active: bool
+
+
+@router.put("/documents/{doc_id}/active")
+def set_document_active(doc_id: str, body: ActiveBody, ctx: OrgContext = Depends(require_role("admin"))):
+    """Enable/disable a document for retrieval without deleting it."""
+    with tenant_tx(ctx.org_id) as conn:
+        if not conn.execute("SELECT 1 FROM document WHERE id=%s", (doc_id,)).fetchone():
+            raise not_found("document not found")
+        conn.execute("UPDATE document SET active=%s WHERE id=%s", (body.active, doc_id))
+    audit.record("knowledge.active", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=doc_id, detail={"active": body.active})
+    return {"ok": True, "active": body.active}
 
 
 @router.delete("/documents/{doc_id}")

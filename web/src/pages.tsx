@@ -121,6 +121,17 @@ export function Products({ shopId }: { shopId: string }) {
   );
 }
 
+// A small on/off switch used for enabling/disabling knowledge documents.
+function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button type="button" disabled={disabled} onClick={() => onChange(!on)}
+      title={on ? "Đang dùng cho AI — bấm để tắt" : "Đã tắt — bấm để dùng cho AI"}
+      className={"relative inline-flex h-5 w-9 items-center rounded-full transition shrink-0 " + (on ? "bg-accent" : "bg-line") + (disabled ? " opacity-50" : "")}>
+      <span className={"inline-block h-4 w-4 transform rounded-full bg-white transition " + (on ? "translate-x-4" : "translate-x-0.5")} />
+    </button>
+  );
+}
+
 // ============================================================ Knowledge
 export function Knowledge({ shopId }: { shopId: string }) {
   const [docs, setDocs] = useState<any[] | null>(null);
@@ -140,6 +151,7 @@ export function Knowledge({ shopId }: { shopId: string }) {
   const saveKb = async () => { try { await api.put("/api/knowledge/kb", { shop_id: shopId, name: kbName }); setKb({ ...kb, name: kbName }); setEditKb(false); } catch (e: any) { setErr(e.message); } };
   const del = async (id: string) => { if (!confirm("Xoá tài liệu này?")) return; try { await api.del(`/api/knowledge/documents/${id}`); setOpen(null); load(); } catch (e: any) { setErr(e.message); } };
   const reprocess = async (id: string) => { try { await api.post(`/api/knowledge/documents/${id}/reprocess`, {}); setOpen(null); load(); } catch (e: any) { setErr(e.message); } };
+  const setActive = async (id: string, active: boolean) => { try { await api.put(`/api/knowledge/documents/${id}/active`, { active }); load(); } catch (e: any) { setErr(e.message); } };
   return (
     <div className="space-y-4">
       <Card>
@@ -166,35 +178,38 @@ export function Knowledge({ shopId }: { shopId: string }) {
       <Card>
         <CardTitle sub="Bấm một tài liệu để xem văn bản đã trích xuất, trạng thái xử lý và thao tác.">Tài liệu đã tải</CardTitle>
         {!docs ? <Spinner /> : docs.length === 0 ? <Empty>Chưa có tài liệu nào.</Empty> :
-          <Table head={["Tiêu đề", "Nguồn", "Trạng thái", "Ký tự", "Số đoạn", ""]}>
-            {docs.map((d) => <tr key={d.id} onClick={() => setOpen(d.id)} className="cursor-pointer hover:bg-card2/60 transition">
+          <Table head={["Tiêu đề", "Nguồn", "Trạng thái", "Ký tự", "Số đoạn", "Dùng cho AI", ""]}>
+            {docs.map((d) => <tr key={d.id} onClick={() => setOpen(d.id)} className={"cursor-pointer hover:bg-card2/60 transition " + (d.active === false ? "opacity-55" : "")}>
               <Td className="font-semibold">{d.title}</Td>
               <Td className="text-muted">{d.source || "Nhập tay"}</Td>
               <Td><Badge kind={d.status}>{docStatus(d.status)}</Badge>{d.status === "error" && d.error ? <span className="block text-[11px] text-bad mt-0.5">{d.error}</span> : null}</Td>
               <Td>{d.char_count ? fmt(d.char_count) : "—"}</Td>
               <Td>{d.chunks}</Td>
+              <Td onClick={(e) => e.stopPropagation()}><Toggle on={d.active !== false} onChange={(v) => setActive(d.id, v)} /></Td>
               <Td className="text-right text-muted"><ChevronRight className="w-4 h-4 inline" /></Td>
             </tr>)}
           </Table>}
       </Card>
-      <DocDetail id={open} onClose={() => setOpen(null)} onDelete={del} onReprocess={reprocess} />
+      <DocDetail id={open} onClose={() => setOpen(null)} onDelete={del} onReprocess={reprocess} onSetActive={setActive} />
     </div>
   );
 }
 const docStatus = (s: string) => ({ queued: "Trong hàng đợi", pending: "Đang chờ", processing: "Đang xử lý", ready: "Sẵn sàng", error: "Lỗi" } as any)[s] || s;
 
-function DocDetail({ id, onClose, onDelete, onReprocess }: { id: string | null; onClose: () => void; onDelete: (id: string) => void; onReprocess: (id: string) => void }) {
+function DocDetail({ id, onClose, onDelete, onReprocess, onSetActive }: { id: string | null; onClose: () => void; onDelete: (id: string) => void; onReprocess: (id: string) => void; onSetActive: (id: string, active: boolean) => void }) {
   const [d, setD] = useState<any>(null);
   useEffect(() => { setD(null); if (id) api.get(`/api/knowledge/documents/${id}`).then(setD).catch(() => {}); }, [id]);
+  const toggle = async () => { if (!d) return; await onSetActive(d.id, d.active === false); setD({ ...d, active: !(d.active !== false) }); };
   return (
     <Modal open={!!id} onClose={onClose} size="lg" title={d?.title || "Tài liệu"} sub={d ? `${d.source || "Nhập tay"} · ${d.mime || ""}` : ""}
       footer={d ? <><Button variant="sec" onClick={() => onReprocess(d.id)}>Xử lý lại</Button><Button variant="danger" onClick={() => onDelete(d.id)}>Xoá</Button></> : undefined}>
       {!d ? <Spinner /> : (
         <div>
-          <div className="flex flex-wrap gap-4 text-[13px] mb-3">
+          <div className="flex flex-wrap items-center gap-4 text-[13px] mb-3">
             <span className="flex items-center gap-1.5"><Badge kind={d.status}>{docStatus(d.status)}</Badge></span>
             <span className="text-muted font-normal">Ký tự: <b className="text-fg">{d.char_count ? fmt(d.char_count) : "—"}</b></span>
             <span className="text-muted font-normal">Số đoạn: <b className="text-fg">{d.chunks}</b></span>
+            <span className="flex items-center gap-2 font-normal"><Toggle on={d.active !== false} onChange={toggle} /><span className="text-muted">{d.active === false ? "Đã tắt — AI không dùng tài liệu này" : "Đang dùng cho AI"}</span></span>
           </div>
           {d.error && <Msg type="err">{d.error}</Msg>}
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1.5">Văn bản đã trích xuất</div>
@@ -208,42 +223,59 @@ function DocDetail({ id, onClose, onDelete, onReprocess }: { id: string | null; 
 // ============================================================ Channels
 const channelStatus = (s: string) => ({ connected: "Đang hoạt động", degraded: "Cần kiểm tra", pending: "Chờ kích hoạt", disconnected: "Đã ngắt" } as any)[s] || s;
 
+const CHANNEL_ICON: Record<string, string> = { website: "🌐", messenger: "💬", instagram: "📸", telegram: "✈️", zalo: "🇻🇳", whatsapp: "🟢", tiktok: "🎵", shopee: "🛒" };
+const VERIFIABLE = ["messenger", "instagram", "telegram", "zalo", "whatsapp"];
+
 export function Channels({ shopId }: { shopId: string }) {
   const [items, setItems] = useState<any[] | null>(null); const [kinds, setKinds] = useState<any[]>([]);
-  const [err, setErr] = useState(""); const [open, setOpen] = useState(false);
+  const [err, setErr] = useState(""); const [open, setOpen] = useState(false); const [msg, setMsg] = useState("");
   const [kind, setKind] = useState("website"); const [name, setName] = useState(""); const [greeting, setGreeting] = useState("Xin chào! Mình có thể giúp gì cho bạn?");
   const [creds, setCreds] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false); const [ferr, setFerr] = useState("");
-  const [editing, setEditing] = useState<any>(null); const [bots, setBots] = useState<any[]>([]); const [botId, setBotId] = useState("");
+  const [editing, setEditing] = useState<any>(null); const [bots, setBots] = useState<any[]>([]); const [botId, setBotId] = useState(""); const [verifying, setVerifying] = useState("");
   const load = () => { api.get(`/api/channels?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get("/api/channels/kinds").then(setKinds).catch(() => {}); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
   useEffect(() => { setItems(null); load(); }, [shopId]);
   const spec = kinds.find((k) => k.kind === kind);
+  const kindLabel = (k: string) => kinds.find((x) => x.kind === k)?.label || k;
   const connect = async () => {
     setBusy(true); setFerr("");
-    try { await api.post("/api/channels", { shop_id: shopId, kind, name, greeting, credentials: creds, bot_id: botId || null }); setOpen(false); setCreds({}); setName(""); setBotId(""); load(); }
+    try {
+      const r = await api.post("/api/channels", { shop_id: shopId, kind, name, greeting, credentials: creds, bot_id: botId || null });
+      setOpen(false); setCreds({}); setName(""); setBotId(""); load();
+      const s = channelStatus(r.status);
+      setMsg(r.status === "connected" ? `Đã kết nối ${kindLabel(kind)} — ${s}.${r.note ? " " + r.note : ""}`
+        : r.status === "pending" ? `Đã lưu ${kindLabel(kind)} — ${s} (chờ phê duyệt đối tác).`
+        : `Đã lưu ${kindLabel(kind)} nhưng ${s.toLowerCase()}: ${r.note || "kiểm tra lại thông tin đăng nhập."}`);
+    }
     catch (e: any) { setFerr(e.message); } finally { setBusy(false); }
+  };
+  const verify = async (ch: any) => {
+    setVerifying(ch.id); setMsg("");
+    try { const r = await api.post(`/api/channels/${ch.id}/verify`, {}); load(); setMsg(`${ch.name}: ${r.status === "connected" ? "kết nối thông" : "chưa thông"} — ${r.note || channelStatus(r.status)}`); }
+    catch (e: any) { setErr(e.message); } finally { setVerifying(""); }
   };
   return (
     <div className="space-y-4">
       <Card>
-        <CardTitle sub="Kết nối các kênh bán hàng để trợ lý AI trả lời khách trên mọi nơi."
+        <CardTitle sub="Kết nối các kênh bán hàng để trợ lý AI trả lời khách trên mọi nơi. Webhook nhận tin (Telegram, Messenger, Zalo…) cần địa chỉ HTTPS công khai."
           right={<div className="flex gap-2">
             <Button size="sm" variant="sec" onClick={async () => { try { const r = await api.get(`/api/channels/oauth/meta/start?shop_id=${shopId}`); location.href = r.url; } catch (e: any) { alert(e.message); } }}>Kết nối Facebook</Button>
             <Button size="sm" onClick={() => setOpen(true)}><Plug className="w-4 h-4" /> Kết nối kênh</Button>
           </div>}>Kênh kết nối</CardTitle>
-        <Msg type="err">{err}</Msg>
+        <Msg type="err">{err}</Msg><Msg type="ok">{msg}</Msg>
         {!items ? <Spinner /> : items.length === 0 ? <Empty>Chưa có kênh nào. Bấm Kết nối kênh để bắt đầu.</Empty> :
           <div className="space-y-3">
             {items.map((ch) => {
               const url = ch.public_key ? `${location.origin}/widget.html?key=${ch.public_key}` : "";
-              const isMeta = ch.kind === "messenger" || ch.kind === "instagram";
+              const canVerify = VERIFIABLE.includes(ch.kind);
               return (
                 <div key={ch.id} className="border border-line rounded-xl p-4">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-semibold border border-line rounded-full px-2 py-0.5 text-muted inline-flex items-center gap-1">{CHANNEL_ICON[ch.kind] || "🔌"} {kindLabel(ch.kind)}</span>
                     <span className="font-semibold">{ch.name}</span>
                     <Badge kind={ch.status}>{channelStatus(ch.status)}</Badge>
                     {ch.bot_name && <span className="text-xs text-muted inline-flex items-center gap-1"><Bot className="w-3.5 h-3.5" />{ch.bot_name}</span>}
                     <span className="flex-1" />
-                    {isMeta && <Button size="sm" variant="ghost" onClick={async () => { await api.post(`/api/channels/${ch.id}/verify`); load(); }}>Kiểm tra</Button>}
+                    {canVerify && <Button size="sm" variant="ghost" loading={verifying === ch.id} onClick={() => verify(ch)}>Kiểm tra kết nối</Button>}
                     {ch.kind !== "website" && <Button size="sm" variant="ghost" onClick={() => setEditing(ch)}>Chỉnh sửa</Button>}
                     <Button size="sm" variant="danger" onClick={async () => { if (confirm("Ngắt kết nối kênh này?")) { await api.del(`/api/channels/${ch.id}`); load(); } }}>Ngắt kết nối</Button>
                   </div>
@@ -268,6 +300,7 @@ export function Channels({ shopId }: { shopId: string }) {
           {kinds.map((k) => <option key={k.kind} value={k.kind} disabled={!k.allowed}>{k.label}{k.allowed ? "" : " — không có trong gói"}</option>)}
         </Select></Field>
         {spec && !spec.live && <p className="text-[12px] text-warn mt-2 font-normal">Kênh này cần phê duyệt đối tác trước khi hoạt động. Bạn vẫn lưu được thông tin để kích hoạt sau.</p>}
+        {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal">🔒 Để nhận tin từ kênh này, hệ thống cần chạy sau một địa chỉ <b>HTTPS công khai</b> (webhook). Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</p>}
         {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal leading-relaxed">{spec.note}</p>}
         {spec?.docs && <a href={spec.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-1.5">Xem tài liệu tích hợp ↗</a>}
         <div className="mt-3"><Field label="Trợ lý xử lý" info="Chọn trợ lý AI sẽ trả lời trên kênh này. Để trống sẽ dùng trợ lý mặc định.">
@@ -939,6 +972,12 @@ export function Bots({ shopId, role }: { shopId: string; role: string }) {
 function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shopId: string; canManage: boolean; onBack: () => void; onSaved: (b: any) => void }) {
   const [f, setF] = useState<any>({ config: {}, ...bot }); const [busy, setBusy] = useState(false); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
   const isNew = !f.id; const fileRef = useRef<HTMLInputElement>(null);
+  const [llmInfo, setLlmInfo] = useState<any>(null); const [models, setModels] = useState<string[]>([]); const [loadingModels, setLoadingModels] = useState(false);
+  useEffect(() => { api.get("/api/settings/llm").then(setLlmInfo).catch(() => {}); }, []);
+  const loadModels = async () => {
+    if (!llmInfo?.effective) return; setLoadingModels(true);
+    try { const r = await api.post("/api/settings/llm/models", { provider: llmInfo.effective.provider, base_url: llmInfo.effective.base_url || "" }); setModels(r.models || []); } catch { /* ignore */ } finally { setLoadingModels(false); }
+  };
   const cfg = f.config || {}; const bh = cfg.business_hours || {};
   const setCfg = (patch: any) => setF({ ...f, config: { ...cfg, ...patch } });
   const setBH = (patch: any) => setCfg({ business_hours: { ...bh, ...patch } });
@@ -997,6 +1036,21 @@ function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shop
               <Field label="Đến giờ"><Input type="number" value={bh.end ?? 22} onChange={(e) => setBH({ end: parseInt(e.target.value) })} /></Field>
               <Field label="Tin ngoài giờ"><Input value={bh.off_message || ""} onChange={(e) => setBH({ off_message: e.target.value })} placeholder="Ngoài giờ làm việc…" /></Field>
             </div>}
+          </div>
+          <div className="border-t border-line/60 mt-4 pt-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-2">Cấu hình nâng cao</div>
+            <Field label="Mô hình AI riêng cho trợ lý này" info="Để trống sẽ dùng mô hình mặc định của tổ chức/hệ thống. Chỉ đổi tên model — vẫn dùng chung nhà cung cấp và khoá AI đã cấu hình ở Cài đặt.">
+              <div className="flex gap-2">
+                <Input value={cfg.model || ""} onChange={(e) => setCfg({ model: e.target.value })} placeholder={llmInfo?.effective?.model ? `Mặc định: ${llmInfo.effective.model}` : "Mặc định của hệ thống"} />
+                <Button variant="sec" size="sm" loading={loadingModels} onClick={loadModels}><RefreshCw className="w-3.5 h-3.5" /></Button>
+              </div>
+            </Field>
+            {models.length > 0 && <Select className="mt-2" value="" onChange={(e) => e.target.value && setCfg({ model: e.target.value })}><option value="">Chọn từ {models.length} model có sẵn</option>{models.map((m) => <option key={m} value={m}>{m}</option>)}</Select>}
+            <div className="grid sm:grid-cols-2 gap-3 mt-3">
+              <Field label="Số đoạn ngữ cảnh RAG (top-k)" info="Số sản phẩm/tài liệu liên quan nhất được đưa vào ngữ cảnh mỗi câu hỏi. Cao hơn = nhiều thông tin hơn nhưng tốn token hơn. Mặc định 3.">
+                <Input type="number" min={1} max={8} value={cfg.rag_top_k ?? 3} onChange={(e) => setCfg({ rag_top_k: Math.max(1, Math.min(8, parseInt(e.target.value) || 3)) })} />
+              </Field>
+            </div>
           </div>
           {canManage && <div className="mt-4 flex gap-2"><Button loading={busy} onClick={save}>Lưu</Button>
             {!isNew && <Button variant="danger" onClick={async () => { if (confirm("Xoá trợ lý này?")) { try { await api.del(`/api/bots/${f.id}`); onBack(); } catch (e: any) { setErr(e.message); } } }}>Xoá</Button>}</div>}
