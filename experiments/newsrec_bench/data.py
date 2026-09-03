@@ -189,11 +189,19 @@ class MindData:
         vocab_size = 1 + n_topics * words_per_topic  # +1 for PAD
 
         # --- latent structure -------------------------------------------------
-        news_topic = rng.dirichlet(np.ones(n_topics) * 0.3, size=n_news)  # [N,T]
+        # Each news has ONE clear primary topic (its title words + category + LLM
+        # embedding all signal it), so content models have a strong, recoverable
+        # signal. Users have a PEAKED preference over topics.
+        prim = rng.integers(0, n_topics, size=n_news)            # primary topic id
+        news_topic = np.full((n_news, n_topics), 0.1 / n_topics)  # small background
+        news_topic[np.arange(n_news), prim] += 0.9
+        news_topic /= news_topic.sum(axis=1, keepdims=True)
         news_topic[PAD] = 0
-        news_cat = news_topic.argmax(1).astype(np.int64)  # category ~ dominant topic
+        news_cat = prim.astype(np.int64)                         # category == topic
         news_cat[PAD] = 0
-        user_pref = rng.dirichlet(np.ones(n_topics) * 0.3, size=n_users)  # [U,T]
+        logits = rng.normal(size=(n_users, n_topics)) * 4.0      # peaked user prefs
+        user_pref = np.exp(logits - logits.max(1, keepdims=True))
+        user_pref /= user_pref.sum(axis=1, keepdims=True)
         # collaborative low-rank factors (signal NOT explainable from text)
         user_fac = rng.normal(scale=1.0, size=(n_users, collab_dim))
         news_fac = rng.normal(scale=1.0, size=(n_news, collab_dim))
@@ -210,28 +218,31 @@ class MindData:
         llm_emb = news_topic @ proj + rng.normal(scale=0.1, size=(n_news, llm_dim))
         llm_emb = (llm_emb / (np.linalg.norm(llm_emb, axis=1, keepdims=True) + 1e-8)).astype(np.float32)
 
-        def affinity(u, n):
-            return 1.6 * float(user_pref[u] @ news_topic[n]) + 0.9 * float(
-                user_fac[u] @ news_fac[n]
-            ) / np.sqrt(collab_dim)
+        # Clicks are driven mainly by TOPIC: a user clicks news in their few liked
+        # topics with high probability and off-topic news rarely — a strong,
+        # content-learnable ranking signal. A small collaborative bump (from the
+        # low-rank factors) leaves a little extra structure for the graph model.
+        liked = [set(np.argsort(user_pref[u])[-2:].tolist()) for u in range(n_users)]
 
-        # --- per-user click history -------------------------------------------
+        def click_prob(u, n):
+            base = 0.85 if prim[n] in liked[u] else 0.06
+            collab = float(user_fac[u] @ news_fac[n]) / np.sqrt(collab_dim)
+            return min(0.95, max(0.02, base + 0.08 * collab))
+
+        # --- per-user click history: news from the user's liked topics --------
         hist_by_user: list[list[int]] = [[] for _ in range(n_users)]
         edges: list[tuple[int, int]] = []
         for u in range(n_users):
-            cand = rng.integers(1, n_news, size=60)
-            sc = np.array([affinity(u, int(n)) for n in cand])
-            clicked = cand[sc > np.quantile(sc, 0.6)][:max_hist]
-            hist_by_user[u] = list(map(int, clicked))
-            edges += [(u, int(n)) for n in clicked]
+            cand = rng.integers(1, n_news, size=120)
+            keep = [int(n) for n in cand if prim[n] in liked[u]][:max_hist]
+            hist_by_user[u] = keep
+            edges += [(u, n) for n in keep]
 
         def make_impression(u, rng):
             hist = hist_by_user[u]
             pool = rng.integers(1, n_news, size=cands_per_impr * 3)
             pool = [int(n) for n in pool if n not in hist]
-            sc = np.array([affinity(u, n) for n in pool])
-            p = 1.0 / (1.0 + np.exp(-(sc - np.median(sc))))
-            clicks = rng.random(len(pool)) < (0.5 * p)
+            clicks = np.array([rng.random() < click_prob(u, n) for n in pool])
             return hist, pool, clicks
 
         # --- train samples (1 pos + n_neg, softmax-over-candidates style) ------

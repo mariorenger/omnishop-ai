@@ -30,7 +30,7 @@ import torch.nn.functional as F
 
 import metrics
 from data import MindData, iter_batches
-from models import build_model
+from models import BASE_MODELS, CORE_MODELS, IMPROVED_MODELS, REGISTRY, build_model
 
 
 @dataclass
@@ -39,6 +39,11 @@ class Cfg:
     dropout: float = 0.2
     heads: int = 2
     gcn_layers: int = 2
+    news_encoder: str = "learned"   # "learned" | "pretrained" (BGE/Jina) — supermodel
+    latent: int = 16          # MLA latent dim (nrms_mla)
+    n_interest: int = 4       # number of interests (nrms_multi)
+    cl_tau: float = 0.1       # contrastive temperature (nrms_cl, supermodel)
+    cl_weight: float = 0.1    # contrastive aux-loss weight
     lr: float = 1e-3
     weight_decay: float = 1e-5
     epochs: int = 3
@@ -60,10 +65,12 @@ def train_model(model, data, cfg, device):
             logits = model.score(batch)                       # [B, C], pos at 0
             target = torch.zeros(logits.size(0), dtype=torch.long, device=device)
             loss = F.cross_entropy(logits, target)
+            if hasattr(model, "extra_loss"):                  # e.g. contrastive aux
+                loss = loss + model.extra_loss(batch)
             opt.zero_grad()
             loss.backward()
             opt.step()
-            total += float(loss)
+            total += loss.item()
             nb += 1
         per_epoch.append(time.perf_counter() - e0)
     return time.perf_counter() - t0, float(np.mean(per_epoch)), total / max(nb, 1)
@@ -116,15 +123,22 @@ def main():
     ap.add_argument("--source", choices=["synthetic", "mind"], default="synthetic")
     ap.add_argument("--mind-train", default=None)
     ap.add_argument("--mind-dev", default=None)
-    ap.add_argument("--models", nargs="+",
-                    default=["nrms", "naml", "fastformer", "lightgcn", "llmenc", "hybridopt"])
+    ap.add_argument("--models", nargs="+", default=["core"],
+                    help="model names, or the shortcuts: core / all / base / improved")
+    ap.add_argument("--news", choices=["learned", "pretrained"], default="learned",
+                    help="supermodel news encoder: learned words, or frozen BGE/Jina embeddings")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--dim", type=int, default=64)
     ap.add_argument("--heads", type=int, default=2)
     ap.add_argument("--gcn-layers", type=int, default=2)
+    ap.add_argument("--latent", type=int, default=16)
+    ap.add_argument("--n-interest", type=int, default=4)
+    ap.add_argument("--cl-tau", type=float, default=0.1)
+    ap.add_argument("--cl-weight", type=float, default=0.1)
     ap.add_argument("--dropout", type=float, default=0.2)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--batch-size", type=int, default=64)
+    ap.add_argument("--eval-batch", type=int, default=128)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--threads", type=int, default=0, help="torch CPU threads (0=default)")
@@ -156,11 +170,21 @@ def main():
           f"cats={data.n_cat}  train={len(data.train)}  dev={len(data.dev)}  device={device}")
 
     cfg = Cfg(dim=args.dim, dropout=args.dropout, heads=args.heads,
-              gcn_layers=args.gcn_layers, lr=args.lr, epochs=args.epochs,
-              batch_size=args.batch_size)
+              gcn_layers=args.gcn_layers, news_encoder=args.news,
+              latent=args.latent, n_interest=args.n_interest,
+              cl_tau=args.cl_tau, cl_weight=args.cl_weight,
+              lr=args.lr, epochs=args.epochs, batch_size=args.batch_size,
+              eval_batch_size=args.eval_batch)
+
+    # expand shortcuts: core / all / base / improved
+    expand = {"core": CORE_MODELS, "all": list(REGISTRY),
+              "base": BASE_MODELS, "improved": IMPROVED_MODELS}
+    model_names = []
+    for m in args.models:
+        model_names.extend(expand.get(m, [m]))
 
     rows = []
-    for name in args.models:
+    for name in model_names:
         torch.manual_seed(args.seed)  # same init budget per model
         model = build_model(name, data, cfg)
         train_s, s_epoch, last_loss = train_model(model, data, cfg, device)
