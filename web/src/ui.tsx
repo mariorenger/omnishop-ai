@@ -5,7 +5,7 @@ export const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).jo
 
 export function Button({ variant = "primary", size = "md", className, children, loading, ...p }:
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "sec" | "ghost" | "danger"; size?: "sm" | "md"; loading?: boolean }) {
-  const base = "inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none";
+  const base = "inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
   const sizes = { sm: "text-xs px-2.5 py-1.5", md: "text-sm px-3.5 py-2" }[size];
   const variants = {
     primary: "text-[#0b0e1a] font-bold bg-pastel hover:brightness-105 shadow-[0_6px_24px_rgba(129,140,248,.35)]",
@@ -48,10 +48,10 @@ export function Field({ label, children, info }: { label: string; children: Reac
   );
 }
 
-const inputCls = "w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition";
+const inputCls = "w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm text-fg outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-60 disabled:cursor-not-allowed";
 export const Input = (p: React.InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cx(inputCls, p.className)} />;
 export const Textarea = (p: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cx(inputCls, "resize-y min-h-[80px]", p.className)} />;
-export const Select = (p: React.SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cx(inputCls, "appearance-none", p.className)} />;
+export const Select = (p: React.SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cx(inputCls, "appearance-none ui-select cursor-pointer", p.className)} />;
 
 export function Badge({ kind = "default", children }: { kind?: string; children: React.ReactNode }) {
   const map: Record<string, string> = {
