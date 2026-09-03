@@ -12,9 +12,8 @@ type Org = { id: string; name: string; role: string };
 
 const GROUPS: { section: string | null; items: [string, any, string][] }[] = [
   { section: null, items: [["overview", LayoutDashboard, "Tổng quan"]] },
+  { section: "Trợ lý AI", items: [["bots", Bot, "Trợ lý"], ["knowledge", BookOpen, "Kiến thức"], ["products", Package, "Sản phẩm"], ["channels", Plug, "Kênh kết nối"]] },
   { section: "Vận hành", items: [["inbox", MessagesSquare, "Hộp thư"]] },
-  { section: "Trợ lý AI", items: [["bots", Bot, "Trợ lý"], ["knowledge", BookOpen, "Kiến thức"], ["channels", Plug, "Kênh kết nối"]] },
-  { section: "Cửa hàng", items: [["products", Package, "Sản phẩm"]] },
   { section: "Quản lý", items: [["members", Users, "Thành viên"], ["billing", CreditCard, "Thanh toán"], ["settings", Cog, "Cài đặt"]] },
   { section: "Hỗ trợ", items: [["help", LifeBuoy, "Hướng dẫn"]] },
 ];
@@ -113,7 +112,7 @@ export default function App() {
         <main className="p-4 md:p-6 w-full max-w-[1680px] mx-auto">
           {needOrg ? <WorkspaceSetup onCreated={boot} isAdmin={isStaff} />
             : needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
-            : tab === "overview" ? <Overview shopId={shop.id} />
+            : tab === "overview" ? <Overview shopId={shop.id} onGoInbox={() => setTab("inbox")} />
             : tab === "inbox" ? <Inbox shopId={shop.id} />
             : tab === "bots" ? <Bots shopId={shop.id} role={role} />
             : tab === "knowledge" ? <Knowledge shopId={shop.id} />

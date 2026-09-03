@@ -8,7 +8,7 @@ import QRCode from "qrcode";
 const fmt = (n: number) => n.toLocaleString("vi-VN");
 
 // ============================================================ Overview
-export function Overview({ shopId }: { shopId: string }) {
+export function Overview({ shopId, onGoInbox }: { shopId: string; onGoInbox?: () => void }) {
   const [a, setA] = useState<any>(null); const [sub, setSub] = useState<any>(null);
   const [convs, setConvs] = useState<any[]>([]); const [err, setErr] = useState("");
   useEffect(() => {
@@ -49,7 +49,7 @@ export function Overview({ shopId }: { shopId: string }) {
           </div>
         </Card>
         <Card className="lg:col-span-2">
-          <CardTitle sub="Mới nhất" right={<a className="text-accent text-xs font-semibold" href="#">Xem tất cả</a>}>Hội thoại gần đây</CardTitle>
+          <CardTitle sub="Mới nhất" right={onGoInbox ? <button className="text-accent text-xs font-semibold" onClick={onGoInbox}>Xem tất cả</button> : undefined}>Hội thoại gần đây</CardTitle>
           {convs.length === 0 ? <Empty>Chưa có hội thoại nào.</Empty> :
             <Table head={["Khách", "Trạng thái", "Nội dung gần nhất"]}>
               {convs.map((c) => <tr key={c.id}><Td className="font-semibold">{c.customer_ref}</Td><Td><Badge kind={c.status}>{statusLabel(c.status)}</Badge></Td><Td className="text-muted">{(c.last_message || "").slice(0, 60)}</Td></tr>)}
