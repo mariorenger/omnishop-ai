@@ -166,6 +166,13 @@ Xếp theo mức phù hợp cho **nghiên cứu/luận văn** (đã kiểm tra l
 - **RecPrompt**: <https://github.com/Ruixinhua/rec-prompt>
 - **ONCE (GENRE/DIRE)**: <https://github.com/Jyonn/ONCE>
 
+### 0. Benchmark tối giản có sẵn trong repo này — *để chạy so sánh nhanh*
+[`experiments/newsrec_bench/`](../../experiments/newsrec_bench/) — một khung **một-file-mỗi-tầng**
+so **NRMS / NAML / Fastformer** vs **LightGCN (thuần graph)** vs **LLM-encoder** vs **HybridOpt
+(biến thể tự tối ưu)** trên **cùng loss + cùng metric** (AUC/MRR/nDCG **và** tốc độ/#params).
+Chạy ngay trên synthetic (CPU) hoặc cắm thẳng MINDsmall/large. Dùng để lấy trực giác về đánh đổi
+*chất lượng ↔ tốc độ ↔ cold-start* trước khi dựng thí nghiệm đầy đủ bằng NewsRecLib.
+
 > Ghi chú về Fastformer: repo `yusanshi` **không** có Fastformer; NewsRecLib cũng không liệt kê sẵn.
 > Fastformer chính thức: <https://github.com/wuch15/Fastformer> (module attention, cần tự ghép vào
 > news/user encoder). Trong NewsRecLib có thể thay khối attention để tái tạo tinh thần Fastformer.

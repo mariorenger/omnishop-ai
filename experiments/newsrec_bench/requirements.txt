@@ -1,0 +1,6 @@
+# Core (required to run the benchmark)
+torch>=2.0
+numpy>=1.24
+
+# Optional: only for llm_embed.py (precomputing real LLM/ST embeddings on MIND)
+# sentence-transformers>=2.2
