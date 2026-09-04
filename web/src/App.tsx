@@ -63,7 +63,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("omnishop.tab", tab); }, [tab]);
 
   if (!ready) return <div className="h-screen flex items-center justify-center text-muted">…</div>;
-  if (!user) return <Login onAuthed={boot} />;
+  if (!user) return <Login onAuthed={boot} brand={brand} />;
 
   const isStaff = user.platform_role === "admin" || user.platform_role === "manager";
   const groups = isStaff
@@ -177,26 +177,38 @@ function ShopSetup({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function Login({ onAuthed }: { onAuthed: () => void }) {
-  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [orgName, setOrgName] = useState("");
+function Login({ onAuthed, brand }: { onAuthed: () => void; brand?: { app_name: string; logo_url: string | null } }) {
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirm, setConfirm] = useState(""); const [orgName, setOrgName] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [mode, setMode] = useState<"login" | "signup">("login");
   const [google, setGoogle] = useState(false);
+  const appName = brand?.app_name || "OmniShop AI";
+  const Mark = ({ cls }: { cls: string }) => brand?.logo_url ? <img src={brand.logo_url} className={cls + " object-contain"} /> : <Bot className="w-5 h-5 text-[#0b0e1a]" />;
   useEffect(() => { api.get("/api/auth/google/config").then((d) => setGoogle(!!d.enabled)).catch(() => {}); }, []);
   const googleLogin = async () => { try { const d = await api.get("/api/auth/google/start"); if (d.url) location.href = d.url; else setErr(d.error || "Google chưa cấu hình"); } catch (e: any) { setErr(e.message); } };
   const go = async () => {
-    setBusy(true); setErr("");
+    setErr("");
+    if (mode === "signup") {
+      if (password.length < 8) { setErr("Mật khẩu tối thiểu 8 ký tự."); return; }
+      if (password !== confirm) { setErr("Mật khẩu nhập lại không khớp."); return; }
+    }
+    setBusy(true);
     try {
       const path = mode === "login" ? "/api/auth/login" : "/api/auth/signup";
       const body = mode === "login" ? { email, password } : { email, password, org_name: orgName };
       const d = await api.post(path, body); saveAuth({ token: d.token, orgId: d.orgs?.[0]?.id }); onAuthed();
-    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+    } catch (e: any) {
+      const m = String(e.message || "");
+      setErr(mode === "signup" && /already registered|exist/i.test(m)
+        ? "Email này đã có tài khoản. Hãy đăng nhập, hoặc dùng “Tiếp tục với Google” nếu bạn đăng ký bằng Gmail đó."
+        : m);
+    } finally { setBusy(false); }
   };
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       <div className="hidden lg:flex flex-col justify-between p-12 border-r border-line relative overflow-hidden">
         <div className="absolute -top-24 -left-16 w-96 h-96 rounded-full bg-pastel-soft blur-3xl" />
         <div className="absolute bottom-0 right-0 w-80 h-80 rounded-full bg-pastel-soft blur-3xl opacity-70" />
-        <div className="relative flex items-center gap-2 font-extrabold text-xl"><span className="w-9 h-9 rounded-xl bg-pastel flex items-center justify-center shadow-[0_6px_20px_rgba(129,140,248,.45)]"><Bot className="w-5 h-5 text-[#0b0e1a]" /></span> OmniShop AI</div>
+        <div className="relative flex items-center gap-2 font-extrabold text-xl"><span className="w-9 h-9 rounded-xl bg-pastel flex items-center justify-center shadow-[0_6px_20px_rgba(129,140,248,.45)] overflow-hidden"><Mark cls="w-9 h-9" /></span> {appName}</div>
         <div className="relative">
           <h1 className="text-[2.7rem] font-extrabold leading-[1.08] tracking-tight">Nhiều trợ lý AI,<br /><span className="text-gradient">mọi kênh bán hàng</span></h1>
           <p className="text-muted mt-4 max-w-md font-normal">Tạo trợ lý riêng cho từng cửa hàng và từng trang, kết nối vào Website, Facebook, Instagram và hơn thế. Trả lời khách tự động, chuyển nhân viên khi cần.</p>
@@ -205,16 +217,20 @@ function Login({ onAuthed }: { onAuthed: () => void }) {
             <span className="flex items-center gap-2"><Plug className="w-4 h-4 text-accent" /> Đa kênh, đa nhà cung cấp AI</span>
           </div>
         </div>
-        <div className="text-xs text-muted font-normal">© OmniShop AI</div>
+        <div className="text-xs text-muted font-normal">© {appName}</div>
       </div>
       <div className="flex items-center justify-center p-6">
         <Card className="w-full max-w-sm">
-          <div className="text-lg font-extrabold mb-1 lg:hidden flex items-center gap-2"><Bot className="w-5 h-5 text-accent" /> OmniShop AI</div>
+          <div className="text-lg font-extrabold mb-1 lg:hidden flex items-center gap-2"><span className="w-6 h-6 rounded-md bg-pastel flex items-center justify-center overflow-hidden"><Mark cls="w-6 h-6" /></span> {appName}</div>
           <div className="text-[15px] font-bold mb-1">{mode === "login" ? "Đăng nhập" : "Tạo tài khoản"}</div>
           <p className="text-[13px] text-muted mb-4 font-normal">{mode === "login" ? "Chào mừng trở lại." : "Bắt đầu với một workspace mới."}</p>
           <Field label="Email"><Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ban@congty.com" onKeyDown={(e) => e.key === "Enter" && go()} /></Field>
           <div className="mt-3"><Field label="Mật khẩu"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Tối thiểu 8 ký tự" onKeyDown={(e) => e.key === "Enter" && go()} /></Field></div>
-          {mode === "signup" && <div className="mt-3"><Field label="Tên workspace"><Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Cửa hàng của tôi" /></Field></div>}
+          {mode === "signup" && <>
+            <div className="mt-3"><Field label="Nhập lại mật khẩu"><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Gõ lại mật khẩu" onKeyDown={(e) => e.key === "Enter" && go()} />
+              {confirm && password !== confirm && <span className="text-[12px] text-bad font-normal">Mật khẩu nhập lại chưa khớp.</span>}</Field></div>
+            <div className="mt-3"><Field label="Tên workspace"><Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Cửa hàng của tôi" /></Field></div>
+          </>}
           <div className="mt-4"><Button loading={busy} onClick={go} className="w-full">{mode === "login" ? "Đăng nhập" : "Đăng ký"}</Button></div>
           {google && (
             <>
