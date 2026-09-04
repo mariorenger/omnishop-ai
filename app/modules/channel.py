@@ -272,7 +272,7 @@ def get_channel(channel_id: str, ctx: OrgContext = Depends(get_org_context)):
 @router.post("/channels/{channel_id}/verify")
 def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admin"))):
     with tenant_tx(ctx.org_id) as conn:
-        r = conn.execute("SELECT kind, credentials_enc FROM channel WHERE id=%s", (channel_id,)).fetchone()
+        r = conn.execute("SELECT kind, credentials_enc, config FROM channel WHERE id=%s", (channel_id,)).fetchone()
         if not r:
             raise not_found("channel not found")
         kind = r["kind"]
