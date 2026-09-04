@@ -44,6 +44,24 @@ export function StackedBars({ data }: { data: { day: string; ai: number; human: 
   );
 }
 
+// Generic horizontal bar list for rankings (top tenants, cost per model, …).
+export function BarList({ data, empty = "Chưa có dữ liệu." }: { data: { label: string; value: number; hint?: string }[]; empty?: string }) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  if (!data.length) return <div className="text-sm text-muted py-6 text-center font-normal">{empty}</div>;
+  const f = (n: number) => n.toLocaleString("vi-VN");
+  return (
+    <div className="space-y-2.5">
+      {data.map((d, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <div className="w-32 text-[13px] text-fg font-normal shrink-0 truncate" title={d.label}>{d.label}</div>
+          <div className="flex-1 h-2.5 rounded-full bg-bg overflow-hidden"><div className="h-full rounded-full" style={{ width: `${(d.value / max) * 100}%`, background: AI }} /></div>
+          <div className="w-24 text-right text-[13px] font-semibold">{d.hint ?? f(d.value)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function IntentBars({ data }: { data: { intent: string; count: number }[] }) {
   const max = Math.max(1, ...data.map((d) => d.count));
   const label: Record<string, string> = { product: "Hỏi sản phẩm", knowledge: "Hỏi thông tin", order: "Hỏi đơn hàng", "khác": "Khác" };

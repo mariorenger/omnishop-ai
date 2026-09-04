@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, clearAuth } from "./api";
 import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
-import { StackedBars, IntentBars } from "./charts";
+import { StackedBars, IntentBars, BarList } from "./charts";
 import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight, Lock, ShieldCheck, UserRound } from "lucide-react";
 import QRCode from "qrcode";
 
@@ -789,6 +789,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
   const isAdmin = role === "admin";
   const [ov, setOv] = useState<any>(null); const [s, setS] = useState<any>(null); const [tenants, setTenants] = useState<any[]>([]);
   const [an, setAn] = useState<any>(null); const [pol, setPol] = useState<any>({}); const [polMsg, setPolMsg] = useState(""); const [err, setErr] = useState("");
+  const [sub, setSub] = useState("monitor");
   useEffect(() => {
     api.get("/api/admin/overview").then(setOv).catch((e) => setErr(e.message));
     api.get("/api/admin/tenants").then(setTenants).catch(() => {});
@@ -800,50 +801,68 @@ export function Admin({ role = "admin" }: { role?: string }) {
   const embProviders = [{ id: "local", label: "Cục bộ (không cần khoá)" }, { id: "openai_compatible", label: "OpenAI-compatible", base_url: "https://api.openai.com/v1" }, { id: "gemini", label: "Gemini" }];
   const savePolicy = async () => { await api.put("/api/admin/settings/policy", pol); setPolMsg("Đã lưu chính sách."); };
   const series = an ? an.series.map((x: any) => ({ day: x.day, ai: x.ai_messages, human: 0 })) : [];
+  const topTenants = [...tenants].sort((a, b) => b.cost_month - a.cost_month).slice(0, 8)
+    .map((t) => ({ label: t.name, value: t.cost_month, hint: `$${t.cost_month.toFixed(2)}` }));
+
+  // sub-sections: monitoring (giám sát) vs configuration (cài đặt) split by purpose
+  const TABS: [string, string][] = isAdmin
+    ? [["monitor", "Giám sát"], ["finance", "Tài chính"], ["config", "Cấu hình hệ thống"], ["plans", "Gói & định giá"], ["branding", "Thương hiệu"], ["staff", "Nhân sự & nhật ký"]]
+    : [["monitor", "Giám sát"], ["finance", "Tài chính"], ["audit", "Nhật ký"]];
+  const cur = TABS.some((t) => t[0] === sub) ? sub : "monitor";
+
   return (
     <div className="space-y-4">
       {!isAdmin && <div className="text-[13px] text-muted font-normal">Vai trò <b className="text-fg">Quản lý</b>: xem thống kê và xuất báo cáo. Không có quyền chỉnh cấu hình hay khách hàng.</div>}
-      {isAdmin && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-accent" /><span>Khu <b>Quản trị hệ thống</b>: mọi cấu hình bên dưới (LLM mặc định, thanh toán, Facebook App, Google, gói cước, đơn giá, thương hiệu…) do <b>bạn đặt một lần và áp dụng cho tất cả khách hàng</b>. Khách hàng (tenant) không nhìn thấy và không sửa được những mục này — họ chỉ tự điền thông tin kênh của riêng họ.</span></div>}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
-        <Kpi n={fmt(ov.tenants)} l="Khách hàng" /><Kpi n={fmt(ov.shops)} l="Cửa hàng" /><Kpi n={fmt(ov.conversations)} l="Hội thoại" />
-        <Kpi n={fmt(ov.ai_messages_month)} l="Tin AI tháng này" /><Kpi n={`$${ov.cost_month.toFixed(2)}`} l="Chi phí tháng này" />
+      {isAdmin && cur === "config" && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-accent" /><span>Mọi cấu hình ở đây do <b>bạn đặt một lần và áp dụng cho tất cả khách hàng</b>. Khách hàng (tenant) không nhìn thấy hay sửa được — họ chỉ tự điền thông tin kênh của riêng họ.</span></div>}
+
+      <div className="flex gap-1.5 overflow-x-auto border-b border-line pb-2">
+        {TABS.map(([id, lb]) => (
+          <button key={id} onClick={() => setSub(id)}
+            className={"px-3 py-1.5 rounded-lg text-[13px] font-semibold whitespace-nowrap transition " + (cur === id ? "bg-accent/20 text-fg border border-line" : "text-muted hover:text-fg hover:bg-card")}>{lb}</button>
+        ))}
       </div>
-      {an && <Card><CardTitle sub="14 ngày gần nhất, toàn nền tảng">Tin nhắn AI theo ngày</CardTitle><StackedBars data={series} /></Card>}
-      <FinanceCard />
-      <Card>
-        <CardTitle sub="Xuất số liệu tình trạng hệ thống ra CSV để làm báo cáo.">Xuất báo cáo</CardTitle>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="sec" onClick={() => api.download("/api/admin/reports/tenants.csv", "omnishop-tenants.csv")}>Báo cáo khách hàng (CSV)</Button>
-          <Button variant="sec" onClick={() => api.download("/api/admin/reports/usage.csv", "omnishop-usage.csv")}>Sử dụng 30 ngày (CSV)</Button>
+
+      {cur === "monitor" && <>
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+          <Kpi n={fmt(ov.tenants)} l="Khách hàng" /><Kpi n={fmt(ov.shops)} l="Cửa hàng" /><Kpi n={fmt(ov.conversations)} l="Hội thoại" />
+          <Kpi n={fmt(ov.ai_messages_month)} l="Tin AI tháng này" /><Kpi n={`$${ov.cost_month.toFixed(2)}`} l="Chi phí tháng này" />
         </div>
-      </Card>
-      <AuditCard />
-      {isAdmin && <>
+        {an && <Card><CardTitle sub="14 ngày gần nhất, toàn nền tảng">Tin nhắn AI theo ngày</CardTitle><StackedBars data={series} /></Card>}
+        <Card><CardTitle sub="Chi phí AI tháng này theo khách hàng (top 8)">Khách hàng dùng nhiều nhất</CardTitle><BarList data={topTenants} empty="Chưa có dữ liệu sử dụng." /></Card>
+        <Card>
+          <CardTitle sub="Xuất số liệu tình trạng hệ thống ra CSV để làm báo cáo." right={<div className="flex flex-wrap gap-2">
+            <Button variant="sec" size="sm" onClick={() => api.download("/api/admin/reports/tenants.csv", "omnishop-tenants.csv")}>Khách hàng (CSV)</Button>
+            <Button variant="sec" size="sm" onClick={() => api.download("/api/admin/reports/usage.csv", "omnishop-usage.csv")}>Sử dụng 30 ngày (CSV)</Button>
+          </div>}>Danh sách khách hàng</CardTitle>
+          {tenants.length === 0 ? <Empty>Chưa có khách hàng.</Empty> :
+            <Table head={["Tổ chức", "Gói", "Cửa hàng", "Tin AI tháng", "Chi phí"]}>
+              {tenants.map((t) => <tr key={t.id}><Td className="font-semibold">{t.name}</Td><Td><Badge kind="active">{t.plan}</Badge></Td><Td>{t.shops}</Td><Td>{fmt(t.ai_messages)}</Td><Td>${t.cost_month.toFixed(2)}</Td></tr>)}
+            </Table>}
+        </Card>
+      </>}
+
+      {cur === "finance" && <FinanceCard />}
+      {cur === "audit" && !isAdmin && <AuditCard />}
+
+      {isAdmin && cur === "config" && <>
         <Card>
           <CardTitle sub="Cho phép khách hàng tự chọn nhà cung cấp AI hay không.">Chính sách nền tảng</CardTitle>
           <label className="flex items-center gap-2 text-sm mb-2 font-normal"><input type="checkbox" checked={!!pol.allow_tenant_llm} onChange={(e) => setPol({ ...pol, allow_tenant_llm: e.target.checked })} /> Cho phép khách hàng tự cấu hình mô hình ngôn ngữ</label>
           <label className="flex items-center gap-2 text-sm font-normal"><input type="checkbox" checked={!!pol.allow_tenant_ocr} onChange={(e) => setPol({ ...pol, allow_tenant_ocr: e.target.checked })} /> Cho phép khách hàng tự cấu hình OCR</label>
           <div className="mt-3"><Button variant="sec" onClick={savePolicy}>Lưu chính sách</Button></div><Msg type="ok">{polMsg}</Msg>
         </Card>
-        <StaffCard />
-        <GoogleCard />
-        <BrandingCard />
-        <PlansCard />
-        <CostCard />
-        <PaymentCard />
-        <MetaAppCard />
         <Card><CardTitle sub="Áp dụng khi khách hàng không cấu hình riêng.">Mô hình mặc định của nền tảng</CardTitle>
           <LlmForm initial={s.llm} providers={s.llm_providers} endpoints={{ save: "/api/admin/settings/llm", test: "/api/admin/settings/llm/test", models: "/api/admin/settings/llm/models" }} /></Card>
         <Card><CardTitle sub="Dùng chung toàn nền tảng. Đổi model yêu cầu lập chỉ mục lại; số chiều cố định 384.">Mô hình embedding</CardTitle>
           <LlmForm initial={s.embedding} providers={embProviders} endpoints={{ save: "/api/admin/settings/embedding", test: "/api/admin/settings/embedding/test", models: "/api/admin/settings/embedding/models" }} /></Card>
+        <PaymentCard />
+        <MetaAppCard />
+        <GoogleCard />
       </>}
-      <Card>
-        <CardTitle>Danh sách khách hàng</CardTitle>
-        {tenants.length === 0 ? <Empty>Chưa có khách hàng.</Empty> :
-          <Table head={["Tổ chức", "Gói", "Cửa hàng", "Tin AI tháng", "Chi phí"]}>
-            {tenants.map((t) => <tr key={t.id}><Td className="font-semibold">{t.name}</Td><Td><Badge kind="active">{t.plan}</Badge></Td><Td>{t.shops}</Td><Td>{fmt(t.ai_messages)}</Td><Td>${t.cost_month.toFixed(2)}</Td></tr>)}
-          </Table>}
-      </Card>
+
+      {isAdmin && cur === "plans" && <><PlansCard /><CostCard /></>}
+      {isAdmin && cur === "branding" && <BrandingCard />}
+      {isAdmin && cur === "staff" && <><StaffCard /><AuditCard /></>}
     </div>
   );
 }
@@ -871,6 +890,7 @@ function FinanceCard() {
       </Card>
       <Card>
         <CardTitle sub="Token vào/ra và chi phí theo từng model — tháng này.">Token & chi phí theo model</CardTitle>
+        {f.by_model.length > 0 && <div className="mb-4"><BarList data={f.by_model.map((m: any) => ({ label: m.model, value: m.cost, hint: `$${m.cost.toFixed(4)}` }))} /></div>}
         {f.by_model.length === 0 ? <Empty>Chưa có lượt gọi AI nào tháng này.</Empty> :
           <Table head={["Model", "Tin nhắn", "Token vào", "Token ra", "Chi phí ước tính"]}>
             {f.by_model.map((m: any) => <tr key={m.model}>
