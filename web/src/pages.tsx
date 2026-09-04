@@ -455,14 +455,26 @@ export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string;
                   </Select>
                 )}
               </div>
-              <div className="max-h-[52vh] overflow-auto pr-1 space-y-2">
-                {msgs.map((m, i) => (
-                  <div key={i} className={"px-3 py-2 rounded-xl text-sm max-w-[85%] whitespace-pre-wrap font-normal " +
-                    (m.role === "customer" ? "bg-bg border border-line ml-auto" : m.role === "ai" ? "bg-indigo-900/40" : m.role === "agent" ? "bg-emerald-900/40" : "bg-amber-900/30 text-xs")}>
-                    {m.role === "agent" && m.sender && <div className="text-[10px] opacity-70 mb-0.5">{m.sender}</div>}
-                    {m.content}
-                  </div>
-                ))}
+              <div className="max-h-[54vh] overflow-auto pr-1 space-y-3 py-1">
+                {msgs.map((m, i) => {
+                  if (m.role === "system") return <div key={i} className="mx-auto text-[11.5px] text-warn bg-warn/10 border border-warn/30 rounded-full px-3 py-1 font-normal">{m.content}</div>;
+                  const mine = m.role === "ai" || m.role === "agent";
+                  const label = m.role === "customer" ? "Khách" : m.role === "ai" ? "AI" : (m.sender || "Nhân viên");
+                  const t = m.at ? new Date(m.at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "";
+                  return (
+                    <div key={i} className={"flex flex-col max-w-[82%] " + (mine ? "ml-auto items-end" : "items-start")}>
+                      <div className="text-[10.5px] text-muted mb-1 px-1 flex items-center gap-1.5">
+                        <span className="font-semibold">{label}</span>{t && <span className="opacity-60">· {t}</span>}
+                      </div>
+                      <div className={"px-3.5 py-2.5 rounded-2xl text-sm whitespace-pre-wrap font-normal shadow-soft " +
+                        (m.role === "customer" ? "bg-card2 border border-line text-fg rounded-tl-sm"
+                          : m.role === "ai" ? "bg-indigo-500/15 border border-indigo-400/30 text-fg rounded-tr-sm"
+                          : "bg-pastel text-[#0b0e1a] font-medium rounded-tr-sm")}>
+                        {m.content}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="flex gap-2 mt-3">
                 <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Nhập câu trả lời của nhân viên" onKeyDown={(e) => e.key === "Enter" && send()} />

@@ -2,33 +2,54 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"/>
 <title>Chat</title>
 <style>
-  :root{--accent:#6366f1}
+  :root{--accent:#6366f1;--ink:#0f172a;--muted:#64748b;--line:#e6e8f0;--bg:#f6f7fb;--card:#ffffff}
   *{box-sizing:border-box}
-  body{margin:0;font-family:"Be Vietnam Pro",system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#f6f7fb;color:#0f172a;height:100vh;display:flex;flex-direction:column}
-  header{background:var(--accent);color:#fff;padding:12px 16px;font-weight:600;display:flex;align-items:center;gap:10px}
-  header img{width:32px;height:32px;border-radius:9px;object-fit:cover;background:rgba(255,255,255,.2)}
-  header .av{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:16px}
-  header .t{line-height:1.1}
-  header .t small{display:block;font-weight:400;font-size:11px;opacity:.85}
-  #log{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
-  .b{padding:9px 12px;border-radius:14px;max-width:82%;font-size:14px;line-height:1.45;white-space:pre-wrap}
-  .me{background:var(--accent);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
-  .bot{background:#fff;border:1px solid #e6e8f0;align-self:flex-start;border-bottom-left-radius:4px}
-  .sys{background:#fef3c7;border:1px solid #fde68a;align-self:center;font-size:12px}
-  form{display:flex;gap:8px;padding:10px;border-top:1px solid #e6e8f0;background:#fff}
-  input{flex:1;padding:10px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}
-  button{padding:10px 14px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
-  .typing{color:#94a3b8;font-size:12px;padding:2px 14px}
+  html,body{height:100%}
+  body{margin:0;font-family:"Be Vietnam Pro",system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);
+       background:radial-gradient(120% 60% at 100% 0%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 60%),var(--bg);
+       height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+  header{background:linear-gradient(120deg,var(--accent),color-mix(in srgb,var(--accent) 78%,#000 6%));
+         color:#fff;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));
+         display:flex;align-items:center;gap:11px;box-shadow:0 2px 12px rgba(15,23,42,.12);z-index:2}
+  header img,header .av{width:38px;height:38px;border-radius:11px;object-fit:cover;background:rgba(255,255,255,.22);
+         display:flex;align-items:center;justify-content:center;font-size:18px;flex:0 0 auto}
+  header .t{line-height:1.15;min-width:0}
+  header .t b{font-weight:700;font-size:15px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  header .t small{display:inline-flex;align-items:center;gap:5px;font-weight:400;font-size:11.5px;opacity:.9}
+  header .dot{width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)}70%{box-shadow:0 0 0 6px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+  #log{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 14px;display:flex;flex-direction:column;gap:9px;scroll-behavior:smooth}
+  #log::-webkit-scrollbar{width:7px}#log::-webkit-scrollbar-thumb{background:#cdd3e0;border-radius:8px}
+  .b{padding:10px 13px;border-radius:16px;max-width:84%;font-size:15px;line-height:1.5;white-space:pre-wrap;
+     word-wrap:break-word;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:in .18s ease-out}
+  @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .me{background:linear-gradient(120deg,var(--accent),color-mix(in srgb,var(--accent) 82%,#000 4%));color:#fff;
+      align-self:flex-end;border-bottom-right-radius:5px;box-shadow:0 3px 12px color-mix(in srgb,var(--accent) 34%,transparent)}
+  .bot{background:var(--card);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:5px}
+  .sys{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;align-self:center;font-size:12.5px;text-align:center;max-width:92%;border-radius:12px}
+  .typing{display:none;align-items:center;gap:5px;padding:2px 18px 6px;color:var(--muted);font-size:12px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);display:inline-block;animation:bob 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+  @keyframes bob{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+  form{display:flex;gap:8px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));
+       border-top:1px solid var(--line);background:var(--card)}
+  input{flex:1;min-width:0;padding:12px 14px;border:1px solid #cbd5e1;border-radius:13px;font:inherit;font-size:16px;outline:none;
+        transition:border-color .15s,box-shadow .15s}
+  input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+  button{flex:0 0 auto;width:46px;height:46px;border:none;border-radius:13px;background:var(--accent);color:#fff;cursor:pointer;
+         display:flex;align-items:center;justify-content:center;transition:filter .15s,transform .06s}
+  button:hover{filter:brightness(1.06)}button:active{transform:scale(.95)}
+  button svg{width:20px;height:20px}
 </style>
 </head>
 <body>
-<header id="hd"><span class="av" id="av">🤖</span><span class="t"><span id="title">Trợ lý</span><small>Trực tuyến</small></span></header>
+<header id="hd"><span class="av" id="av">🤖</span><span class="t"><b id="title">Trợ lý</b><small><span class="dot"></span> Trực tuyến</small></span></header>
 <div id="log"></div>
-<div class="typing" id="typing" style="display:none">Đang soạn trả lời…</div>
-<form id="f"><input id="t" placeholder="Nhập tin nhắn…" autocomplete="off"/><button>Gửi</button></form>
+<div class="typing" id="typing"><i></i><i></i><i></i></div>
+<form id="f"><input id="t" placeholder="Nhập tin nhắn…" autocomplete="off"/><button aria-label="Gửi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></form>
 <script>
 const key = new URLSearchParams(location.search).get("key");
 const log = document.getElementById("log");
@@ -58,7 +79,7 @@ async function poll(){
 document.getElementById("f").addEventListener("submit", async (e)=>{
   e.preventDefault();
   const inp=document.getElementById("t"); const text=inp.value.trim(); if(!text) return;
-  inp.value=""; bubble(text,"me"); document.getElementById("typing").style.display="block";
+  inp.value=""; bubble(text,"me"); document.getElementById("typing").style.display="flex";
   try{
     const r=await fetch("/api/widget/"+key+"/message",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:sid,text})});
     const d=await r.json(); bubble(d.reply, d.status==="needs_human"?"sys":"bot"); lastAt=new Date().toISOString();
