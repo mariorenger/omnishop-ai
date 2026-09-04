@@ -993,7 +993,7 @@ function PlansCard() {
   const num = (v: any) => v === "" || v === null || v === undefined ? 0 : Number(v);
   return (
     <Card>
-      <CardTitle sub="Toàn quyền định giá: admin chỉnh tên, giá, kiểu AI, hạn mức token và giá vượt/PAYG cho từng gói ngay tại đây.">Gói dịch vụ & định giá</CardTitle>
+      <CardTitle sub="Toàn quyền định giá: điều chỉnh tên gói, giá, chế độ AI, hạn mức token và đơn giá vượt/PAYG cho từng gói ngay tại đây.">Gói dịch vụ & định giá</CardTitle>
       {!plans ? <Spinner /> : (
         <div className="space-y-3">
           {plans.map((p, i) => (

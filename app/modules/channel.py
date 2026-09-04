@@ -93,7 +93,7 @@ KIND_SPECS = {
         "docs": "https://developers.facebook.com/docs/whatsapp/cloud-api/get-started",
         "fields": [
             {"key": "phone_number_id", "label": "Phone Number ID", "secret": False, "required": True,
-             "hint": "ID nội bộ của số gửi (KHÔNG phải số điện thoại) — WhatsApp Manager → API Setup."},
+             "hint": "ID nội bộ của số gửi (không phải số điện thoại) — WhatsApp Manager → API Setup."},
             {"key": "access_token", "label": "Access Token", "secret": True, "required": True,
              "hint": "Token hệ thống (System User) dài hạn, hoặc token tạm 24 giờ khi thử nghiệm."},
         ],
@@ -168,7 +168,7 @@ KIND_GUIDES = {
     ],
     "whatsapp": [
         "Tạo WhatsApp Business Account trên Meta (business.facebook.com).",
-        "Vào WhatsApp → API Setup, sao chép Phone Number ID (KHÔNG phải số điện thoại).",
+        "Vào WhatsApp → API Setup, sao chép Phone Number ID (là ID nội bộ, không phải số điện thoại).",
         "Tạo System User token dài hạn (hoặc dùng token tạm 24 giờ khi thử nghiệm).",
         "Webhook dùng chung Meta App do quản trị cấu hình (verify token + App Secret của nền tảng).",
     ],
