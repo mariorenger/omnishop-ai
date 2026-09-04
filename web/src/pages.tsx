@@ -354,7 +354,7 @@ export function Channels({ shopId }: { shopId: string }) {
           {kinds.map((k) => <option key={k.kind} value={k.kind} disabled={!k.allowed}>{k.label}{k.allowed ? "" : " — không có trong gói"}</option>)}
         </Select></Field>
         {spec && !spec.live && <p className="text-[12px] text-warn mt-2 font-normal">Kênh này cần phê duyệt đối tác trước khi hoạt động. Bạn vẫn lưu được thông tin để kích hoạt sau.</p>}
-        {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal flex gap-1.5"><Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Để nhận tin từ kênh này, hệ thống cần chạy sau một địa chỉ <b>HTTPS công khai</b> (webhook). Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</span></p>}
+        {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal flex gap-1.5"><Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Để nhận tin từ kênh này, hệ thống cần một địa chỉ <b>HTTPS công khai</b>. Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</span></p>}
         {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal leading-relaxed">{spec.note}</p>}
         {spec?.guide?.length > 0 && (
           <details className="mt-2 rounded-lg border border-line bg-card2/50 overflow-hidden" open>
@@ -375,7 +375,7 @@ export function Channels({ shopId }: { shopId: string }) {
             <div className="mt-3"><Field label="Lời chào"><Input value={greeting} onChange={(e) => setGreeting(e.target.value)} /></Field></div></>
         ) : (
           <>
-            <p className="text-[12px] text-muted mt-3 font-normal rounded-lg border border-line bg-card2 px-3 py-2 flex gap-1.5"><UserRound className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Các thông tin bên dưới là của <b className="text-fg">chính cửa hàng bạn</b> (token, ID… lấy từ tài khoản của bạn trên nền tảng đó). Phần nền tảng dùng chung (Facebook App, verify token) đã do quản trị hệ thống cấu hình sẵn — bạn không cần nhập.</span></p>
+            <p className="text-[12px] text-muted mt-3 font-normal rounded-lg border border-line bg-card2 px-3 py-2 flex gap-1.5"><UserRound className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Token và ID bên dưới lấy từ tài khoản của <b className="text-fg">chính cửa hàng bạn</b> trên nền tảng tương ứng. Cấu hình dùng chung như Facebook App đã do quản trị hệ thống thiết lập sẵn.</span></p>
             <div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec?.label} /></Field></div>
             {(spec?.fields || []).map((f: any) => (
               <div className="mt-3" key={f.key}><Field label={f.label + (f.required ? "" : " (tuỳ chọn)")} info={f.hint}>
@@ -605,7 +605,7 @@ export function Billing({ role }: { role: string }) {
         ) : sub.quota.llm_mode === "managed" ? (
           <UsageBar used={sub.quota.tokens_used} total={sub.quota.tokens_included} unit="token" note={sub.quota.overage_per_1k > 0 ? `Vượt hạn mức: $${sub.quota.overage_per_1k}/1k token` : "Hết hạn mức sẽ tạm dừng trả lời tự động"} />
         ) : (
-          <div><UsageBar used={sub.quota.messages_used} total={sub.quota.messages_limit} unit="tin nhắn" note="Bạn dùng khoá AI của mình — chỉ tính phí phần mềm, không tính token." />
+          <div><UsageBar used={sub.quota.messages_used} total={sub.quota.messages_limit} unit="tin nhắn" note="Bạn dùng khoá AI của mình nên chỉ tính phí phần mềm, không tính token." />
             <div className="text-[12px] text-muted font-normal mt-1.5">Đã tiêu thụ {fmt(sub.quota.tokens_used)} token (bằng khoá của bạn).</div></div>
         )}
         {!isOwner && <p className="text-[13px] text-muted font-normal mt-2">Chỉ Chủ sở hữu mới thay đổi được gói dịch vụ.</p>}
@@ -631,7 +631,7 @@ export function Billing({ role }: { role: string }) {
         ); })}
       </div>
       <Card>
-        <CardTitle sub="Token và chi phí ước tính theo từng khách hàng cuối trong tháng — để theo dõi và quản lý mức dùng.">Sử dụng theo khách</CardTitle>
+        <CardTitle sub="Token và chi phí ước tính theo từng khách hàng trong tháng.">Sử dụng theo khách</CardTitle>
         {customers.length === 0 ? <Empty>Chưa có dữ liệu sử dụng tháng này.</Empty> :
           <Table head={["Khách", "Tin nhắn", "Token", "Chi phí ước tính"]}>
             {customers.map((c) => <tr key={c.customer_ref}><Td className="font-semibold">{c.customer_ref}</Td><Td>{fmt(c.messages)}</Td><Td>{fmt(c.tokens)}</Td><Td className="text-muted">${c.cost.toFixed(5)}</Td></tr>)}
@@ -729,8 +729,8 @@ export function Settings() {
         {llm.can_edit && sub && (
           <div className={"text-[12.5px] font-normal rounded-lg px-3 py-2 mb-3 border " + (byok ? "border-accent/40 bg-accent/10 text-fg" : "border-line bg-card2 text-muted")}>
             {byok
-              ? "Gói của bạn: Tự nhập khoá AI (BYOK) — hãy nhập API key của chính bạn (OpenAI / Gemini / Claude) bên dưới. Chỉ tính phí phần mềm, không tính token."
-              : "Gói của bạn: Trọn gói AI — có thể dùng khoá của hệ thống (không bắt buộc nhập khoá). Nhập khoá riêng nếu muốn dùng nhà cung cấp của bạn."}
+              ? "Gói của bạn dùng khoá AI riêng. Hãy nhập API key của bạn ở bên dưới; hệ thống chỉ tính phí phần mềm, không tính token."
+              : "Gói của bạn đã bao gồm AI của hệ thống. Bạn có thể nhập khoá riêng nếu muốn dùng nhà cung cấp của mình."}
           </div>
         )}
         {llm.can_edit
@@ -821,7 +821,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
   return (
     <div className="space-y-4">
       {!isAdmin && <div className="text-[13px] text-muted font-normal">Vai trò <b className="text-fg">Quản lý</b>: xem thống kê và xuất báo cáo. Không có quyền chỉnh cấu hình hay khách hàng.</div>}
-      {isAdmin && cur === "config" && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-accent" /><span>Mọi cấu hình ở đây do <b>bạn đặt một lần và áp dụng cho tất cả khách hàng</b>. Khách hàng (tenant) không nhìn thấy hay sửa được — họ chỉ tự điền thông tin kênh của riêng họ.</span></div>}
+      {isAdmin && cur === "config" && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-accent" /><span>Mọi cấu hình ở đây do bạn thiết lập và áp dụng cho toàn bộ khách hàng. Khách hàng không nhìn thấy hay chỉnh sửa các mục này.</span></div>}
 
       <div className="flex gap-1.5 overflow-x-auto border-b border-line pb-2">
         {TABS.map(([id, lb]) => (
@@ -884,7 +884,7 @@ function FinanceCard() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardTitle sub="Tháng này — doanh thu đã thu (hoá đơn đã thanh toán) trừ chi phí AI (COGS) để biết lãi/lỗ."
+        <CardTitle sub="So sánh doanh thu đã thu với chi phí AI trong tháng để biết lãi hay lỗ."
           right={<Button variant="sec" size="sm" onClick={() => api.download("/api/admin/reports/finance.csv", "omnishop-finance-by-model.csv")}>Xuất theo model (CSV)</Button>}>Doanh thu & lợi nhuận</CardTitle>
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Kpi n={`$${fmt(Math.round(f.revenue_month))}`} l="Doanh thu tháng" info="Tổng hoá đơn đã thanh toán trong tháng này." />
@@ -897,7 +897,7 @@ function FinanceCard() {
         </div>
       </Card>
       <Card>
-        <CardTitle sub="Token vào/ra và chi phí theo từng model — tháng này.">Token & chi phí theo model</CardTitle>
+        <CardTitle sub="Token vào, token ra và chi phí theo từng model trong tháng.">Token & chi phí theo model</CardTitle>
         {f.by_model.length > 0 && <div className="mb-4"><BarList data={f.by_model.map((m: any) => ({ label: m.model, value: m.cost, hint: `$${m.cost.toFixed(4)}` }))} /></div>}
         {f.by_model.length === 0 ? <Empty>Chưa có lượt gọi AI nào tháng này.</Empty> :
           <Table head={["Model", "Tin nhắn", "Token vào", "Token ra", "Chi phí ước tính"]}>
@@ -908,7 +908,7 @@ function FinanceCard() {
           </Table>}
       </Card>
       <Card>
-        <CardTitle sub="Doanh thu đã thu so với chi phí AI theo từng khách hàng — tháng này.">Lãi/lỗ theo khách hàng</CardTitle>
+        <CardTitle sub="Doanh thu đã thu và chi phí AI theo từng khách hàng trong tháng.">Lãi/lỗ theo khách hàng</CardTitle>
         {f.by_tenant.length === 0 ? <Empty>Chưa có khách hàng.</Empty> :
           <Table head={["Khách", "Gói", "Doanh thu", "Chi phí AI", "Token (vào/ra)", "Lợi nhuận"]}>
             {f.by_tenant.map((t: any) => <tr key={t.id}>
@@ -1054,7 +1054,7 @@ function BrandingCard() {
   };
   return (
     <Card>
-      <CardTitle sub="Đặt tên và logo hiển thị cho toàn hệ thống (mọi tenant thấy). Là cấu hình — không cần sửa code.">Thương hiệu hệ thống</CardTitle>
+      <CardTitle sub="Đặt tên và logo hiển thị cho toàn hệ thống. Áp dụng cho mọi khách hàng.">Thương hiệu hệ thống</CardTitle>
       <div className="flex items-center gap-3 mb-3">
         <span className="w-14 h-14 rounded-xl bg-pastel flex items-center justify-center overflow-hidden shrink-0">
           {b?.logo_url ? <img src={b.logo_url} className="w-14 h-14 object-contain" /> : <Bot className="w-7 h-7 text-[#0b0e1a]" />}
@@ -1244,7 +1244,7 @@ function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shop
           </div>
           <div className="border-t border-line/60 mt-4 pt-3">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-2">Cấu hình nâng cao</div>
-            <Field label="Mô hình AI riêng cho trợ lý này" info="Để trống sẽ dùng mô hình mặc định của tổ chức/hệ thống. Chỉ đổi tên model — vẫn dùng chung nhà cung cấp và khoá AI đã cấu hình ở Cài đặt.">
+            <Field label="Mô hình AI riêng cho trợ lý này" info="Để trống sẽ dùng mô hình mặc định. Trường này chỉ thay tên model, vẫn dùng nhà cung cấp và khoá AI đã cấu hình ở Cài đặt.">
               <div className="flex gap-2">
                 <Input value={cfg.model || ""} onChange={(e) => setCfg({ model: e.target.value })} placeholder={llmInfo?.effective?.model ? `Mặc định: ${llmInfo.effective.model}` : "Mặc định của hệ thống"} />
                 <Button variant="sec" size="sm" loading={loadingModels} onClick={loadModels}><RefreshCw className="w-3.5 h-3.5" /></Button>
@@ -1313,7 +1313,7 @@ function MetaAppCard() {
           info="Facebook Login → Settings → Valid OAuth Redirect URIs. Khắc phục lỗi “URL không thuộc domain”." />
         <CopyField label="Webhook Callback URL" value={c?.webhook_url}
           info="Meta App → Webhooks → callback URL (kèm Verify token ở trên), subscribe field messages." />
-        <p className="text-[12px] text-muted font-normal">Đồng thời thêm domain vào <b>App Domains</b> (Settings → Basic). Các URL lấy theo <code>OAUTH_REDIRECT_BASE</code> — nếu đang là localhost, hãy đặt domain thật rồi khởi động lại.</p>
+        <p className="text-[12px] text-muted font-normal">Thêm domain vào mục App Domains trong Settings → Basic. Các URL sinh theo <code>OAUTH_REDIRECT_BASE</code>; nếu đang là localhost, hãy đặt domain thật rồi khởi động lại.</p>
       </div>
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
@@ -1371,7 +1371,7 @@ export function Help() {
   const faqs = [
     ["Trợ lý AI lấy thông tin từ đâu?", "Từ Sản phẩm (giá/tồn/biến thể) và tài liệu Kiến thức bạn đã nhập. Nếu không đủ thông tin, hội thoại được chuyển cho nhân viên."],
     ["Tôi có thể dùng mô hình nào?", "Anthropic Claude, OpenAI, Google Gemini, hoặc máy chủ tự host tương thích OpenAI như vLLM (nếu quản trị cho phép chọn model)."],
-    ["Cần HTTPS để kết nối kênh không?", "Có — các kênh nhận tin qua webhook (Telegram, Messenger, Zalo, WhatsApp) cần địa chỉ HTTPS công khai. Tiện ích website thì không cần."],
+    ["Cần HTTPS để kết nối kênh không?", "Các kênh nhận tin qua webhook như Telegram, Messenger, Zalo, WhatsApp cần địa chỉ HTTPS công khai. Tiện ích website thì không cần."],
     ["Dữ liệu giữa các cửa hàng có tách biệt không?", "Có. Mỗi tổ chức được cô lập nhiều lớp; khách hàng này không truy cập được dữ liệu của khách hàng khác."],
   ];
   return (
