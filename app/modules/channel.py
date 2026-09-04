@@ -210,11 +210,18 @@ def create_channel(body: ChannelBody, ctx: OrgContext = Depends(require_role("ad
             ok, info = telegram.verify_token(creds.get("bot_token", ""))
             status = "connected" if ok else "degraded"
             note = info
-            # auto-register the Telegram webhook when a public callback base is set
-            if ok and config.OAUTH_REDIRECT_BASE:
-                hook = f"{config.OAUTH_REDIRECT_BASE.rstrip('/')}/api/channels/webhook/telegram/{public_key}"
+            # auto-register the Telegram webhook — needs a PUBLIC HTTPS base so
+            # Telegram can reach us (localhost/http can't receive messages).
+            base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+            good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
+            if ok and good_base:
+                hook = f"{base}/api/channels/webhook/telegram/{public_key}"
                 wok, winfo = telegram.set_webhook(creds["bot_token"], hook)
                 note = f"{info} · webhook: {'đã đặt' if wok else winfo}"
+            elif ok:
+                status = "degraded"
+                note = (f"{info} · Token OK nhưng chưa nhận được tin: đặt OAUTH_REDIRECT_BASE = "
+                        f"https://tên-miền rồi khởi động lại, sau đó bấm Kiểm tra kết nối.")
         elif kind == "zalo":
             ok, info = zalo.verify_token(creds.get("access_token", ""))
             status = "connected" if ok else "degraded"
@@ -272,7 +279,7 @@ def get_channel(channel_id: str, ctx: OrgContext = Depends(get_org_context)):
 @router.post("/channels/{channel_id}/verify")
 def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admin"))):
     with tenant_tx(ctx.org_id) as conn:
-        r = conn.execute("SELECT kind, credentials_enc, config FROM channel WHERE id=%s", (channel_id,)).fetchone()
+        r = conn.execute("SELECT kind, credentials_enc, config, public_key FROM channel WHERE id=%s", (channel_id,)).fetchone()
         if not r:
             raise not_found("channel not found")
         kind = r["kind"]
@@ -290,7 +297,32 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
             ok, info = meta.verify_page_token(tok) if tok else (False, "chưa có token")
         elif kind == "telegram":
             tok = creds.get("bot_token", "")
-            ok, info = telegram.verify_token(tok) if tok else (False, "chưa có token")
+            if not tok:
+                ok, info = False, "chưa có token"
+            else:
+                ok, info = telegram.verify_token(tok)
+                # Only a valid, publicly-reachable HTTPS webhook lets the bot RECEIVE
+                # messages. Re-register it here (the domain may have been set after
+                # connecting) and report Telegram's own view of the webhook.
+                if ok:
+                    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+                    good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
+                    if good_base and r["public_key"]:
+                        hook = f"{base}/api/channels/webhook/telegram/{r['public_key']}"
+                        telegram.set_webhook(tok, hook)
+                        wi = telegram.webhook_info(tok)
+                        if wi["last_error"]:
+                            ok = False
+                            info = f"{info} · webhook LỖI: {wi['last_error']} (URL: {wi['url'] or hook})"
+                        elif wi["url"]:
+                            info = f"{info} · webhook OK ({wi['pending']} tin đang chờ)"
+                        else:
+                            info = f"{info} · chưa đặt được webhook"
+                    else:
+                        ok = False
+                        info = (f"{info} · Token hợp lệ NHƯNG chưa nhận được tin: cần đặt "
+                                f"OAUTH_REDIRECT_BASE = https://tên-miền-của-bạn rồi khởi động lại "
+                                f"(hiện tại: '{base or 'trống'}').")
         elif kind == "zalo":
             tok = creds.get("access_token", "")
             ok, info = zalo.verify_token(tok) if tok else (False, "chưa có token")

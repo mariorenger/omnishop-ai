@@ -34,6 +34,17 @@ def set_webhook(token: str, url: str) -> Tuple[bool, str]:
         return False, str(e)
 
 
+def webhook_info(token: str) -> dict:
+    """getWebhookInfo — what URL Telegram will deliver to, and any last error."""
+    try:
+        r = httpx.get(f"{API}/bot{token}/getWebhookInfo", timeout=20)
+        d = r.json().get("result", {}) or {}
+        return {"url": d.get("url", ""), "pending": int(d.get("pending_update_count", 0)),
+                "last_error": d.get("last_error_message", "")}
+    except Exception as e:  # noqa: BLE001
+        return {"url": "", "pending": 0, "last_error": str(e)}
+
+
 def send_message(token: str, chat_id: str, text: str) -> Tuple[bool, str]:
     try:
         r = httpx.post(f"{API}/bot{token}/sendMessage",
