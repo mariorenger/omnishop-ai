@@ -245,7 +245,6 @@ function Login({ onAuthed, brand }: { onAuthed: () => void; brand?: { app_name: 
           <button className="text-[13px] text-accent mt-3 font-semibold" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setErr(""); }}>
             {mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}
           </button>
-          {mode === "login" && <p className="text-xs text-muted mt-3 font-normal">Tài khoản dùng thử: demo@omnishop.local / demo12345</p>}
         </Card>
       </div>
     </div>

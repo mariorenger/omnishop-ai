@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api, clearAuth } from "./api";
 import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars } from "./charts";
-import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight } from "lucide-react";
+import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight, Lock, ShieldCheck, UserRound } from "lucide-react";
 import QRCode from "qrcode";
 
 const fmt = (n: number) => n.toLocaleString("vi-VN");
@@ -354,7 +354,7 @@ export function Channels({ shopId }: { shopId: string }) {
           {kinds.map((k) => <option key={k.kind} value={k.kind} disabled={!k.allowed}>{k.label}{k.allowed ? "" : " — không có trong gói"}</option>)}
         </Select></Field>
         {spec && !spec.live && <p className="text-[12px] text-warn mt-2 font-normal">Kênh này cần phê duyệt đối tác trước khi hoạt động. Bạn vẫn lưu được thông tin để kích hoạt sau.</p>}
-        {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal">🔒 Để nhận tin từ kênh này, hệ thống cần chạy sau một địa chỉ <b>HTTPS công khai</b> (webhook). Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</p>}
+        {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal flex gap-1.5"><Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Để nhận tin từ kênh này, hệ thống cần chạy sau một địa chỉ <b>HTTPS công khai</b> (webhook). Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</span></p>}
         {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal leading-relaxed">{spec.note}</p>}
         {spec?.docs && <a href={spec.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-1.5">Xem tài liệu tích hợp ↗</a>}
         {spec?.webhook_url && <div className="mt-3"><CopyField label="Webhook URL (dán vào console của kênh)" value={spec.webhook_url}
@@ -367,7 +367,7 @@ export function Channels({ shopId }: { shopId: string }) {
             <div className="mt-3"><Field label="Lời chào"><Input value={greeting} onChange={(e) => setGreeting(e.target.value)} /></Field></div></>
         ) : (
           <>
-            <p className="text-[12px] text-muted mt-3 font-normal rounded-lg border border-line bg-card2 px-3 py-2">👤 Các thông tin bên dưới là của <b className="text-fg">chính cửa hàng bạn</b> (token, ID… lấy từ tài khoản của bạn trên nền tảng đó). Phần nền tảng dùng chung (Facebook App, verify token) đã do quản trị hệ thống cấu hình sẵn — bạn không cần nhập.</p>
+            <p className="text-[12px] text-muted mt-3 font-normal rounded-lg border border-line bg-card2 px-3 py-2 flex gap-1.5"><UserRound className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Các thông tin bên dưới là của <b className="text-fg">chính cửa hàng bạn</b> (token, ID… lấy từ tài khoản của bạn trên nền tảng đó). Phần nền tảng dùng chung (Facebook App, verify token) đã do quản trị hệ thống cấu hình sẵn — bạn không cần nhập.</span></p>
             <div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec?.label} /></Field></div>
             {(spec?.fields || []).map((f: any) => (
               <div className="mt-3" key={f.key}><Field label={f.label + (f.required ? "" : " (tuỳ chọn)")} info={f.hint}>
@@ -803,7 +803,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
   return (
     <div className="space-y-4">
       {!isAdmin && <div className="text-[13px] text-muted font-normal">Vai trò <b className="text-fg">Quản lý</b>: xem thống kê và xuất báo cáo. Không có quyền chỉnh cấu hình hay khách hàng.</div>}
-      {isAdmin && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal">🛠️ Khu <b>Quản trị hệ thống</b>: mọi cấu hình bên dưới (LLM mặc định, thanh toán, Facebook App, Google, gói cước, đơn giá, thương hiệu…) do <b>bạn đặt một lần và áp dụng cho tất cả khách hàng</b>. Khách hàng (tenant) không nhìn thấy và không sửa được những mục này — họ chỉ tự điền thông tin kênh của riêng họ.</div>}
+      {isAdmin && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-accent" /><span>Khu <b>Quản trị hệ thống</b>: mọi cấu hình bên dưới (LLM mặc định, thanh toán, Facebook App, Google, gói cước, đơn giá, thương hiệu…) do <b>bạn đặt một lần và áp dụng cho tất cả khách hàng</b>. Khách hàng (tenant) không nhìn thấy và không sửa được những mục này — họ chỉ tự điền thông tin kênh của riêng họ.</span></div>}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
         <Kpi n={fmt(ov.tenants)} l="Khách hàng" /><Kpi n={fmt(ov.shops)} l="Cửa hàng" /><Kpi n={fmt(ov.conversations)} l="Hội thoại" />
         <Kpi n={fmt(ov.ai_messages_month)} l="Tin AI tháng này" /><Kpi n={`$${ov.cost_month.toFixed(2)}`} l="Chi phí tháng này" />
@@ -1304,7 +1304,7 @@ export function Help() {
   ];
   const faqs = [
     ["Trợ lý AI lấy thông tin từ đâu?", "Từ sản phẩm, biến thể và tài liệu kiến thức bạn đã nhập cho cửa hàng. Nếu không đủ thông tin, hội thoại sẽ được chuyển cho nhân viên."],
-    ["Tôi có thể dùng mô hình nào?", "Anthropic Claude, OpenAI, Google Gemini, hoặc máy chủ tself-host tương thích OpenAI như vLLM. Cấu hình trong mục Cài đặt."],
+    ["Tôi có thể dùng mô hình nào?", "Anthropic Claude, OpenAI, Google Gemini, hoặc máy chủ tự host tương thích OpenAI như vLLM. Cấu hình trong mục Cài đặt."],
     ["Dữ liệu giữa các cửa hàng có tách biệt không?", "Có. Mỗi tổ chức được cô lập ở nhiều lớp, khách hàng này không thể truy cập dữ liệu của khách hàng khác."],
     ["Chi phí AI được tính thế nào?", "Mỗi câu trả lời được ghi nhận token và chi phí ước tính, hiển thị ở Tổng quan để theo dõi biên lợi nhuận."],
   ];
