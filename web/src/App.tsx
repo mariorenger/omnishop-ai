@@ -114,7 +114,7 @@ export default function App() {
           {needOrg ? <WorkspaceSetup onCreated={boot} isAdmin={isStaff} />
             : needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
             : tab === "overview" ? <Overview shopId={shop.id} onGoInbox={() => setTab("inbox")} />
-            : tab === "inbox" ? <Inbox shopId={shop.id} />
+            : tab === "inbox" ? <Inbox shopId={shop.id} me={user} role={role} />
             : tab === "bots" ? <Bots shopId={shop.id} role={role} />
             : tab === "knowledge" ? <Knowledge shopId={shop.id} />
             : tab === "channels" ? <Channels shopId={shop.id} />

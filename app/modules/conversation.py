@@ -94,13 +94,18 @@ class AgentReply(BaseModel):
 def list_conversations(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         rows = conn.execute(
-            """SELECT c.id, c.customer_ref, c.status, c.last_at,
+            """SELECT c.id, c.customer_ref, c.status, c.last_at, c.assigned_user_id, c.channel_id,
+                      (SELECT email FROM app_user u WHERE u.id=c.assigned_user_id) AS assignee,
+                      (SELECT kind FROM channel ch WHERE ch.id=c.channel_id) AS channel_kind,
                       (SELECT content FROM message m WHERE m.conversation_id=c.id ORDER BY created_at DESC LIMIT 1) AS last_message
                FROM conversation c WHERE c.shop_id=%s ORDER BY c.last_at DESC LIMIT 100""",
             (shop_id,),
         ).fetchall()
     return [{"id": str(r["id"]), "customer_ref": r["customer_ref"], "status": r["status"],
-             "last_at": r["last_at"].isoformat(), "last_message": r["last_message"]} for r in rows]
+             "last_at": r["last_at"].isoformat(), "last_message": r["last_message"],
+             "channel_kind": r["channel_kind"],
+             "assigned_user_id": str(r["assigned_user_id"]) if r["assigned_user_id"] else None,
+             "assignee": r["assignee"]} for r in rows]
 
 
 @router.get("/conversations/{conv_id}/messages")
@@ -109,24 +114,68 @@ def conversation_messages(conv_id: str, ctx: OrgContext = Depends(get_org_contex
         if not conn.execute("SELECT 1 FROM conversation WHERE id=%s", (conv_id,)).fetchone():
             raise not_found()
         rows = conn.execute(
-            "SELECT role, content, meta, created_at FROM message WHERE conversation_id=%s ORDER BY created_at",
+            """SELECT m.role, m.content, m.meta, m.created_at,
+                      (SELECT email FROM app_user u WHERE u.id=m.sender_user_id) AS sender
+               FROM message m WHERE m.conversation_id=%s ORDER BY m.created_at""",
             (conv_id,),
         ).fetchall()
     return [{"role": r["role"], "content": r["content"], "meta": r["meta"],
-             "at": r["created_at"].isoformat()} for r in rows]
+             "sender": r["sender"], "at": r["created_at"].isoformat()} for r in rows]
+
+
+class AssignBody(BaseModel):
+    user_id: str | None = None   # None = claim to self
+
+
+@router.post("/conversations/{conv_id}/assign")
+def assign_conversation(conv_id: str, body: AssignBody, ctx: OrgContext = Depends(require_role("agent"))):
+    """Claim a conversation (or, for admin/owner, assign it to another member).
+    Controls who is responsible for replying in a shared inbox."""
+    target = body.user_id or ctx.user.id
+    # only admin/owner may assign to someone else
+    if target != ctx.user.id and ctx.role not in ("admin", "owner"):
+        raise bad_request("chỉ Quản trị/Chủ sở hữu mới gán cho người khác")
+    with tenant_tx(ctx.org_id) as conn:
+        if not conn.execute("SELECT 1 FROM conversation WHERE id=%s", (conv_id,)).fetchone():
+            raise not_found()
+        if target and not conn.execute("SELECT 1 FROM membership WHERE user_id=%s", (target,)).fetchone():
+            raise bad_request("người được gán phải là thành viên của workspace")
+        conn.execute("UPDATE conversation SET assigned_user_id=%s WHERE id=%s", (target or None, conv_id))
+        email = None
+        if target:
+            row = conn.execute("SELECT email FROM app_user WHERE id=%s", (target,)).fetchone()
+            email = row["email"] if row else None
+    from .. import audit
+    audit.record("conversation.assign", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=conv_id, detail={"assigned_to": email})
+    return {"ok": True, "assigned_user_id": target, "assignee": email}
 
 
 @router.post("/conversations/{conv_id}/reply")
 def agent_reply(conv_id: str, body: AgentReply, ctx: OrgContext = Depends(require_role("agent"))):
+    if not body.text.strip():
+        raise bad_request("nội dung trả lời trống")
     with tenant_tx(ctx.org_id) as conn:
-        if not conn.execute("SELECT 1 FROM conversation WHERE id=%s", (conv_id,)).fetchone():
+        conv = conn.execute(
+            "SELECT channel_id, customer_ref, assigned_user_id FROM conversation WHERE id=%s", (conv_id,)
+        ).fetchone()
+        if not conv:
             raise not_found()
         conn.execute(
-            "INSERT INTO message (organization_id, conversation_id, role, content) VALUES (%s,%s,'agent',%s)",
-            (ctx.org_id, conv_id, body.text),
+            "INSERT INTO message (organization_id, conversation_id, role, content, sender_user_id) VALUES (%s,%s,'agent',%s,%s)",
+            (ctx.org_id, conv_id, body.text, ctx.user.id),
         )
-        conn.execute("UPDATE conversation SET status='human', last_at=now() WHERE id=%s", (conv_id,))
-    return {"ok": True}
+        # replying auto-claims an unassigned conversation to the replier
+        assign_clause = "" if conv["assigned_user_id"] else ", assigned_user_id=%s"
+        params = [conv_id]
+        if not conv["assigned_user_id"]:
+            params = [ctx.user.id, conv_id]
+        conn.execute(f"UPDATE conversation SET status='human', last_at=now(){assign_clause} WHERE id=%s", tuple(params))
+    # push the reply OUT to the customer's channel (Telegram/Messenger/Zalo/WhatsApp)
+    from . import channel as channel_mod
+    delivered, note = channel_mod.deliver_agent_reply(
+        ctx.org_id, str(conv["channel_id"]), conv["customer_ref"], body.text)
+    return {"ok": True, "delivered": bool(delivered), "note": note}
 
 
 @router.post("/conversations/{conv_id}/close")

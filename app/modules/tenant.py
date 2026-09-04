@@ -92,11 +92,11 @@ def delete_org(confirm: str = "", ctx: OrgContext = Depends(require_role("owner"
 def list_members(ctx: OrgContext = Depends(require_role("admin"))):
     with tenant_tx(ctx.org_id) as conn:
         rows = conn.execute(
-            """SELECT u.email, m.role, m.created_at
+            """SELECT u.id AS user_id, u.email, m.role, m.created_at
                FROM membership m JOIN app_user u ON u.id = m.user_id
                ORDER BY m.created_at"""
         ).fetchall()
-    return [{"email": r["email"], "role": r["role"]} for r in rows]
+    return [{"user_id": str(r["user_id"]), "email": r["email"], "role": r["role"]} for r in rows]
 
 
 @router.post("/members")

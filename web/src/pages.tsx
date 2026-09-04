@@ -386,39 +386,70 @@ function EditChannelModal({ channel, kinds, bots, onClose, onSaved }: { channel:
 }
 
 // ============================================================ Inbox
-export function Inbox({ shopId }: { shopId: string }) {
+export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string; email: string }; role?: string }) {
   const [convs, setConvs] = useState<any[] | null>(null);
   const [active, setActive] = useState<any>(null); const [msgs, setMsgs] = useState<any[]>([]); const [reply, setReply] = useState("");
+  const [members, setMembers] = useState<any[]>([]); const [busy, setBusy] = useState(false);
+  const canManage = role === "owner" || role === "admin";
   const loadList = () => api.get(`/api/conversations?shop_id=${shopId}`).then(setConvs);
-  useEffect(() => { setConvs(null); setActive(null); loadList(); }, [shopId]);
+  useEffect(() => { setConvs(null); setActive(null); loadList(); if (canManage) api.get("/api/members").then(setMembers).catch(() => {}); }, [shopId]);
   const open = async (c: any) => { setActive(c); setMsgs(await api.get(`/api/conversations/${c.id}/messages`)); };
-  const send = async () => { if (!reply.trim()) return; await api.post(`/api/conversations/${active.id}/reply`, { text: reply }); setReply(""); open(active); };
+  const refresh = async () => { await loadList(); if (active) { const c = (await api.get(`/api/conversations?shop_id=${shopId}`)).find((x: any) => x.id === active.id); if (c) setActive(c); } };
+  const send = async () => {
+    if (!reply.trim()) return; setBusy(true);
+    try {
+      const r = await api.post(`/api/conversations/${active.id}/reply`, { text: reply });
+      setReply(""); await open(active); await refresh();
+      if (r.delivered === false) notify("Đã lưu câu trả lời nhưng CHƯA gửi được tới khách: " + (r.note || "kiểm tra kết nối kênh"), "err");
+      else if (active.channel_kind && active.channel_kind !== "website") notify("Đã gửi câu trả lời tới khách trên kênh.", "ok");
+    } catch (e: any) { notify(e.message, "err"); } finally { setBusy(false); }
+  };
+  const claim = async (userId?: string) => {
+    try { await api.post(`/api/conversations/${active.id}/assign`, userId ? { user_id: userId } : {}); await refresh(); notify(userId ? "Đã gán hội thoại." : "Bạn đã nhận xử lý hội thoại này.", "ok"); }
+    catch (e: any) { notify(e.message, "err"); }
+  };
+  const assignedToMe = active && me && active.assigned_user_id === me.id;
   return (
     <Card>
-      <CardTitle sub="Toàn bộ hội thoại từ mọi kênh, có thể tiếp quản khi AI chuyển cho nhân viên.">Hộp thư hợp nhất</CardTitle>
+      <CardTitle sub="Toàn bộ hội thoại từ mọi kênh. Câu trả lời của nhân viên được gửi thẳng về kênh của khách. Có thể phân công ai xử lý hội thoại nào.">Hộp thư hợp nhất</CardTitle>
       <div className="flex gap-4 items-start flex-col md:flex-row">
         <div className="flex-1 min-w-[220px] w-full space-y-2">
           {!convs ? <Spinner /> : convs.length === 0 ? <Empty>Chưa có hội thoại. Hãy thử nhắn qua tiện ích website.</Empty> :
             convs.map((c) => (
               <div key={c.id} onClick={() => open(c)} className={"cursor-pointer rounded-xl border p-3 transition " + (active?.id === c.id ? "border-accent bg-card2" : "border-line hover:bg-card2")}>
-                <div className="flex items-center gap-2"><span className="font-semibold text-sm">{c.customer_ref}</span><Badge kind={c.status}>{statusLabel(c.status)}</Badge></div>
+                <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold text-sm">{c.customer_ref}</span><Badge kind={c.status}>{statusLabel(c.status)}</Badge></div>
                 <div className="text-xs text-muted mt-1 line-clamp-1 font-normal">{(c.last_message || "").slice(0, 70)}</div>
+                <div className="text-[11px] mt-1 font-normal">{c.assignee ? <span className="text-accent">● {c.assignee === me?.email ? "Bạn đang xử lý" : c.assignee}</span> : <span className="text-muted">○ Chưa ai nhận</span>}</div>
               </div>
             ))}
         </div>
         <div className="flex-[1.4] min-w-[260px] w-full">
           {!active ? <Empty>Chọn một hội thoại để xem chi tiết.</Empty> : (
             <div>
-              <div className="flex items-center gap-2 mb-3"><span className="font-semibold text-sm">Khách: {active.customer_ref}</span><Badge kind={active.status}>{statusLabel(active.status)}</Badge></div>
+              <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="font-semibold text-sm">Khách: {active.customer_ref}</span><Badge kind={active.status}>{statusLabel(active.status)}</Badge></div>
+              <div className="flex items-center gap-2 mb-3 flex-wrap text-[12px]">
+                <span className="text-muted font-normal">Phụ trách:</span>
+                <span className={active.assignee ? "font-semibold" : "text-muted font-normal"}>{active.assignee ? (assignedToMe ? "Bạn" : active.assignee) : "Chưa ai nhận"}</span>
+                {!assignedToMe && <Button size="sm" variant="ghost" onClick={() => claim()}>Nhận xử lý</Button>}
+                {canManage && members.length > 0 && (
+                  <Select className="w-auto h-8 py-1 text-[12px]" value={active.assigned_user_id || ""} onChange={(e) => claim(e.target.value || undefined)}>
+                    <option value="">— Gán cho —</option>
+                    {members.map((m) => <option key={m.email} value={m.user_id || ""}>{m.email}</option>)}
+                  </Select>
+                )}
+              </div>
               <div className="max-h-[52vh] overflow-auto pr-1 space-y-2">
                 {msgs.map((m, i) => (
                   <div key={i} className={"px-3 py-2 rounded-xl text-sm max-w-[85%] whitespace-pre-wrap font-normal " +
-                    (m.role === "customer" ? "bg-bg border border-line ml-auto" : m.role === "ai" ? "bg-indigo-900/40" : m.role === "agent" ? "bg-emerald-900/40" : "bg-amber-900/30 text-xs")}>{m.content}</div>
+                    (m.role === "customer" ? "bg-bg border border-line ml-auto" : m.role === "ai" ? "bg-indigo-900/40" : m.role === "agent" ? "bg-emerald-900/40" : "bg-amber-900/30 text-xs")}>
+                    {m.role === "agent" && m.sender && <div className="text-[10px] opacity-70 mb-0.5">{m.sender}</div>}
+                    {m.content}
+                  </div>
                 ))}
               </div>
               <div className="flex gap-2 mt-3">
                 <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Nhập câu trả lời của nhân viên" onKeyDown={(e) => e.key === "Enter" && send()} />
-                <Button onClick={send}><Send className="w-4 h-4" /></Button>
+                <Button onClick={send} loading={busy}><Send className="w-4 h-4" /></Button>
                 <Button variant="sec" onClick={async () => { await api.post(`/api/conversations/${active.id}/close`); loadList(); setActive(null); }}>Đóng</Button>
               </div>
             </div>

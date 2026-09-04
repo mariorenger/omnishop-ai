@@ -458,6 +458,32 @@ def _creds(enc) -> dict:
         return {}
 
 
+def deliver_agent_reply(org_id: str, channel_id: str, customer_ref: str, text: str):
+    """Push a human/agent reply OUT to the external channel the customer is on.
+    Website returns (True, 'widget') because the widget polls for new messages."""
+    with tenant_tx(org_id) as conn:
+        r = conn.execute("SELECT kind, credentials_enc, config FROM channel WHERE id=%s", (channel_id,)).fetchone()
+    if not r:
+        return False, "không tìm thấy kênh"
+    kind = r["kind"]
+    creds = _creds(r["credentials_enc"])
+    cfg = dict(r["config"] or {})
+    try:
+        if kind == "website":
+            return True, "widget"
+        if kind in ("messenger", "instagram"):
+            return meta.send_message(creds.get("page_access_token", ""), customer_ref, text)
+        if kind == "telegram":
+            return telegram.send_message(creds.get("bot_token", ""), customer_ref, text)
+        if kind == "zalo":
+            return zalo.send_message(creds.get("access_token", ""), customer_ref, text)
+        if kind == "whatsapp":
+            return whatsapp.send_message(creds.get("access_token", ""), cfg.get("phone_number_id", ""), customer_ref, text)
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+    return False, f"kênh {kind} chưa hỗ trợ gửi tin đi"
+
+
 def _resolve_by_cfg(kind: str, key: str, value: str):
     """Resolve a live channel by a non-secret routing key in its config, without a
     tenant context (webhooks are anonymous). Uses the superuser connection."""
