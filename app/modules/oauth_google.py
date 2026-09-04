@@ -43,10 +43,15 @@ def _redirect_uri() -> str:
 
 
 def _web_base() -> str:
+    """Where to send the user after Google login: the public domain
+    (OAUTH_REDIRECT_BASE) if configured, else a CORS origin, else localhost."""
+    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    if base and "localhost" not in base and "127.0.0.1" not in base:
+        return base
     for o in (config.CORS_ORIGINS or []):
         if o and o != "*":
             return o.rstrip("/")
-    return "http://localhost:3000"
+    return base or "http://localhost:3000"
 
 
 def _sign_state(payload: dict) -> str:
