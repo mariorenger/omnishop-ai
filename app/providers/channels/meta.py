@@ -30,6 +30,20 @@ def verify_page_token(page_access_token: str, page_id: str = "") -> Tuple[bool, 
         return False, str(e)
 
 
+def subscribe_page(page_access_token: str, page_id: str,
+                   fields: str = "messages,messaging_postbacks,messaging_optins,message_reactions") -> Tuple[bool, str]:
+    """Subscribe the Page to the platform app so Messenger/IG events are delivered
+    to our webhook. Without this a valid token still receives nothing."""
+    try:
+        r = httpx.post(f"{GRAPH}/{page_id}/subscribed_apps",
+                       params={"subscribed_fields": fields, "access_token": page_access_token}, timeout=20)
+        if r.status_code == 200 and r.json().get("success"):
+            return True, "page subscribed"
+        return False, r.json().get("error", {}).get("message", r.text)
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+
+
 def send_message(page_access_token: str, recipient_id: str, text: str) -> Tuple[bool, str]:
     try:
         r = httpx.post(

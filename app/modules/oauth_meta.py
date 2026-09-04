@@ -97,6 +97,12 @@ def callback(code: str = "", state: str = ""):
             exists = conn.execute("SELECT 1 FROM channel WHERE config->>'page_id'=%s", (pg["id"],)).fetchone()
             if exists:
                 continue
+            # subscribe the Page to our app so Messenger/IG events reach the webhook
+            try:
+                from ..providers.channels import meta as _meta
+                _meta.subscribe_page(pg.get("access_token", ""), pg["id"])
+            except Exception:  # noqa: BLE001
+                pass
             enc = encrypt_secret(json.dumps({"page_access_token": pg.get("access_token", "")}))
             conn.execute(
                 """INSERT INTO channel (organization_id, shop_id, kind, name, credentials_enc, status, config, bot_id)

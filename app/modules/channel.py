@@ -205,6 +205,9 @@ def create_channel(body: ChannelBody, ctx: OrgContext = Depends(require_role("ad
             ok, info = meta.verify_page_token(creds.get("page_access_token", ""))
             status = "connected" if ok else "degraded"
             note = info
+            if ok and cfg.get("page_id"):
+                sok, sinfo = meta.subscribe_page(creds.get("page_access_token", ""), cfg["page_id"])
+                note = f"{info} · {'Trang đã đăng ký nhận tin' if sok else 'CHƯA đăng ký Trang: ' + sinfo}"
         elif kind == "telegram":
             public_key = "tg_" + secrets.token_urlsafe(16)
             ok, info = telegram.verify_token(creds.get("bot_token", ""))
@@ -292,9 +295,22 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
             except Exception:  # noqa: BLE001
                 creds = {}
         cfg = dict(r["config"] or {})
+        base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+        good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
         if kind in ("messenger", "instagram"):
             tok = creds.get("page_access_token", "")
-            ok, info = meta.verify_page_token(tok) if tok else (False, "chưa có token")
+            if not tok:
+                ok, info = False, "chưa có token"
+            else:
+                ok, info = meta.verify_page_token(tok)
+                if ok:
+                    # subscribe the Page to our app so it actually delivers messages
+                    pid = cfg.get("page_id", "")
+                    if pid:
+                        sok, sinfo = meta.subscribe_page(tok, pid)
+                        info = f"{info} · {'Trang đã đăng ký nhận tin' if sok else 'CHƯA đăng ký được Trang: ' + sinfo}"
+                    info += (f" · Webhook (Admin cấu hình 1 lần trong Facebook App → {base}/api/channels/webhook/meta)"
+                             if good_base else " · Cần OAUTH_REDIRECT_BASE=https://tên-miền để nhận tin")
         elif kind == "telegram":
             tok = creds.get("bot_token", "")
             if not tok:
@@ -326,9 +342,15 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
         elif kind == "zalo":
             tok = creds.get("access_token", "")
             ok, info = zalo.verify_token(tok) if tok else (False, "chưa có token")
+            if ok:
+                info += (f" · Đặt Webhook URL trong Zalo OA/Developer Console → {base}/api/channels/webhook/zalo"
+                         if good_base else " · Cần OAUTH_REDIRECT_BASE=https://tên-miền để nhận tin")
         else:  # whatsapp
             tok = creds.get("access_token", "")
             ok, info = whatsapp.verify_token(tok, cfg.get("phone_number_id", "")) if tok else (False, "chưa có token")
+            if ok:
+                info += (f" · Webhook (dùng chung Meta App → {base}/api/channels/webhook/meta)"
+                         if good_base else " · Cần OAUTH_REDIRECT_BASE=https://tên-miền để nhận tin")
         status = "connected" if ok else "degraded"
         conn.execute("UPDATE channel SET status=%s WHERE id=%s", (status, channel_id))
     audit.record("channel.verify", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=channel_id,
