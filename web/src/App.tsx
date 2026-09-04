@@ -126,7 +126,7 @@ export default function App() {
             : tab === "bots" ? <Bots shopId={shop.id} role={role} />
             : tab === "knowledge" ? <Knowledge shopId={shop.id} />
             : tab === "channels" ? <Channels shopId={shop.id} />
-            : tab === "products" ? <Products shopId={shop.id} />
+            : tab === "products" ? <Products shopId={shop.id} role={role} />
             : tab === "members" ? <Members role={role} />
             : tab === "billing" ? <Billing role={role} />
             : tab === "settings" ? <Settings />

@@ -65,30 +65,41 @@ function Row({ l, v, info }: { l: string; v: string; info?: string }) {
 const statusLabel = (s: string) => ({ ai: "AI xử lý", needs_human: "Cần hỗ trợ", human: "Nhân viên", closed: "Đã đóng" } as any)[s] || s;
 
 // ============================================================ Products
-export function Products({ shopId }: { shopId: string }) {
+export function Products({ shopId, role }: { shopId: string; role?: string }) {
   const [items, setItems] = useState<any[] | null>(null); const [bots, setBots] = useState<any[]>([]);
-  const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
+  const [q, setQ] = useState(""); const [editId, setEditId] = useState<string | null>(null);   // null=closed, ""=new, id=edit
   const [f, setF] = useState<any>({ name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const canManage = role === "owner" || role === "admin";
   const load = () => { api.get(`/api/products?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
   useEffect(() => { setItems(null); load(); }, [shopId]);
-  const add = async () => {
+  const blank = { name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" };
+  const openNew = () => { setF(blank); setEditId(""); setErr(""); };
+  const openEdit = (p: any) => {
+    setF({ name: p.name, price: p.price ?? "", currency: p.currency || "VND", sku: p.sku || "",
+           category: (p.attributes || {}).category || "", description: p.description || "",
+           variants: (p.variants || []).map((v: any) => `${v.name}:${v.stock}`).join(", "), bot_id: p.bot_id || "" });
+    setEditId(p.id); setErr("");
+  };
+  const save = async () => {
     setBusy(true); setErr("");
     const variants = (f.variants || "").split(",").map((s: string) => s.trim()).filter(Boolean).map((s: string) => { const [n, st] = s.split(":"); return { name: (n || "").trim(), stock: parseInt(st || "0") || 0 }; });
+    const body = { shop_id: shopId, name: f.name, price: f.price ? parseFloat(f.price) : null, currency: f.currency, sku: f.sku, description: f.description, attributes: f.category ? { category: f.category } : {}, variants, bot_id: f.bot_id || null };
     try {
-      await api.post("/api/products", { shop_id: shopId, name: f.name, price: f.price ? parseFloat(f.price) : null, currency: f.currency, sku: f.sku, description: f.description, attributes: f.category ? { category: f.category } : {}, variants, bot_id: f.bot_id || null });
-      setF({ name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" }); setOpen(false); load();
+      if (editId) await api.put(`/api/products/${editId}`, body); else await api.post("/api/products", body);
+      setEditId(null); load(); notify(editId ? "Đã cập nhật sản phẩm." : "Đã thêm sản phẩm.", "ok");
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
+  const del = async (p: any) => { if (!confirm(`Xoá sản phẩm "${p.name}"? Không thể hoàn tác.`)) return; try { await api.del(`/api/products/${p.id}`); load(); notify("Đã xoá sản phẩm.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
   const totalStock = (p: any) => (p.variants || []).reduce((s: number, v: any) => s + (v.stock || 0), 0);
   const botName = (id: string) => bots.find((b) => b.id === id)?.name;
   const rows = (items || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || (p.sku || "").toLowerCase().includes(q.toLowerCase()));
   return (
     <Card>
       <CardTitle sub="Trợ lý AI dùng dữ liệu này để trả lời về giá, tồn kho và biến thể."
-        right={<div className="flex gap-2"><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm tên hoặc SKU" className="w-44" /><Button size="sm" onClick={() => setOpen(true)}><Plus className="w-4 h-4" /> Thêm</Button></div>}>Sản phẩm</CardTitle>
+        right={<div className="flex gap-2"><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm tên hoặc SKU" className="w-44" />{canManage && <Button size="sm" onClick={openNew}><Plus className="w-4 h-4" /> Thêm</Button>}</div>}>Sản phẩm</CardTitle>
       {!items ? <Spinner /> : rows.length === 0 ? <Empty>{q ? "Không tìm thấy sản phẩm." : "Chưa có sản phẩm nào."}</Empty> :
-        <Table head={["Sản phẩm", "SKU", "Giá", "Tồn kho", "Biến thể", "Áp dụng"]}>
+        <Table head={["Sản phẩm", "SKU", "Giá", "Tồn kho", "Biến thể", "Áp dụng", ""]}>
           {rows.map((p) => (
             <tr key={p.id}>
               <Td><div className="font-medium">{p.name}</div><div className="text-xs text-muted line-clamp-1">{p.description || ""}</div></Td>
@@ -97,12 +108,16 @@ export function Products({ shopId }: { shopId: string }) {
               <Td>{p.variants && p.variants.length ? <span className={totalStock(p) === 0 ? "text-bad" : ""}>{totalStock(p)}</span> : "—"}</Td>
               <Td><div className="flex flex-wrap gap-1">{(p.variants || []).slice(0, 4).map((v: any, i: number) => <span key={i} className={"text-[11px] border rounded px-1.5 py-0.5 font-normal " + (v.stock === 0 ? "border-bad/40 text-bad" : "border-line text-muted")}>{v.name}·{v.stock}</span>)}{(p.variants || []).length > 4 && <span className="text-[11px] text-muted">+{p.variants.length - 4}</span>}</div></Td>
               <Td className="text-muted text-xs">{p.bot_id ? botName(p.bot_id) || "1 trợ lý" : "Tất cả"}</Td>
+              <Td className="text-right whitespace-nowrap">{canManage && <span className="inline-flex gap-1">
+                <Button size="sm" variant="ghost" onClick={() => openEdit(p)}><Pencil className="w-3.5 h-3.5" /></Button>
+                <Button size="sm" variant="danger" onClick={() => del(p)}>Xoá</Button>
+              </span>}</Td>
             </tr>
           ))}
         </Table>}
-      <Msg type="err">{err}</Msg>
-      <Modal open={open} onClose={() => setOpen(false)} title="Thêm sản phẩm" size="lg"
-        footer={<><Button variant="sec" onClick={() => setOpen(false)}>Huỷ</Button><Button loading={busy} onClick={add}>Lưu sản phẩm</Button></>}>
+      <Msg type="err">{!editId ? err : ""}</Msg>
+      <Modal open={editId !== null} onClose={() => setEditId(null)} title={editId ? "Sửa sản phẩm" : "Thêm sản phẩm"} size="lg"
+        footer={<><Button variant="sec" onClick={() => setEditId(null)}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu sản phẩm</Button></>}>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Tên sản phẩm"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Áo thun cotton" /></Field>
           <Field label="SKU"><Input value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} placeholder="AO-001" /></Field>

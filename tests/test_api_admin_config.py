@@ -56,6 +56,20 @@ def test_admin_finance_pnl(client, tenant):
 
 
 @requires_db
+def test_cannot_remove_last_platform_admin(client):
+    h = _admin(client)
+    # make the seeded admin the LAST admin (demote any others to manager first),
+    # so the guard is exercised deterministically even on a reused DB
+    for s in client.get("/api/auth/staff", headers=h).json():
+        if s["platform_role"] == "admin" and s["email"].lower() != "admin@omnishop.local":
+            client.put("/api/auth/staff", json={"email": s["email"], "platform_role": "manager"}, headers=h)
+    # demoting the only admin (self) must be blocked so nobody gets locked out
+    r = client.put("/api/auth/staff", json={"email": "admin@omnishop.local", "platform_role": "none"}, headers=h)
+    assert r.status_code >= 400
+    assert client.get("/api/admin/overview", headers=h).status_code == 200
+
+
+@requires_db
 def test_admin_edits_cost_rates(client):
     h = _admin(client)
     orig = client.get("/api/admin/settings/cost", headers=h).json()

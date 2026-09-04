@@ -108,6 +108,14 @@ def add_member(body: MemberBody, ctx: OrgContext = Depends(require_role("admin")
     if not u:
         raise bad_request("user must sign up first")
     with tenant_tx(ctx.org_id) as conn:
+        # never demote the last owner of the workspace (would lock it out)
+        cur = conn.execute("SELECT role FROM membership WHERE user_id=%s", (str(u["id"]),)).fetchone()
+        if cur and cur["role"] == "owner" and body.role != "owner":
+            others = conn.execute(
+                "SELECT count(*) AS n FROM membership WHERE role='owner' AND user_id<>%s", (str(u["id"]),)
+            ).fetchone()["n"]
+            if int(others) == 0:
+                raise bad_request("Không thể hạ quyền chủ sở hữu cuối cùng. Hãy chỉ định một chủ sở hữu khác trước.")
         conn.execute(
             """INSERT INTO membership (organization_id, user_id, role) VALUES (%s,%s,%s)
                ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role""",

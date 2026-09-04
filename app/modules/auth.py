@@ -123,9 +123,16 @@ def list_staff(_: CurrentUser = Depends(require_platform_admin)):
 def set_staff(body: StaffBody, admin: CurrentUser = Depends(require_platform_admin)):
     role = body.platform_role if body.platform_role in ("admin", "manager") else None
     with no_tenant() as conn:
-        row = conn.execute("SELECT id FROM app_user WHERE lower(email)=lower(%s)", (body.email,)).fetchone()
+        row = conn.execute("SELECT id, platform_role FROM app_user WHERE lower(email)=lower(%s)", (body.email,)).fetchone()
         if not row:
             raise bad_request("người dùng chưa có tài khoản — họ cần đăng nhập/đăng ký trước")
+        # never allow removing the LAST platform admin — that would lock everyone out
+        if row["platform_role"] == "admin" and role != "admin":
+            others = conn.execute(
+                "SELECT count(*) AS n FROM app_user WHERE platform_role='admin' AND id<>%s", (row["id"],)
+            ).fetchone()["n"]
+            if int(others) == 0:
+                raise bad_request("Không thể gỡ quyền của quản trị viên cuối cùng. Hãy cấp quyền admin cho người khác trước.")
         conn.execute("UPDATE app_user SET platform_role=%s, is_platform_admin=%s WHERE id=%s",
                      (role, role == "admin", row["id"]))
     audit.record("admin.staff.update", actor_user_id=admin.id, target=body.email,

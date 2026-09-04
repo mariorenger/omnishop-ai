@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from .. import audit
 from ..db import tenant_tx
-from ..errors import bad_request
+from ..errors import bad_request, not_found
 from ..providers.queue import enqueue
 from ..tenancy import OrgContext, get_org_context, require_role
 
@@ -44,7 +44,7 @@ def list_products(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         _assert_shop(conn, shop_id)
         rows = conn.execute(
-            "SELECT id, name, description, price, currency, sku, attributes FROM product WHERE shop_id=%s ORDER BY created_at DESC",
+            "SELECT id, name, description, price, currency, sku, attributes, bot_id FROM product WHERE shop_id=%s ORDER BY created_at DESC",
             (shop_id,),
         ).fetchall()
         out = []
@@ -57,6 +57,7 @@ def list_products(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
                 "id": str(r["id"]), "name": r["name"], "description": r["description"],
                 "price": float(r["price"]) if r["price"] is not None else None,
                 "currency": r["currency"], "sku": r["sku"], "attributes": r["attributes"],
+                "bot_id": str(r["bot_id"]) if r["bot_id"] else None,
                 "variants": [{"name": v["name"], "sku": v["sku"],
                               "price": float(v["price"]) if v["price"] is not None else None,
                               "stock": int(v["stock"])} for v in variants],
@@ -90,3 +91,43 @@ def create_product(body: ProductBody, ctx: OrgContext = Depends(require_role("ad
     enqueue("embed_product", {"product_id": pid}, organization_id=ctx.org_id)
     audit.record("product.create", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=pid)
     return {"id": pid, "name": body.name, "variants": len(body.variants)}
+
+
+@router.put("/{product_id}")
+def update_product(product_id: str, body: ProductBody, ctx: OrgContext = Depends(require_role("admin"))):
+    if not body.name.strip():
+        raise bad_request("name is required")
+    import json
+    with tenant_tx(ctx.org_id) as conn:
+        if not conn.execute("SELECT 1 FROM product WHERE id=%s", (product_id,)).fetchone():
+            raise not_found("product not found")
+        bot_id = body.bot_id
+        if bot_id and not conn.execute("SELECT 1 FROM bot WHERE id=%s AND shop_id=%s", (bot_id, body.shop_id)).fetchone():
+            bot_id = None
+        conn.execute(
+            """UPDATE product SET name=%s, description=%s, price=%s, currency=%s, sku=%s, attributes=%s, bot_id=%s
+               WHERE id=%s""",
+            (body.name, body.description, body.price, body.currency, body.sku,
+             json.dumps(body.attributes), bot_id, product_id),
+        )
+        conn.execute("DELETE FROM product_variant WHERE product_id=%s", (product_id,))
+        for v in body.variants:
+            conn.execute(
+                """INSERT INTO product_variant (organization_id, product_id, name, sku, price, stock)
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                (ctx.org_id, product_id, v.name, v.sku, v.price, v.stock),
+            )
+    enqueue("embed_product", {"product_id": product_id}, organization_id=ctx.org_id)
+    audit.record("product.update", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=product_id)
+    return {"id": product_id, "name": body.name, "variants": len(body.variants)}
+
+
+@router.delete("/{product_id}")
+def delete_product(product_id: str, ctx: OrgContext = Depends(require_role("admin"))):
+    with tenant_tx(ctx.org_id) as conn:
+        if not conn.execute("SELECT 1 FROM product WHERE id=%s", (product_id,)).fetchone():
+            raise not_found("product not found")
+        conn.execute("DELETE FROM product_variant WHERE product_id=%s", (product_id,))
+        conn.execute("DELETE FROM product WHERE id=%s", (product_id,))
+    audit.record("product.delete", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=product_id)
+    return {"ok": True}
