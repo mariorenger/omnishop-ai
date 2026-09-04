@@ -26,7 +26,9 @@ export function Overview({ shopId, onGoInbox }: { shopId: string; onGoInbox?: ()
         <Kpi n={fmt(t.conversations)} l="Hội thoại" info="Tổng số cuộc trò chuyện với khách trên cửa hàng này." />
         <Kpi n={`${t.ai_rate}%`} l="Tỷ lệ AI tự xử lý" info="Phần trăm câu trả lời do AI đảm nhận, phần còn lại do nhân viên." />
         <Kpi n={`${fmt(t.ai_messages)}${sub ? " / " + fmt(sub.quota.limit) : ""}`} l="Tin nhắn AI tháng này" info="Số câu trả lời AI đã dùng trong tháng so với hạn mức của gói." />
-        <Kpi n={`$${t.cost_month.toFixed(2)}`} l="Chi phí AI ước tính" info="Chi phí suy luận ước tính trong tháng, dùng để theo dõi biên lợi nhuận." />
+        {sub?.quota?.llm_mode === "byok"
+          ? <Kpi n={`$${t.cost_month.toFixed(2)}`} l="Chi phí AI (khoá của bạn)" info="Ước tính chi phí token bằng chính khoá AI của bạn trong tháng này." />
+          : <Kpi n={fmt(t.customer_messages)} l="Khách đã nhắn" info="Số tin nhắn khách gửi đến cửa hàng trong kỳ." />}
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">

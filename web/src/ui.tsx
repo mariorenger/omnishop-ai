@@ -126,8 +126,9 @@ export function Empty({ children }: { children: React.ReactNode }) {
 }
 export function Kpi({ n, l, info }: { n: React.ReactNode; l: string; info?: string }) {
   return (
-    <div className="relative overflow-hidden bg-gradient-to-b from-card to-card2 border border-line rounded-xl p-4">
-      <div className="absolute -right-6 -top-8 w-24 h-24 rounded-full bg-pastel-soft blur-2xl" />
+    <div className="relative bg-gradient-to-b from-card to-card2 border border-line rounded-xl p-4">
+      {/* clip the glow to the card WITHOUT clipping the tooltip that lives above */}
+      <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none"><div className="absolute -right-6 -top-8 w-24 h-24 rounded-full bg-pastel-soft blur-2xl" /></div>
       <div className="relative text-[22px] font-extrabold tracking-tight leading-none">{n}</div>
       <div className="relative text-xs text-muted mt-1.5 flex items-center font-normal">{l}{info && <Info text={info} />}</div>
     </div>
