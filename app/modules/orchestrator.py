@@ -40,17 +40,20 @@ def classify(text: str) -> str:
     return "knowledge"
 
 
-def _get_or_create_conversation(conn, org_id, shop_id, channel_id, customer_ref) -> str:
+def _get_or_create_conversation(conn, org_id, shop_id, channel_id, customer_ref, customer_name=None) -> str:
     row = conn.execute(
-        "SELECT id FROM conversation WHERE channel_id=%s AND customer_ref=%s ORDER BY created_at DESC LIMIT 1",
+        "SELECT id, customer_name FROM conversation WHERE channel_id=%s AND customer_ref=%s ORDER BY created_at DESC LIMIT 1",
         (channel_id, customer_ref),
     ).fetchone()
     if row:
+        # backfill the name if the channel now gives us one and we didn't have it
+        if customer_name and not row["customer_name"]:
+            conn.execute("UPDATE conversation SET customer_name=%s WHERE id=%s", (customer_name, str(row["id"])))
         return str(row["id"])
     row = conn.execute(
-        """INSERT INTO conversation (organization_id, shop_id, channel_id, customer_ref)
-           VALUES (%s,%s,%s,%s) RETURNING id""",
-        (org_id, shop_id, channel_id, customer_ref),
+        """INSERT INTO conversation (organization_id, shop_id, channel_id, customer_ref, customer_name)
+           VALUES (%s,%s,%s,%s,%s) RETURNING id""",
+        (org_id, shop_id, channel_id, customer_ref, customer_name),
     ).fetchone()
     return str(row["id"])
 
@@ -76,7 +79,8 @@ def _product_block(conn, p) -> ContextBlock:
     return ContextBlock(source="product", title=p["name"], body=body)
 
 
-def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: str, text: str) -> dict:
+def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: str, text: str,
+                    customer_name: str = None) -> dict:
     started = time.time()
     intent = classify(text)
 
@@ -91,7 +95,7 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
         persona = (botrow["persona"] or "") if botrow else ""
         bot_id = str(botrow["bot_id"]) if botrow and botrow["bot_id"] else None
         bot_cfg = (botrow["config"] or {}) if botrow else {}
-        conv_id = _get_or_create_conversation(conn, org_id, shop_id, channel_id, customer_ref)
+        conv_id = _get_or_create_conversation(conn, org_id, shop_id, channel_id, customer_ref, customer_name)
         hist_rows = conn.execute(
             "SELECT role, content FROM message WHERE conversation_id=%s ORDER BY created_at DESC LIMIT %s",
             (conv_id, _HISTORY),

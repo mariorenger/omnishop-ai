@@ -42,13 +42,16 @@ def send_message(access_token: str, phone_number_id: str, to: str, text: str) ->
 
 
 def normalize_entries(payload: dict):
-    """Yield (phone_number_id, sender, text) from a WhatsApp Cloud webhook body."""
+    """Yield (phone_number_id, sender, text, name) from a WhatsApp Cloud webhook
+    body. `name` is the sender's profile name when present, else ''."""
     for entry in payload.get("entry", []):
         for ch in entry.get("changes", []):
             value = ch.get("value", {})
             pnid = str((value.get("metadata") or {}).get("phone_number_id", ""))
+            names = {str(c.get("wa_id", "")): ((c.get("profile") or {}).get("name") or "")
+                     for c in value.get("contacts", [])}
             for m in value.get("messages", []):
                 sender = str(m.get("from", ""))
                 text = (m.get("text") or {}).get("body")
                 if pnid and sender and text:
-                    yield pnid, sender, text
+                    yield pnid, sender, text, names.get(sender, "")

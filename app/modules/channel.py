@@ -436,12 +436,13 @@ async def meta_webhook(request: Request):
     payload = json.loads(body or b"{}")
     # WhatsApp Cloud shares this app + endpoint but a different body shape.
     if payload.get("object") == "whatsapp_business_account":
-        for pnid, sender, text in whatsapp.normalize_entries(payload):
+        for pnid, sender, text, name in whatsapp.normalize_entries(payload):
             row = _resolve_by_cfg("whatsapp", "phone_number_id", pnid)
             if not row:
                 continue
             result = orchestrator.handle_incoming(
-                str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text
+                str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text,
+                customer_name=name or None
             )
             creds = _creds(row["credentials_enc"])
             if creds.get("access_token"):
@@ -528,7 +529,8 @@ async def telegram_webhook(public_key: str, request: Request):
     if not ch:
         return {"ok": True}
     result = orchestrator.handle_incoming(
-        str(ch["organization_id"]), str(ch["shop_id"]), str(ch["id"]), chat_id, text
+        str(ch["organization_id"]), str(ch["shop_id"]), str(ch["id"]), chat_id, text,
+        customer_name=telegram.sender_name(update) or None
     )
     token = _creds(ch["credentials_enc"]).get("bot_token", "")
     if token:

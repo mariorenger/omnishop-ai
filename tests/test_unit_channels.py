@@ -16,9 +16,10 @@ def test_telegram_normalize_update():
 def test_whatsapp_normalize_entries():
     payload = {"object": "whatsapp_business_account", "entry": [
         {"changes": [{"value": {"metadata": {"phone_number_id": "PN1"},
+                                 "contacts": [{"wa_id": "849xx", "profile": {"name": "Chị Lan"}}],
                                  "messages": [{"from": "849xx", "text": {"body": "còn hàng không"}}]}}]}]}
     got = list(whatsapp.normalize_entries(payload))
-    assert got == [("PN1", "849xx", "còn hàng không")]
+    assert got == [("PN1", "849xx", "còn hàng không", "Chị Lan")]
 
 
 def test_zalo_normalize_event():

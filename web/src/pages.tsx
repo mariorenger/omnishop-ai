@@ -257,6 +257,7 @@ function DocDetail({ id, onClose, onDelete, onReprocess, onSetActive }: { id: st
 const channelStatus = (s: string) => ({ connected: "Đang hoạt động", degraded: "Cần kiểm tra", pending: "Chờ kích hoạt", disconnected: "Đã ngắt" } as any)[s] || s;
 
 const VERIFIABLE = ["messenger", "instagram", "telegram", "zalo", "whatsapp"];
+const KIND_VI: Record<string, string> = { website: "Website", messenger: "Messenger", instagram: "Instagram", telegram: "Telegram", zalo: "Zalo OA", whatsapp: "WhatsApp", tiktok: "TikTok Shop", shopee: "Shopee" };
 
 // Official brand marks (single-path SVGs) + brand colours, so each channel is
 // instantly recognisable instead of relying on OS-dependent emoji.
@@ -318,7 +319,7 @@ export function Channels({ shopId }: { shopId: string }) {
         {!items ? <Spinner /> : items.length === 0 ? <Empty>Chưa có kênh nào. Bấm Kết nối kênh để bắt đầu.</Empty> :
           <div className="space-y-3">
             {items.map((ch) => {
-              const url = ch.public_key ? `${location.origin}/widget.html?key=${ch.public_key}` : "";
+              const url = (ch.kind === "website" && ch.public_key) ? `${location.origin}/widget.html?key=${ch.public_key}` : "";
               const canVerify = VERIFIABLE.includes(ch.kind);
               return (
                 <div key={ch.id} className="border border-line rounded-xl p-4">
@@ -452,26 +453,41 @@ export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string;
           {!convs ? <Spinner /> : convs.length === 0 ? <Empty>Chưa có hội thoại. Hãy thử nhắn qua tiện ích website.</Empty> :
             convs.map((c) => (
               <div key={c.id} onClick={() => open(c)} className={"cursor-pointer rounded-xl border p-3 transition " + (active?.id === c.id ? "border-accent bg-card2" : "border-line hover:bg-card2")}>
-                <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold text-sm">{c.customer_ref}</span><Badge kind={c.status}>{statusLabel(c.status)}</Badge></div>
+                <div className="flex items-center gap-2 flex-wrap"><ChannelMark kind={c.channel_kind} /><span className="font-semibold text-sm truncate">{c.customer_name || c.customer_ref}</span><Badge kind={c.status}>{statusLabel(c.status)}</Badge></div>
                 <div className="text-xs text-muted mt-1 line-clamp-1 font-normal">{(c.last_message || "").slice(0, 70)}</div>
-                <div className="text-[11px] mt-1 font-normal">{c.assignee ? <span className="text-accent">● {c.assignee === me?.email ? "Bạn đang xử lý" : c.assignee}</span> : <span className="text-muted">○ Chưa ai nhận</span>}</div>
+                <div className="text-[11px] mt-1 font-normal flex items-center gap-1.5 flex-wrap">
+                  <span className="text-muted">{KIND_VI[c.channel_kind] || c.channel_kind || "—"}</span><span className="text-muted opacity-50">·</span>
+                  {c.assignee ? <span className="text-accent">● {c.assignee === me?.email ? "Bạn xử lý" : c.assignee}</span> : <span className="text-muted">○ Chưa nhận</span>}
+                </div>
               </div>
             ))}
         </div>
         <div className="flex-[1.4] min-w-[260px] w-full">
           {!active ? <Empty>Chọn một hội thoại để xem chi tiết.</Empty> : (
             <div>
-              <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="font-semibold text-sm">Khách: {active.customer_ref}</span><Badge kind={active.status}>{statusLabel(active.status)}</Badge></div>
-              <div className="flex items-center gap-2 mb-3 flex-wrap text-[12px]">
-                <span className="text-muted font-normal">Phụ trách:</span>
-                <span className={active.assignee ? "font-semibold" : "text-muted font-normal"}>{active.assignee ? (assignedToMe ? "Bạn" : active.assignee) : "Chưa ai nhận"}</span>
-                {!assignedToMe && <Button size="sm" variant="ghost" onClick={() => claim()}>Nhận xử lý</Button>}
-                {canManage && members.length > 0 && (
-                  <Select className="w-auto h-8 py-1 text-[12px]" value={active.assigned_user_id || ""} onChange={(e) => claim(e.target.value || undefined)}>
-                    <option value="">— Gán cho —</option>
-                    {members.map((m) => <option key={m.email} value={m.user_id || ""}>{m.email}</option>)}
-                  </Select>
-                )}
+              <div className="mb-3 rounded-xl border border-line bg-card2/50 p-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ChannelMark kind={active.channel_kind} />
+                  <span className="font-semibold">{active.customer_name || active.customer_ref}</span>
+                  <Badge kind={active.status}>{statusLabel(active.status)}</Badge>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 mt-2.5 text-[12px] font-normal">
+                  <div className="text-muted">Kênh: <span className="text-fg font-medium">{KIND_VI[active.channel_kind] || active.channel_kind || "—"}{active.channel_name ? ` · ${active.channel_name}` : ""}</span></div>
+                  <div className="text-muted">Mã khách: <span className="text-fg font-mono">{active.customer_ref}</span></div>
+                  <div className="text-muted">Bắt đầu: <span className="text-fg">{active.created_at ? new Date(active.created_at).toLocaleString("vi-VN") : "—"}</span></div>
+                  <div className="text-muted">Số tin nhắn: <span className="text-fg">{active.messages ?? "—"}</span></div>
+                </div>
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap text-[12px] border-t border-line/60 pt-2.5">
+                  <span className="text-muted font-normal">Phụ trách:</span>
+                  <span className={active.assignee ? "font-semibold" : "text-muted font-normal"}>{active.assignee ? (assignedToMe ? "Bạn" : active.assignee) : "Chưa ai nhận"}</span>
+                  {!assignedToMe && <Button size="sm" variant="ghost" onClick={() => claim()}>Nhận xử lý</Button>}
+                  {canManage && members.length > 0 && (
+                    <Select className="w-auto h-8 py-1 text-[12px]" value={active.assigned_user_id || ""} onChange={(e) => claim(e.target.value || undefined)}>
+                      <option value="">— Gán cho —</option>
+                      {members.map((m) => <option key={m.email} value={m.user_id || ""}>{m.email}</option>)}
+                    </Select>
+                  )}
+                </div>
               </div>
               <div className="max-h-[54vh] overflow-auto pr-1 space-y-3 py-1">
                 {msgs.map((m, i) => {

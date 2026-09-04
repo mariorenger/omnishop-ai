@@ -94,16 +94,20 @@ class AgentReply(BaseModel):
 def list_conversations(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
     with tenant_tx(ctx.org_id) as conn:
         rows = conn.execute(
-            """SELECT c.id, c.customer_ref, c.status, c.last_at, c.assigned_user_id, c.channel_id,
+            """SELECT c.id, c.customer_ref, c.customer_name, c.status, c.created_at, c.last_at,
+                      c.assigned_user_id, c.channel_id,
                       (SELECT email FROM app_user u WHERE u.id=c.assigned_user_id) AS assignee,
-                      (SELECT kind FROM channel ch WHERE ch.id=c.channel_id) AS channel_kind,
+                      (SELECT ch.kind FROM channel ch WHERE ch.id=c.channel_id) AS channel_kind,
+                      (SELECT ch.name FROM channel ch WHERE ch.id=c.channel_id) AS channel_name,
+                      (SELECT count(*) FROM message m WHERE m.conversation_id=c.id) AS messages,
                       (SELECT content FROM message m WHERE m.conversation_id=c.id ORDER BY created_at DESC LIMIT 1) AS last_message
                FROM conversation c WHERE c.shop_id=%s ORDER BY c.last_at DESC LIMIT 100""",
             (shop_id,),
         ).fetchall()
-    return [{"id": str(r["id"]), "customer_ref": r["customer_ref"], "status": r["status"],
-             "last_at": r["last_at"].isoformat(), "last_message": r["last_message"],
-             "channel_kind": r["channel_kind"],
+    return [{"id": str(r["id"]), "customer_ref": r["customer_ref"], "customer_name": r["customer_name"],
+             "status": r["status"], "created_at": r["created_at"].isoformat(), "last_at": r["last_at"].isoformat(),
+             "last_message": r["last_message"], "channel_kind": r["channel_kind"], "channel_name": r["channel_name"],
+             "messages": int(r["messages"]),
              "assigned_user_id": str(r["assigned_user_id"]) if r["assigned_user_id"] else None,
              "assignee": r["assignee"]} for r in rows]
 

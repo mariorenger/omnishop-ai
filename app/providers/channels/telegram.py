@@ -63,3 +63,10 @@ def normalize_update(update: dict):
     if chat_id is not None and text:
         return str(chat_id), text
     return None, None
+
+
+def sender_name(update: dict) -> str:
+    """Best-effort display name of the sender (first/last name or @username)."""
+    frm = ((update.get("message") or update.get("edited_message") or {}).get("from")) or {}
+    name = " ".join(x for x in (frm.get("first_name"), frm.get("last_name")) if x).strip()
+    return name or (("@" + frm["username"]) if frm.get("username") else "")
