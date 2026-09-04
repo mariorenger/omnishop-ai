@@ -44,7 +44,7 @@ def list_models(cfg: dict) -> dict:
             base = cfg.get("base_url") or GEMINI_OPENAI_BASE
             return {"ok": True, "models": _openai_models(base, key)}
         if provider == "openai_compatible":
-            base = cfg.get("base_url") or config.OPENAI_BASE_URL
+            base = cfg.get("base_url") or config.OPENAI_BASE_URL or "https://api.openai.com/v1"
             return {"ok": True, "models": _openai_models(base, key)}
         return {"ok": True, "models": _FALLBACK.get(provider, [])}
     except Exception as e:  # noqa: BLE001

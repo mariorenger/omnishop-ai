@@ -557,7 +557,10 @@ export function LlmForm({ initial, providers, endpoints }: {
   const [models, setModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(""); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
   const body = () => ({ provider: providers[idx].id, model, base_url: baseUrl, api_key: apiKey || null, max_tokens: maxTokens ? parseInt(maxTokens) : null });
-  const onProvider = (v: number) => { setIdx(v); const p = providers[v]; if (p.base_url && !baseUrl) setBaseUrl(p.base_url); setModels([]); };
+  // Reset Base URL to the newly-selected provider's default so a stale/empty URL
+  // from another provider never leaks across (e.g. OpenAI URL left when switching
+  // to Gemini, or an empty URL causing "missing http/https").
+  const onProvider = (v: number) => { setIdx(v); setBaseUrl(providers[v].base_url || ""); setModels([]); };
   const loadModels = async () => { if (!endpoints.models) return; setBusy("models"); setErr(""); try { const r = await api.post(endpoints.models, body()); setModels(r.models || []); if (!r.ok && r.error) setErr("Không lấy được danh sách model: " + r.error); } catch (e: any) { setErr(e.message); } finally { setBusy(""); } };
   const test = async () => { if (!endpoints.test) return; setBusy("test"); setOk(""); setErr(""); try { const r = await api.post(endpoints.test, body()); if (r.ok) setOk("Kết nối thành công " + (r.model ? `· ${r.model}` : r.dim ? `· ${r.dim} chiều` : "")); else setErr(r.error); } catch (e: any) { setErr(e.message); } finally { setBusy(""); } };
   const save = async () => { setBusy("save"); setOk(""); setErr(""); try { await api.put(endpoints.save, body()); setOk("Đã lưu cấu hình."); setApiKey(""); } catch (e: any) { setErr(e.message); } finally { setBusy(""); } };
@@ -591,17 +594,25 @@ export function LlmForm({ initial, providers, endpoints }: {
 
 // ============================================================ Settings
 export function Settings() {
-  const [llm, setLlm] = useState<any>(null); const [ocr, setOcr] = useState<any>(null); const [err, setErr] = useState("");
-  useEffect(() => { api.get("/api/settings/llm").then(setLlm).catch((e) => setErr(e.message)); api.get("/api/settings/ocr").then(setOcr).catch(() => {}); }, []);
+  const [llm, setLlm] = useState<any>(null); const [ocr, setOcr] = useState<any>(null); const [sub, setSub] = useState<any>(null); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/settings/llm").then(setLlm).catch((e) => setErr(e.message)); api.get("/api/settings/ocr").then(setOcr).catch(() => {}); api.get("/api/subscription").then(setSub).catch(() => {}); }, []);
   if (err) return <Msg type="err">{err}</Msg>;
   if (!llm) return <Spinner />;
+  const byok = sub?.quota?.llm_mode === "byok";
   return (
     <div className="space-y-4">
       <Card>
         <CardTitle sub={llm.can_edit ? `Đang dùng ${llm.effective.provider}${llm.effective.model ? " · " + llm.effective.model : ""}.` : "Quản trị hệ thống đã khoá tuỳ chọn này. Đang dùng cấu hình mặc định."}>Mô hình ngôn ngữ (LLM)</CardTitle>
+        {llm.can_edit && sub && (
+          <div className={"text-[12.5px] font-normal rounded-lg px-3 py-2 mb-3 border " + (byok ? "border-accent/40 bg-accent/10 text-fg" : "border-line bg-card2 text-muted")}>
+            {byok
+              ? "Gói của bạn: Tự nhập khoá AI (BYOK) — hãy nhập API key của chính bạn (OpenAI / Gemini / Claude) bên dưới. Chỉ tính phí phần mềm, không tính token."
+              : "Gói của bạn: Trọn gói AI — có thể dùng khoá của hệ thống (không bắt buộc nhập khoá). Nhập khoá riêng nếu muốn dùng nhà cung cấp của bạn."}
+          </div>
+        )}
         {llm.can_edit
           ? <LlmForm initial={llm.org_config} providers={llm.providers} endpoints={{ save: "/api/settings/llm", test: "/api/settings/llm/test", models: "/api/settings/llm/models", del: llm.org_config ? "/api/settings/llm" : undefined }} />
-          : <Empty>Bạn không có quyền chỉnh mô hình. Vui lòng liên hệ quản trị hệ thống.</Empty>}
+          : <Empty>Bạn không có quyền chỉnh mô hình. Vui lòng liên hệ quản trị hệ thống. (Quản trị có thể bật ở: Quản trị hệ thống → Chính sách nền tảng → “Cho phép khách hàng tự cấu hình mô hình”.)</Empty>}
       </Card>
       {ocr && <OcrCard ocr={ocr} />}
       <SecurityCard />
@@ -682,6 +693,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
         <Kpi n={fmt(ov.ai_messages_month)} l="Tin AI tháng này" /><Kpi n={`$${ov.cost_month.toFixed(2)}`} l="Chi phí tháng này" />
       </div>
       {an && <Card><CardTitle sub="14 ngày gần nhất, toàn nền tảng">Tin nhắn AI theo ngày</CardTitle><StackedBars data={series} /></Card>}
+      <FinanceCard />
       <Card>
         <CardTitle sub="Xuất số liệu tình trạng hệ thống ra CSV để làm báo cáo.">Xuất báo cáo</CardTitle>
         <div className="flex flex-wrap gap-2">
@@ -714,6 +726,53 @@ export function Admin({ role = "admin" }: { role?: string }) {
         {tenants.length === 0 ? <Empty>Chưa có khách hàng.</Empty> :
           <Table head={["Tổ chức", "Gói", "Cửa hàng", "Tin AI tháng", "Chi phí"]}>
             {tenants.map((t) => <tr key={t.id}><Td className="font-semibold">{t.name}</Td><Td><Badge kind="active">{t.plan}</Badge></Td><Td>{t.shops}</Td><Td>{fmt(t.ai_messages)}</Td><Td>${t.cost_month.toFixed(2)}</Td></tr>)}
+          </Table>}
+      </Card>
+    </div>
+  );
+}
+
+function FinanceCard() {
+  const [f, setF] = useState<any>(null); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/finance").then(setF).catch((e) => setErr(e.message)); }, []);
+  if (err) return null;
+  if (!f) return <Card><CardTitle>Doanh thu & lợi nhuận</CardTitle><Spinner /></Card>;
+  const profitPos = f.profit_month >= 0;
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardTitle sub="Tháng này — doanh thu đã thu (hoá đơn đã thanh toán) trừ chi phí AI (COGS) để biết lãi/lỗ."
+          right={<Button variant="sec" size="sm" onClick={() => api.download("/api/admin/reports/finance.csv", "omnishop-finance-by-model.csv")}>Xuất theo model (CSV)</Button>}>Doanh thu & lợi nhuận</CardTitle>
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <Kpi n={`$${fmt(Math.round(f.revenue_month))}`} l="Doanh thu tháng" info="Tổng hoá đơn đã thanh toán trong tháng này." />
+          <Kpi n={`$${f.cost_month.toFixed(2)}`} l="Chi phí AI tháng" info="Chi phí suy luận ước tính (token vào/ra) toàn nền tảng tháng này." />
+          <Kpi n={<span className={profitPos ? "text-ok" : "text-bad"}>{profitPos ? "" : "−"}${fmt(Math.abs(Math.round(f.profit_month)))}</span>} l="Lợi nhuận gộp" info="Doanh thu tháng trừ chi phí AI tháng." />
+          <Kpi n={f.margin_month == null ? "—" : `${f.margin_month}%`} l="Biên lợi nhuận" info="Lợi nhuận / doanh thu. '—' khi chưa có doanh thu." />
+        </div>
+        <div className="text-[12.5px] text-muted font-normal mt-3">
+          Chờ thu: <b className="text-fg">${fmt(Math.round(f.pending))}</b> · Đã thu luỹ kế: <b className="text-fg">${fmt(Math.round(f.revenue_all))}</b> · Chi phí luỹ kế: <b className="text-fg">${f.cost_all.toFixed(2)}</b>
+        </div>
+      </Card>
+      <Card>
+        <CardTitle sub="Token vào/ra và chi phí theo từng model — tháng này.">Token & chi phí theo model</CardTitle>
+        {f.by_model.length === 0 ? <Empty>Chưa có lượt gọi AI nào tháng này.</Empty> :
+          <Table head={["Model", "Tin nhắn", "Token vào", "Token ra", "Chi phí ước tính"]}>
+            {f.by_model.map((m: any) => <tr key={m.model}>
+              <Td className="font-semibold">{m.model}</Td><Td>{fmt(m.messages)}</Td>
+              <Td>{fmt(m.input_tokens)}</Td><Td>{fmt(m.output_tokens)}</Td><Td className="text-muted">${m.cost.toFixed(4)}</Td>
+            </tr>)}
+          </Table>}
+      </Card>
+      <Card>
+        <CardTitle sub="Doanh thu đã thu so với chi phí AI theo từng khách hàng — tháng này.">Lãi/lỗ theo khách hàng</CardTitle>
+        {f.by_tenant.length === 0 ? <Empty>Chưa có khách hàng.</Empty> :
+          <Table head={["Khách", "Gói", "Doanh thu", "Chi phí AI", "Token (vào/ra)", "Lợi nhuận"]}>
+            {f.by_tenant.map((t: any) => <tr key={t.id}>
+              <Td className="font-semibold">{t.name}</Td><Td><Badge kind="active">{t.plan}</Badge></Td>
+              <Td>${fmt(Math.round(t.revenue))}</Td><Td className="text-muted">${t.cost.toFixed(4)}</Td>
+              <Td className="text-muted">{fmt(t.input_tokens)} / {fmt(t.output_tokens)}</Td>
+              <Td className={t.profit >= 0 ? "text-ok font-semibold" : "text-bad font-semibold"}>{t.profit >= 0 ? "" : "−"}${fmt(Math.abs(Math.round(t.profit * 100) / 100))}</Td>
+            </tr>)}
           </Table>}
       </Card>
     </div>

@@ -107,6 +107,85 @@ def export_usage_csv(_: CurrentUser = Depends(require_platform_reader)):
     return _csv_response(["day", "ai_messages", "tokens", "cost_usd"], data, "omnishop-usage.csv")
 
 
+@router.get("/finance")
+def finance(_: CurrentUser = Depends(require_platform_reader)):
+    """Platform P&L: revenue collected (paid invoices) vs AI cost (COGS), profit
+    and margin; input/output tokens + cost per model; and revenue-vs-cost per
+    tenant — so the operator can see whether the business is profitable."""
+    with admin_tx() as conn:
+        rev = conn.execute(
+            """SELECT
+                 coalesce(sum(amount) FILTER (WHERE status='paid' AND coalesce(paid_at,created_at) >= date_trunc('month', now())),0) AS rev_month,
+                 coalesce(sum(amount) FILTER (WHERE status='paid'),0) AS rev_all,
+                 coalesce(sum(amount) FILTER (WHERE status='pending'),0) AS pending,
+                 count(*) FILTER (WHERE status='paid' AND coalesce(paid_at,created_at) >= date_trunc('month', now())) AS paid_month
+               FROM invoice"""
+        ).fetchone()
+        cost = conn.execute(
+            """SELECT
+                 coalesce(sum(estimated_cost) FILTER (WHERE created_at >= date_trunc('month', now())),0) AS cost_month,
+                 coalesce(sum(estimated_cost),0) AS cost_all
+               FROM usage_event"""
+        ).fetchone()
+        by_model = conn.execute(
+            """SELECT coalesce(nullif(llm_model,''),'—') AS model,
+                      count(*) AS messages,
+                      coalesce(sum(input_tokens),0) AS input_tokens,
+                      coalesce(sum(output_tokens),0) AS output_tokens,
+                      coalesce(sum(estimated_cost),0) AS cost
+               FROM usage_event
+               WHERE kind='ai_message' AND created_at >= date_trunc('month', now())
+               GROUP BY 1 ORDER BY cost DESC"""
+        ).fetchall()
+        by_tenant = conn.execute(
+            """SELECT o.id, o.name, coalesce(s.plan_code,'free') AS plan,
+                      (SELECT coalesce(sum(amount),0) FROM invoice i
+                         WHERE i.organization_id=o.id AND i.status='paid'
+                           AND coalesce(i.paid_at,i.created_at) >= date_trunc('month', now())) AS revenue,
+                      (SELECT coalesce(sum(estimated_cost),0) FROM usage_event u
+                         WHERE u.organization_id=o.id AND u.created_at >= date_trunc('month', now())) AS cost,
+                      (SELECT coalesce(sum(input_tokens),0) FROM usage_event u
+                         WHERE u.organization_id=o.id AND u.created_at >= date_trunc('month', now())) AS input_tokens,
+                      (SELECT coalesce(sum(output_tokens),0) FROM usage_event u
+                         WHERE u.organization_id=o.id AND u.created_at >= date_trunc('month', now())) AS output_tokens
+               FROM organization o LEFT JOIN subscription s ON s.organization_id=o.id
+               ORDER BY revenue DESC, cost DESC"""
+        ).fetchall()
+    rev_month = float(rev["rev_month"]); cost_month = float(cost["cost_month"])
+    return {
+        "revenue_month": round(rev_month, 2), "revenue_all": round(float(rev["rev_all"]), 2),
+        "pending": round(float(rev["pending"]), 2), "paid_invoices_month": int(rev["paid_month"]),
+        "cost_month": round(cost_month, 4), "cost_all": round(float(cost["cost_all"]), 4),
+        "profit_month": round(rev_month - cost_month, 2),
+        "margin_month": round((rev_month - cost_month) / rev_month * 100, 1) if rev_month > 0 else None,
+        "by_model": [{"model": r["model"], "messages": int(r["messages"]),
+                      "input_tokens": int(r["input_tokens"]), "output_tokens": int(r["output_tokens"]),
+                      "cost": round(float(r["cost"]), 4)} for r in by_model],
+        "by_tenant": [{"id": str(r["id"]), "name": r["name"], "plan": r["plan"],
+                       "revenue": round(float(r["revenue"]), 2), "cost": round(float(r["cost"]), 4),
+                       "input_tokens": int(r["input_tokens"]), "output_tokens": int(r["output_tokens"]),
+                       "profit": round(float(r["revenue"]) - float(r["cost"]), 2)} for r in by_tenant],
+    }
+
+
+@router.get("/reports/finance.csv")
+def export_finance_csv(_: CurrentUser = Depends(require_platform_reader)):
+    """Per-model token & cost breakdown (this month) for finance reporting."""
+    with admin_tx() as conn:
+        rows = conn.execute(
+            """SELECT coalesce(nullif(llm_model,''),'—') AS model, count(*) AS messages,
+                      coalesce(sum(input_tokens),0) AS input_tokens,
+                      coalesce(sum(output_tokens),0) AS output_tokens,
+                      coalesce(sum(estimated_cost),0) AS cost
+               FROM usage_event WHERE kind='ai_message' AND created_at >= date_trunc('month', now())
+               GROUP BY 1 ORDER BY cost DESC"""
+        ).fetchall()
+    data = [[r["model"], int(r["messages"]), int(r["input_tokens"]), int(r["output_tokens"]),
+             round(float(r["cost"]), 6)] for r in rows]
+    return _csv_response(["model", "ai_messages", "input_tokens", "output_tokens", "cost_usd"],
+                         data, "omnishop-finance-by-model.csv")
+
+
 @router.get("/audit")
 def audit_log(limit: int = 100, _: CurrentUser = Depends(require_platform_reader)):
     """Recent privileged actions (who did what, when) — admins & managers can view."""

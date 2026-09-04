@@ -106,7 +106,8 @@ class OpenAICompatibleLLM:
 
     def __init__(self, cfg: dict, gemini: bool = False):
         self._model = cfg.get("model") or ("gemini-1.5-flash" if gemini else "gpt-4o-mini")
-        self._base = (cfg.get("base_url") or (GEMINI_OPENAI_BASE if gemini else config.OPENAI_BASE_URL)).rstrip("/")
+        self._base = (cfg.get("base_url") or (GEMINI_OPENAI_BASE if gemini
+                      else (config.OPENAI_BASE_URL or "https://api.openai.com/v1"))).rstrip("/")
         self._key = cfg.get("api_key") or ""
         self._max_tokens = int((cfg.get("extra") or {}).get("max_tokens", config.LLM_MAX_TOKENS))
 

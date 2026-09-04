@@ -40,6 +40,22 @@ def test_admin_edits_plan_price_and_tokens(client):
 
 
 @requires_db
+def test_admin_finance_pnl(client, tenant):
+    # tenants cannot see platform finance
+    assert client.get("/api/admin/finance", headers=tenant["headers"]).status_code in (401, 403)
+    h = _admin(client)
+    f = client.get("/api/admin/finance", headers=h).json()
+    for k in ("revenue_month", "cost_month", "profit_month", "by_model", "by_tenant"):
+        assert k in f
+    assert isinstance(f["by_model"], list) and isinstance(f["by_tenant"], list)
+    # profit = revenue - cost
+    assert abs(f["profit_month"] - (f["revenue_month"] - f["cost_month"])) < 0.01
+    # per-model CSV export works
+    r = client.get("/api/admin/reports/finance.csv", headers=h)
+    assert r.status_code == 200 and "model" in r.text.splitlines()[0]
+
+
+@requires_db
 def test_admin_edits_cost_rates(client):
     h = _admin(client)
     orig = client.get("/api/admin/settings/cost", headers=h).json()
