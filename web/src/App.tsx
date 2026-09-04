@@ -29,7 +29,15 @@ export default function App() {
   const [tab, setTab] = useState<string>(localStorage.getItem("omnishop.tab") || "overview");
   const [brand, setBrand] = useState<{ app_name: string; logo_url: string | null }>({ app_name: "OmniShop AI", logo_url: null });
   useEffect(() => { api.get("/api/branding").then(setBrand).catch(() => {}); }, []);
-  useEffect(() => { document.title = brand.app_name; }, [brand]);
+  useEffect(() => {
+    document.title = brand.app_name;
+    // apply the admin-uploaded logo as the browser-tab favicon (was the default globe)
+    if (brand.logo_url) {
+      let link = document.getElementById("favicon") as HTMLLinkElement | null;
+      if (!link) { link = document.createElement("link"); link.id = "favicon"; link.rel = "icon"; document.head.appendChild(link); }
+      link.href = brand.logo_url;
+    }
+  }, [brand]);
 
   const setActiveOrg = async (o: Org | null) => {
     setOrg(o); saveAuth({ token: loadAuth().token, orgId: o?.id });
