@@ -356,7 +356,15 @@ export function Channels({ shopId }: { shopId: string }) {
         {spec && !spec.live && <p className="text-[12px] text-warn mt-2 font-normal">Kênh này cần phê duyệt đối tác trước khi hoạt động. Bạn vẫn lưu được thông tin để kích hoạt sau.</p>}
         {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal flex gap-1.5"><Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>Để nhận tin từ kênh này, hệ thống cần chạy sau một địa chỉ <b>HTTPS công khai</b> (webhook). Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</span></p>}
         {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal leading-relaxed">{spec.note}</p>}
-        {spec?.docs && <a href={spec.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-1.5">Xem tài liệu tích hợp ↗</a>}
+        {spec?.guide?.length > 0 && (
+          <details className="mt-2 rounded-lg border border-line bg-card2/50 overflow-hidden" open>
+            <summary className="cursor-pointer select-none px-3 py-2 text-[12.5px] font-semibold text-fg">Hướng dẫn lấy thông tin</summary>
+            <ol className="list-decimal ml-5 pr-3 pb-3 space-y-1 text-[12px] text-muted font-normal leading-relaxed">
+              {spec.guide.map((g: string, i: number) => <li key={i}>{g}</li>)}
+            </ol>
+          </details>
+        )}
+        {spec?.docs && <a href={spec.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-2">Tài liệu chính thức của hãng ↗</a>}
         {spec?.webhook_url && <div className="mt-3"><CopyField label="Webhook URL (dán vào console của kênh)" value={spec.webhook_url}
           info={kind === "zalo" ? "Zalo OA/Developer Console → Webhook URL." : "Dùng chung webhook Meta App (quản trị đã cấu hình)."} /></div>}
         <div className="mt-3"><Field label="Trợ lý xử lý" info="Chọn trợ lý AI sẽ trả lời trên kênh này. Để trống sẽ dùng trợ lý mặc định.">
@@ -1313,34 +1321,87 @@ function MetaAppCard() {
   );
 }
 
-// ============================================================ Help
+// ============================================================ Help / Docs
+function StepList({ steps }: { steps: string[] }) {
+  return (
+    <ol className="space-y-2.5">
+      {steps.map((d, i) => (
+        <li key={i} className="flex gap-3">
+          <span className="w-5 h-5 rounded-full bg-accent/20 text-accent text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+          <div className="text-[13px] text-fg font-normal leading-relaxed">{d}</div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function Help() {
-  const steps = [
-    ["Tạo cửa hàng", "Thêm cửa hàng đầu tiên trong thanh chọn ở đầu trang."],
-    ["Nhập sản phẩm & kiến thức", "Thêm sản phẩm, biến thể, tồn kho và tài liệu chính sách để trợ lý AI có dữ liệu trả lời."],
-    ["Kết nối kênh", "Tạo tiện ích website và dán mã tích hợp vào trang của bạn."],
-    ["Cấu hình AI", "Chọn nhà cung cấp mô hình trong mục Cài đặt và kiểm tra kết nối."],
-    ["Theo dõi & hỗ trợ", "Xem thống kê ở Tổng quan và tiếp quản hội thoại trong Hộp thư khi cần."],
+  const [kinds, setKinds] = useState<any[]>([]);
+  useEffect(() => { api.get("/api/channels/kinds").then(setKinds).catch(() => {}); }, []);
+  const quick = [
+    "Tạo cửa hàng ở thanh chọn đầu trang (nếu chưa có).",
+    "Vào Trợ lý → Tạo trợ lý: đặt tên, prompt, lời chào, ảnh đại diện.",
+    "Nạp dữ liệu: thêm Sản phẩm (giá, tồn kho, biến thể) và Kiến thức (tài liệu/FAQ).",
+    "Chạy thử trợ lý ngay trong trang cấu hình để kiểm tra câu trả lời.",
+    "Kết nối kênh (Website, Messenger, Telegram, Zalo…) để đưa trợ lý ra khách hàng.",
+    "Theo dõi ở Tổng quan và tiếp quản hội thoại trong Hộp thư khi cần.",
+  ];
+  const botSteps = [
+    "Vào menu Trợ lý → “Tạo trợ lý”.",
+    "Đặt Tên, Lời chào và tải Ảnh đại diện; chọn màu widget.",
+    "Viết Prompt tuỳ chỉnh: cách xưng hô, giọng điệu, điều nên/không nên làm.",
+    "Cấu hình nâng cao (tuỳ chọn): chọn model AI riêng và số đoạn ngữ cảnh RAG (top-k).",
+    "Bật Chuyển nhân viên khi thiếu thông tin và Giới hạn giờ làm việc nếu cần.",
+    "Dùng khung “Chạy thử” bên trái để trò chuyện thử với dữ liệu thật trước khi kết nối kênh.",
+  ];
+  const productSteps = [
+    "Vào Sản phẩm → “Thêm”.",
+    "Nhập Tên, SKU, Giá, Danh mục và Mô tả.",
+    "Nhập Biến thể & tồn kho dạng Tên:Số lượng, cách nhau bởi dấu phẩy (VD: Size M:10, Size L:3).",
+    "Chọn “Áp dụng cho” một trợ lý cụ thể hoặc tất cả trợ lý.",
+    "Trợ lý sẽ dùng dữ liệu này để trả lời chính xác về giá, tồn kho, biến thể.",
+  ];
+  const knowledgeSteps = [
+    "Vào Kiến thức. Dán nội dung văn bản, hoặc tải tệp (PDF, Word, Excel, PowerPoint, CSV, ảnh…).",
+    "Ảnh/PDF scan sẽ được nhận dạng bằng OCR. Tối đa 25MB mỗi tệp.",
+    "Hệ thống trích xuất → chia đoạn → nhúng vector ở nền; theo dõi trạng thái (đang xử lý/sẵn sàng).",
+    "Bấm một tài liệu để xem văn bản đã trích xuất; có thể Xử lý lại hoặc Xoá.",
+    "Dùng công tắc “Dùng cho AI” để bật/tắt một tài liệu mà không cần xoá.",
   ];
   const faqs = [
-    ["Trợ lý AI lấy thông tin từ đâu?", "Từ sản phẩm, biến thể và tài liệu kiến thức bạn đã nhập cho cửa hàng. Nếu không đủ thông tin, hội thoại sẽ được chuyển cho nhân viên."],
-    ["Tôi có thể dùng mô hình nào?", "Anthropic Claude, OpenAI, Google Gemini, hoặc máy chủ tự host tương thích OpenAI như vLLM. Cấu hình trong mục Cài đặt."],
-    ["Dữ liệu giữa các cửa hàng có tách biệt không?", "Có. Mỗi tổ chức được cô lập ở nhiều lớp, khách hàng này không thể truy cập dữ liệu của khách hàng khác."],
-    ["Chi phí AI được tính thế nào?", "Mỗi câu trả lời được ghi nhận token và chi phí ước tính, hiển thị ở Tổng quan để theo dõi biên lợi nhuận."],
+    ["Trợ lý AI lấy thông tin từ đâu?", "Từ Sản phẩm (giá/tồn/biến thể) và tài liệu Kiến thức bạn đã nhập. Nếu không đủ thông tin, hội thoại được chuyển cho nhân viên."],
+    ["Tôi có thể dùng mô hình nào?", "Anthropic Claude, OpenAI, Google Gemini, hoặc máy chủ tự host tương thích OpenAI như vLLM (nếu quản trị cho phép chọn model)."],
+    ["Cần HTTPS để kết nối kênh không?", "Có — các kênh nhận tin qua webhook (Telegram, Messenger, Zalo, WhatsApp) cần địa chỉ HTTPS công khai. Tiện ích website thì không cần."],
+    ["Dữ liệu giữa các cửa hàng có tách biệt không?", "Có. Mỗi tổ chức được cô lập nhiều lớp; khách hàng này không truy cập được dữ liệu của khách hàng khác."],
   ];
   return (
     <div className="space-y-4">
       <Card>
-        <CardTitle sub="Năm bước để đưa trợ lý AI vào hoạt động.">Bắt đầu nhanh</CardTitle>
-        <ol className="space-y-3">
-          {steps.map(([t, d], i) => (
-            <li key={i} className="flex gap-3">
-              <span className="w-6 h-6 rounded-full bg-accent/20 text-accent text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-              <div><div className="font-semibold text-sm">{t}</div><div className="text-[13px] text-muted font-normal">{d}</div></div>
-            </li>
-          ))}
-        </ol>
+        <CardTitle sub="Sáu bước để đưa trợ lý AI vào hoạt động.">Bắt đầu nhanh</CardTitle>
+        <StepList steps={quick} />
       </Card>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card><CardTitle sub="Tạo và huấn luyện trợ lý cho cửa hàng.">Tạo trợ lý AI</CardTitle><StepList steps={botSteps} /></Card>
+        <Card><CardTitle sub="Dữ liệu có cấu trúc để trả lời giá & tồn kho.">Thêm sản phẩm</CardTitle><StepList steps={productSteps} /></Card>
+      </div>
+      <Card><CardTitle sub="Nạp tài liệu/FAQ cho trợ lý tra cứu (RAG).">Thêm kiến thức (RAG)</CardTitle><StepList steps={knowledgeSteps} /></Card>
+
+      <Card>
+        <CardTitle sub="Cách lấy thông tin để kết nối từng loại kênh. Bấm để mở hướng dẫn chi tiết + tài liệu chính thức của hãng.">Kết nối kênh — hướng dẫn theo từng loại</CardTitle>
+        <div className="space-y-2">
+          {kinds.filter((k) => (k.guide || []).length).map((k) => (
+            <details key={k.kind} className="rounded-lg border border-line bg-card2/40 overflow-hidden">
+              <summary className="cursor-pointer select-none px-3 py-2.5 text-sm font-semibold flex items-center gap-2"><ChannelMark kind={k.kind} /> {k.label}{!k.live && <Badge kind="pending">Chờ duyệt đối tác</Badge>}</summary>
+              <div className="px-3 pb-3">
+                <StepList steps={k.guide} />
+                {k.webhook_url && <div className="mt-3"><CopyField label="Webhook URL (dán vào console của kênh)" value={k.webhook_url} /></div>}
+                {k.docs && <a href={k.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-2">Tài liệu chính thức của hãng ↗</a>}
+              </div>
+            </details>
+          ))}
+        </div>
+      </Card>
+
       <Card>
         <CardTitle>Câu hỏi thường gặp</CardTitle>
         <div className="space-y-4">

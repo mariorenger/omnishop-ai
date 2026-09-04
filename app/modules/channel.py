@@ -136,6 +136,56 @@ KIND_SPECS = {
 }
 
 
+# Step-by-step "how to get these values" guides shown to the tenant per channel.
+KIND_GUIDES = {
+    "website": [
+        "Đặt Tên hiển thị và Lời chào rồi bấm Kết nối — không cần thông tin bên ngoài.",
+        "Sau khi tạo, sao chép mã nhúng <iframe> (hoặc quét QR) và dán vào website của bạn.",
+    ],
+    "messenger": [
+        "Cách nhanh nhất: bấm nút “Kết nối Facebook” ở trên để uỷ quyền Trang qua OAuth.",
+        "Hoặc thủ công — vào Meta Business Suite → Cài đặt trang để lấy Page ID.",
+        "Vào developers.facebook.com → App của bạn → Messenger → Settings → Access Tokens, chọn Trang và bấm Generate token.",
+        "Dán token vào ô “Page Access Token”. Cần quyền pages_messaging (App phải qua Meta App Review khi chạy thật).",
+    ],
+    "instagram": [
+        "Instagram phải là tài khoản Doanh nghiệp và đã liên kết với một Trang Facebook.",
+        "Dùng chung Facebook App với Messenger; lấy Page Access Token có quyền instagram_manage_messages.",
+        "Nhập ID Trang Facebook liên kết (IG-linked Page ID) và Page Access Token đó.",
+    ],
+    "telegram": [
+        "Mở Telegram, tìm và chat với @BotFather.",
+        "Gõ /newbot, đặt tên hiển thị và username (kết thúc bằng “bot”).",
+        "BotFather trả về Bot Token dạng 123456789:AA… — sao chép.",
+        "Dán vào ô Bot Token, bấm Kết nối, rồi bấm “Kiểm tra kết nối” (webhook tự đăng ký).",
+    ],
+    "zalo": [
+        "Tạo Zalo App tại developers.zalo.me và liên kết Official Account (OA) của bạn.",
+        "Lấy OA ID trong Zalo OA Manager → Thông tin OA.",
+        "Lấy OA Access Token qua OAuth v4 (oauth.zaloapp.com/v4/oa/access_token) — hết hạn ~25 giờ, cần làm mới bằng refresh token.",
+        "Nhập App Secret của Zalo App để xác thực webhook (tuỳ chọn nhưng nên có).",
+        "Dán “Webhook URL” hiển thị bên dưới vào Zalo Developer Console.",
+    ],
+    "whatsapp": [
+        "Tạo WhatsApp Business Account trên Meta (business.facebook.com).",
+        "Vào WhatsApp → API Setup, sao chép Phone Number ID (KHÔNG phải số điện thoại).",
+        "Tạo System User token dài hạn (hoặc dùng token tạm 24 giờ khi thử nghiệm).",
+        "Webhook dùng chung Meta App do quản trị cấu hình (verify token + App Secret của nền tảng).",
+    ],
+    "tiktok": [
+        "Đăng ký TikTok Shop Partner Center và tạo App.",
+        "Lấy App Key và App Secret của App.",
+        "Shop uỷ quyền (OAuth) để nhận access_token và shop_cipher.",
+        "Kênh này cần TikTok duyệt App trước khi chạy thật — lưu thông tin để kích hoạt sau.",
+    ],
+    "shopee": [
+        "Đăng ký Shopee Open Platform và tạo App → nhận Partner ID và Partner Key.",
+        "Shop uỷ quyền (OAuth) để nhận access_token và shop_id (token hết hạn 4 giờ, cần refresh).",
+        "Kênh này cần Shopee duyệt App trước khi chạy thật — lưu thông tin để kích hoạt sau.",
+    ],
+}
+
+
 class ChannelBody(BaseModel):
     shop_id: str
     kind: str = "website"
@@ -169,7 +219,7 @@ def channel_kinds(ctx: OrgContext = Depends(get_org_context)):
     for kind, spec in KIND_SPECS.items():
         out.append({"kind": kind, "label": spec["label"], "fields": spec["fields"],
                     "live": spec["live"], "note": spec["note"], "docs": spec.get("docs", ""),
-                    "webhook_url": _webhook_url(kind),
+                    "webhook_url": _webhook_url(kind), "guide": KIND_GUIDES.get(kind, []),
                     "allowed": channel_allowed(ctx.org_id, kind)})
     return out
 
