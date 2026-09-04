@@ -1,7 +1,38 @@
-import React, { useEffect } from "react";
-import { Loader2, HelpCircle, X } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Loader2, HelpCircle, X, CheckCircle2, AlertTriangle, Info as InfoIcon } from "lucide-react";
 
 export const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
+
+// ---- shared toast notifications (replaces native alert) --------------------
+type Toast = { id: number; type: "ok" | "err" | "info"; text: string };
+let _tid = 0;
+const _subs = new Set<(t: Toast[]) => void>();
+let _toasts: Toast[] = [];
+const _emit = () => _subs.forEach((f) => f(_toasts));
+export function notify(text: string, type: "ok" | "err" | "info" = "info", ms = 6000) {
+  const t: Toast = { id: ++_tid, type, text };
+  _toasts = [..._toasts, t];
+  _emit();
+  if (ms > 0) setTimeout(() => { _toasts = _toasts.filter((x) => x.id !== t.id); _emit(); }, ms);
+}
+export function Toaster() {
+  const [ts, setTs] = useState<Toast[]>([]);
+  useEffect(() => { _subs.add(setTs); return () => { _subs.delete(setTs); }; }, []);
+  const dismiss = (id: number) => { _toasts = _toasts.filter((x) => x.id !== id); _emit(); };
+  const style = { ok: "border-ok/40 bg-ok/10 text-ok", err: "border-bad/40 bg-bad/10 text-bad", info: "border-line2 bg-card2 text-fg" };
+  const Icon = { ok: CheckCircle2, err: AlertTriangle, info: InfoIcon };
+  return (
+    <div className="fixed z-[100] bottom-4 right-4 flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm">
+      {ts.map((t) => { const Ic = Icon[t.type]; return (
+        <div key={t.id} className={cx("rounded-xl border px-3.5 py-3 text-[13px] font-normal shadow-soft backdrop-blur flex items-start gap-2.5", style[t.type])}>
+          <Ic className="w-4 h-4 shrink-0 mt-0.5" />
+          <span className="flex-1 leading-snug">{t.text}</span>
+          <button onClick={() => dismiss(t.id)} className="shrink-0 opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
+        </div>
+      ); })}
+    </div>
+  );
+}
 
 export function Button({ variant = "primary", size = "md", className, children, loading, ...p }:
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "sec" | "ghost" | "danger"; size?: "sm" | "md"; loading?: boolean }) {
@@ -115,9 +146,11 @@ export function Modal({ open, onClose, title, sub, children, footer, size = "md"
   }, [open, onClose]);
   if (!open) return null;
   const w = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg" }[size];
+  // Backdrop clicks do NOT close the dialog on purpose — an accidental outside
+  // click must never wipe a half-filled form. Close only via the X / Huỷ / Esc.
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className={cx("w-full bg-card border border-line2 rounded-2xl shadow-soft", w)} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className={cx("w-full bg-card border border-line2 rounded-2xl shadow-soft", w)}>
         <div className="flex items-start justify-between gap-3 px-5 pt-5">
           <div><h3 className="text-[15px] font-bold">{title}</h3>{sub && <p className="text-[13px] text-muted mt-0.5 font-normal">{sub}</p>}</div>
           <button onClick={onClose} className="text-muted hover:text-fg transition"><X className="w-5 h-5" /></button>

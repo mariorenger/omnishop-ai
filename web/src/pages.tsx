@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, clearAuth } from "./api";
-import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, Select, Spinner, Table, Td, Textarea } from "./ui";
+import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars } from "./charts";
 import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight } from "lucide-react";
 import QRCode from "qrcode";
@@ -278,7 +278,7 @@ export function Channels({ shopId }: { shopId: string }) {
       <Card>
         <CardTitle sub="Kết nối các kênh bán hàng để trợ lý AI trả lời khách trên mọi nơi. Webhook nhận tin (Telegram, Messenger, Zalo…) cần địa chỉ HTTPS công khai."
           right={<div className="flex gap-2">
-            <Button size="sm" variant="sec" onClick={async () => { try { const r = await api.get(`/api/channels/oauth/meta/start?shop_id=${shopId}`); location.href = r.url; } catch (e: any) { alert(e.message); } }}>Kết nối Facebook</Button>
+            <Button size="sm" variant="sec" onClick={async () => { try { const r = await api.get(`/api/channels/oauth/meta/start?shop_id=${shopId}`); location.href = r.url; } catch (e: any) { notify(e.message, "err"); } }}>Kết nối Facebook</Button>
             <Button size="sm" onClick={() => setOpen(true)}><Plug className="w-4 h-4" /> Kết nối kênh</Button>
           </div>}>Kênh kết nối</CardTitle>
         <Msg type="err">{err}</Msg><Msg type="ok">{msg}</Msg>
@@ -331,6 +331,7 @@ export function Channels({ shopId }: { shopId: string }) {
             <div className="mt-3"><Field label="Lời chào"><Input value={greeting} onChange={(e) => setGreeting(e.target.value)} /></Field></div></>
         ) : (
           <>
+            <p className="text-[12px] text-muted mt-3 font-normal rounded-lg border border-line bg-card2 px-3 py-2">👤 Các thông tin bên dưới là của <b className="text-fg">chính cửa hàng bạn</b> (token, ID… lấy từ tài khoản của bạn trên nền tảng đó). Phần nền tảng dùng chung (Facebook App, verify token) đã do quản trị hệ thống cấu hình sẵn — bạn không cần nhập.</p>
             <div className="mt-3"><Field label="Tên hiển thị"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec?.label} /></Field></div>
             {(spec?.fields || []).map((f: any) => (
               <div className="mt-3" key={f.key}><Field label={f.label + (f.required ? "" : " (tuỳ chọn)")} info={f.hint}>
@@ -708,6 +709,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
   return (
     <div className="space-y-4">
       {!isAdmin && <div className="text-[13px] text-muted font-normal">Vai trò <b className="text-fg">Quản lý</b>: xem thống kê và xuất báo cáo. Không có quyền chỉnh cấu hình hay khách hàng.</div>}
+      {isAdmin && <div className="text-[13px] rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 font-normal">🛠️ Khu <b>Quản trị hệ thống</b>: mọi cấu hình bên dưới (LLM mặc định, thanh toán, Facebook App, Google, gói cước, đơn giá, thương hiệu…) do <b>bạn đặt một lần và áp dụng cho tất cả khách hàng</b>. Khách hàng (tenant) không nhìn thấy và không sửa được những mục này — họ chỉ tự điền thông tin kênh của riêng họ.</div>}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
         <Kpi n={fmt(ov.tenants)} l="Khách hàng" /><Kpi n={fmt(ov.shops)} l="Cửa hàng" /><Kpi n={fmt(ov.conversations)} l="Hội thoại" />
         <Kpi n={fmt(ov.ai_messages_month)} l="Tin AI tháng này" /><Kpi n={`$${ov.cost_month.toFixed(2)}`} l="Chi phí tháng này" />
