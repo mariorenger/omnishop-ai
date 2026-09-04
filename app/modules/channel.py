@@ -150,12 +150,26 @@ def _assert_shop(conn, shop_id: str):
         raise bad_request("shop not found in this organization")
 
 
+def _webhook_url(kind: str) -> str:
+    """The public webhook URL a tenant must paste into the platform's console
+    (empty for kinds that need none / auto-register)."""
+    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    if not base:
+        return ""
+    if kind == "zalo":
+        return f"{base}/api/channels/webhook/zalo"
+    if kind in ("messenger", "instagram", "whatsapp"):
+        return f"{base}/api/channels/webhook/meta"
+    return ""   # website: none · telegram: auto-registered · tiktok/shopee: gated
+
+
 @router.get("/channels/kinds")
 def channel_kinds(ctx: OrgContext = Depends(get_org_context)):
     out = []
     for kind, spec in KIND_SPECS.items():
         out.append({"kind": kind, "label": spec["label"], "fields": spec["fields"],
                     "live": spec["live"], "note": spec["note"], "docs": spec.get("docs", ""),
+                    "webhook_url": _webhook_url(kind),
                     "allowed": channel_allowed(ctx.org_id, kind)})
     return out
 

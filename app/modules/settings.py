@@ -252,9 +252,13 @@ class MetaAppBody(BaseModel):
 
 @router.get("/admin/settings/meta")
 def admin_get_meta(_: CurrentUser = Depends(require_platform_admin)):
+    from ..config import config
     v = registry.public_view("channel:meta")
+    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
     return {"app_id": (v or {}).get("model", ""), "has_secret": bool(v and v.get("has_key")),
-            "verify_token": ((v or {}).get("extra") or {}).get("verify_token", "omnishop-verify")}
+            "verify_token": ((v or {}).get("extra") or {}).get("verify_token", "omnishop-verify"),
+            "redirect_uri": f"{base}/api/channels/oauth/meta/callback",
+            "webhook_url": f"{base}/api/channels/webhook/meta"}
 
 
 @router.put("/admin/settings/meta")
@@ -375,8 +379,11 @@ class GoogleBody(BaseModel):
 
 @router.get("/admin/settings/google")
 def admin_get_google(_: CurrentUser = Depends(require_platform_admin)):
+    from ..config import config
     v = registry.public_view("auth:google") or {}
-    return {"client_id": v.get("model", ""), "has_secret": v.get("has_key", False)}
+    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    return {"client_id": v.get("model", ""), "has_secret": v.get("has_key", False),
+            "redirect_uri": f"{base}/api/auth/google/callback"}
 
 
 @router.put("/admin/settings/google")

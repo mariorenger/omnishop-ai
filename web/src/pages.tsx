@@ -149,6 +149,22 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
   );
 }
 
+// A read-only value with a copy button — for callback/webhook URLs to paste
+// into Facebook / Google / Zalo consoles.
+function CopyField({ label, value, info }: { label: string; value?: string; info?: string }) {
+  if (!value) return null;
+  const copy = async () => { try { await navigator.clipboard.writeText(value); notify("Đã sao chép.", "ok"); } catch { notify("Không sao chép được — hãy bôi đen và copy thủ công.", "err"); } };
+  return (
+    <Field label={label} info={info}>
+      <div className="flex gap-2">
+        <input readOnly value={value} onFocus={(e) => e.target.select()}
+          className="flex-1 min-w-0 bg-bg border border-line rounded-lg px-3 py-2 text-[12.5px] font-mono text-fg outline-none focus:border-accent" />
+        <Button variant="sec" size="sm" onClick={copy}>Sao chép</Button>
+      </div>
+    </Field>
+  );
+}
+
 // ============================================================ Knowledge
 export function Knowledge({ shopId }: { shopId: string }) {
   const [docs, setDocs] = useState<any[] | null>(null);
@@ -340,6 +356,8 @@ export function Channels({ shopId }: { shopId: string }) {
         {spec && VERIFIABLE.includes(kind) && <p className="text-[12px] text-muted mt-2 font-normal">🔒 Để nhận tin từ kênh này, hệ thống cần chạy sau một địa chỉ <b>HTTPS công khai</b> (webhook). Sau khi kết nối, bấm <b>Kiểm tra kết nối</b> để xác nhận token hợp lệ.</p>}
         {spec?.note && <p className="text-[12px] text-muted mt-2 font-normal leading-relaxed">{spec.note}</p>}
         {spec?.docs && <a href={spec.docs} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-accent font-semibold mt-1.5">Xem tài liệu tích hợp ↗</a>}
+        {spec?.webhook_url && <div className="mt-3"><CopyField label="Webhook URL (dán vào console của kênh)" value={spec.webhook_url}
+          info={kind === "zalo" ? "Zalo OA/Developer Console → Webhook URL." : "Dùng chung webhook Meta App (quản trị đã cấu hình)."} /></div>}
         <div className="mt-3"><Field label="Trợ lý xử lý" info="Chọn trợ lý AI sẽ trả lời trên kênh này. Để trống sẽ dùng trợ lý mặc định.">
           <Select value={botId} onChange={(e) => setBotId(e.target.value)}><option value="">Trợ lý mặc định</option>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
         </Field></div>
@@ -914,6 +932,8 @@ function GoogleCard() {
         <Field label="Client ID"><Input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="...apps.googleusercontent.com" /></Field>
         <Field label="Client Secret" info="Mã hoá khi lưu."><Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={c && c.has_secret ? "•••• (giữ nguyên)" : ""} /></Field>
       </div>
+      <div className="mt-3"><CopyField label="Authorized redirect URI (dán vào Google Cloud Console)" value={c?.redirect_uri}
+        info="Google Cloud → APIs & Services → Credentials → OAuth client → Authorized redirect URIs. Phải khớp chính xác." /></div>
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
     </Card>
@@ -1243,6 +1263,14 @@ function MetaAppCard() {
         <Field label="App Secret" info="Dùng cho xác thực webhook và đổi token. Mã hoá khi lưu."><Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={c && c.has_secret ? "•••• (giữ nguyên)" : ""} /></Field>
       </div>
       <div className="mt-3"><Field label="Verify token (webhook)"><Input value={vt} onChange={(e) => setVt(e.target.value)} /></Field></div>
+      <div className="mt-4 border-t border-line/60 pt-3 space-y-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Dán các URL này vào Facebook App</div>
+        <CopyField label="Valid OAuth Redirect URI" value={c?.redirect_uri}
+          info="Facebook Login → Settings → Valid OAuth Redirect URIs. Khắc phục lỗi “URL không thuộc domain”." />
+        <CopyField label="Webhook Callback URL" value={c?.webhook_url}
+          info="Meta App → Webhooks → callback URL (kèm Verify token ở trên), subscribe field messages." />
+        <p className="text-[12px] text-muted font-normal">Đồng thời thêm domain vào <b>App Domains</b> (Settings → Basic). Các URL lấy theo <code>OAUTH_REDIRECT_BASE</code> — nếu đang là localhost, hãy đặt domain thật rồi khởi động lại.</p>
+      </div>
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
     </Card>
