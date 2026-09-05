@@ -26,6 +26,15 @@ def _norm(s: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (s or "").upper())
 
 
+@router.get("/webhook/sepay-webhook")
+def sepay_webhook_health():
+    """SePay calls this endpoint with POST; a GET (browser check) returns a hint
+    instead of a 405 so it's easy to confirm the URL is reachable."""
+    cfg = registry.resolve_sepay()
+    return {"ok": True, "method": "POST", "configured": bool(cfg["api_key"]),
+            "note": "SePay gửi dữ liệu bằng POST tới URL này."}
+
+
 @router.post("/webhook/sepay-webhook")
 async def sepay_webhook(request: Request, authorization: str = Header(default="")):
     cfg = registry.resolve_sepay()
