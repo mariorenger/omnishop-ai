@@ -323,6 +323,20 @@ def _notify_admins_pending(org_name: str, requester: str, plan: str, amount: flo
                 f"Quản trị → Khách hàng để xác nhận: <a href=\"{base}\">{base}</a></p>")
 
 
+@router.post("/billing/checkout/{invoice_id}/cancel")
+def cancel_checkout(invoice_id: str, ctx: OrgContext = Depends(require_role("owner"))):
+    """Tenant cancels their own unpaid payment request (before it's confirmed)."""
+    with tenant_tx(ctx.org_id) as conn:
+        inv = conn.execute("SELECT status FROM invoice WHERE id=%s", (invoice_id,)).fetchone()
+        if not inv:
+            raise not_found("invoice not found")
+        if inv["status"] == "paid":
+            raise bad_request("hoá đơn đã thanh toán, không thể huỷ")
+        conn.execute("UPDATE invoice SET status='void' WHERE id=%s AND status<>'paid'", (invoice_id,))
+    audit.record("billing.cancel", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=invoice_id)
+    return {"ok": True, "status": "void"}
+
+
 @router.get("/billing/invoices")
 def list_invoices(limit: int = 50, offset: int = 0, ctx: OrgContext = Depends(get_org_context)):
     limit = max(1, min(limit, 200)); offset = max(0, offset)

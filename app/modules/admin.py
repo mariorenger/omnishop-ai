@@ -331,3 +331,32 @@ def admin_confirm_invoice(invoice_id: str, admin: CurrentUser = Depends(require_
     audit.record("admin.invoice.confirm", organization_id=str(inv["organization_id"]),
                  actor_user_id=admin.id, target=invoice_id)
     return {"ok": bool(activated), "status": "paid"}
+
+
+@router.post("/invoices/{invoice_id}/reject")
+def admin_reject_invoice(invoice_id: str, admin: CurrentUser = Depends(require_platform_admin)):
+    """Reject a pending/submitted payment request (e.g. no matching transfer
+    found) — voids the invoice without activating, and notifies the tenant."""
+    with admin_tx() as conn:
+        inv = conn.execute(
+            "SELECT organization_id, plan_code, status FROM invoice WHERE id=%s", (invoice_id,)).fetchone()
+        if not inv:
+            raise not_found("invoice not found")
+        if inv["status"] == "paid":
+            raise bad_request("hoá đơn đã thanh toán, không thể từ chối")
+        conn.execute("UPDATE invoice SET status='void' WHERE id=%s", (invoice_id,))
+        owners = conn.execute(
+            """SELECT u.email FROM membership m JOIN app_user u ON u.id=m.user_id
+               WHERE m.organization_id=%s AND m.role IN ('owner','admin')""",
+            (str(inv["organization_id"]),),
+        ).fetchall()
+    audit.record("admin.invoice.reject", organization_id=str(inv["organization_id"]),
+                 actor_user_id=admin.id, target=invoice_id, detail={"plan": inv["plan_code"]})
+    from ..providers import email
+    for o in owners:
+        if o["email"]:
+            email.send_safe(o["email"], "[OmniShop AI] Yêu cầu thanh toán chưa được xác nhận",
+                            f"<p>Yêu cầu nâng cấp gói <b>{inv['plan_code']}</b> chưa được xác nhận "
+                            "(không tìm thấy khoản chuyển khoản khớp). Vui lòng kiểm tra lại và thực "
+                            "hiện thanh toán lại nếu cần.</p>")
+    return {"ok": True, "status": "void"}

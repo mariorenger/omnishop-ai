@@ -680,6 +680,7 @@ export function Billing({ role }: { role: string }) {
     setCheckout(co);  // VietQR (qr_image_url) or manual (instructions)
   };
   const reportTransfer = async () => { setBusy(true); try { await api.post(`/api/billing/checkout/${checkout.invoice_id}/submitted`); setCheckout(null); await load(); notify("Đã ghi nhận. Gói sẽ kích hoạt sau khi quản trị xác nhận khoản chuyển.", "ok"); } catch (e: any) { notify(e.message, "err"); } finally { setBusy(false); } };
+  const cancelInvoice = async (iv: any) => { if (!confirm(`Huỷ yêu cầu nâng cấp gói ${iv.plan}?`)) return; try { await api.post(`/api/billing/checkout/${iv.id}/cancel`, {}); await load(); notify("Đã huỷ yêu cầu.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
   return (
     <div className="space-y-4">
       <Card>
@@ -728,8 +729,13 @@ export function Billing({ role }: { role: string }) {
       <Card>
         <CardTitle>Hoá đơn</CardTitle>
         {invoices.length === 0 ? <Empty>Chưa có hoá đơn nào.</Empty> :
-          <Table head={["Ngày", "Gói", "Số tiền", "Trạng thái"]}>
-            {invoices.map((iv) => <tr key={iv.id}><Td className="font-normal">{new Date(iv.created_at).toLocaleDateString("vi-VN")}</Td><Td className="font-semibold">{iv.plan}</Td><Td>${iv.amount}</Td><Td><Badge kind={iv.status === "submitted" ? "pending" : iv.status}>{iv.status === "paid" ? "Đã thanh toán" : iv.status === "submitted" ? "Chờ xác nhận" : iv.status === "pending" ? "Chờ thanh toán" : "Đã huỷ"}</Badge></Td></tr>)}
+          <Table head={["Ngày", "Gói", "Số tiền", "Trạng thái", ""]}>
+            {invoices.map((iv) => <tr key={iv.id}>
+              <Td className="font-normal">{new Date(iv.created_at).toLocaleDateString("vi-VN")}</Td>
+              <Td className="font-semibold">{iv.plan}</Td><Td>${iv.amount}</Td>
+              <Td><Badge kind={iv.status === "submitted" ? "pending" : iv.status}>{iv.status === "paid" ? "Đã thanh toán" : iv.status === "submitted" ? "Chờ xác nhận" : iv.status === "pending" ? "Chờ thanh toán" : "Đã huỷ"}</Badge></Td>
+              <Td className="text-right">{isOwner && (iv.status === "pending" || iv.status === "submitted") ? <Button size="sm" variant="ghost" onClick={() => cancelInvoice(iv)}>Huỷ</Button> : null}</Td>
+            </tr>)}
           </Table>}
       </Card>
       <Modal open={!!checkout} onClose={() => setCheckout(null)} title={checkout?.qr_image_url ? "Quét mã để thanh toán" : "Chuyển khoản thanh toán"}
@@ -991,6 +997,10 @@ function TenantBillingCard() {
     if (!confirm(`Xác nhận đã nhận tiền hoá đơn của ${iv.tenant} (gói ${iv.plan}, $${iv.amount})? Sẽ kích hoạt gói và tính vào doanh thu.`)) return;
     try { await api.post(`/api/admin/invoices/${iv.id}/confirm`, {}); notify("Đã xác nhận thanh toán.", "ok"); loadPending(); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
   };
+  const rejectInvoice = async (iv: any) => {
+    if (!confirm(`Từ chối yêu cầu của ${iv.tenant} (gói ${iv.plan})? Hoá đơn sẽ bị huỷ và khách được thông báo.`)) return;
+    try { await api.post(`/api/admin/invoices/${iv.id}/reject`, {}); notify("Đã từ chối yêu cầu.", "ok"); loadPending(); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
+  };
   if (err) return <Msg type="err">{err}</Msg>;
   return (
     <div className="space-y-4">
@@ -1002,7 +1012,10 @@ function TenantBillingCard() {
               <Td className="font-semibold">{iv.tenant}</Td><Td>{iv.plan}</Td><Td>${iv.amount}</Td>
               <Td className="text-muted">{iv.provider}</Td>
               <Td><Badge kind={iv.status === "submitted" ? "pending" : "default"}>{iv.status === "submitted" ? "Đã báo CK" : "Chờ CK"}</Badge></Td>
-              <Td className="text-right"><Button size="sm" onClick={() => confirmInvoice(iv)}>Xác nhận</Button></Td>
+              <Td className="text-right whitespace-nowrap"><span className="inline-flex gap-1.5">
+                <Button size="sm" onClick={() => confirmInvoice(iv)}>Xác nhận</Button>
+                <Button size="sm" variant="danger" onClick={() => rejectInvoice(iv)}>Từ chối</Button>
+              </span></Td>
             </tr>)}
           </Table>
         </Card>

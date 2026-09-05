@@ -133,6 +133,22 @@ def test_admin_confirms_reported_transfer(client, tenant):
 
 
 @requires_db
+def test_admin_rejects_pending_request(client, tenant):
+    """Admin can reject a pending/submitted payment request — it voids without
+    activating the plan."""
+    h_admin = _admin(client)
+    h = tenant["headers"]
+    co = client.post("/api/billing/checkout", json={"plan_code": "growth"}, headers=h).json()
+    inv = co["invoice_id"]
+    client.post(f"/api/billing/checkout/{inv}/submitted", headers=h)
+    assert client.post(f"/api/admin/invoices/{inv}/reject", headers=h_admin).json()["status"] == "void"
+    # plan not activated; request no longer pending
+    assert client.get("/api/subscription", headers=h).json()["entitlements"]["_plan"] != "growth"
+    pend = client.get("/api/admin/billing/pending", headers=h_admin).json()["items"]
+    assert all(p["id"] != inv for p in pend)
+
+
+@requires_db
 def test_admin_email_settings_and_secret_kept(client):
     """Email provider is set from the UI; the secret is write-only (kept on
     re-save when omitted)."""

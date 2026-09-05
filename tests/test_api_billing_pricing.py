@@ -87,6 +87,18 @@ def test_report_transfer_does_not_activate(client, tenant):
 
 
 @requires_db
+def test_tenant_cancels_own_request(client, tenant):
+    """The tenant can cancel their own unpaid payment request."""
+    h, org = tenant["headers"], tenant["org_id"]
+    _force_plan(org, "free")
+    co = client.post("/api/billing/checkout", json={"plan_code": "growth"}, headers=h).json()
+    inv = co["invoice_id"]
+    assert client.post(f"/api/billing/checkout/{inv}/cancel", headers=h).json()["status"] == "void"
+    row = next(i for i in client.get("/api/billing/invoices", headers=h).json()["items"] if i["id"] == inv)
+    assert row["status"] == "void"
+
+
+@requires_db
 def test_usage_by_customer_endpoint(client, tenant):
     r = client.get("/api/usage/by-customer", headers=tenant["headers"])
     assert r.status_code == 200 and isinstance(r.json(), list)
