@@ -29,3 +29,24 @@ def test_channel_list_reports_kind(client, tenant):
     client.post("/api/channels", json={"shop_id": shop, "kind": "website", "name": "Web"}, headers=h)
     rows = client.get(f"/api/channels?shop_id={shop}", headers=h).json()
     assert any(c["kind"] == "website" for c in rows)
+
+
+@requires_db
+def test_flag_channel_problem_marks_degraded_once(client, tenant):
+    """A failed send flags the channel degraded (so the UI shows red) and only
+    the first failure fires an alert — repeats are de-duplicated."""
+    from app.db import admin_tx, tenant_tx
+    from app.modules import channel as channel_mod
+    h, shop = tenant["headers"], tenant["shop_id"]
+    ch = client.post("/api/channels", json={"shop_id": shop, "kind": "website", "name": "Web"}, headers=h).json()
+    with admin_tx() as conn:
+        conn.execute("UPDATE channel SET status='connected' WHERE id=%s", (ch["id"],))
+
+    channel_mod.flag_channel_problem(tenant["org_id"], ch["id"], "token hết hạn")
+    with tenant_tx(tenant["org_id"]) as conn:
+        assert conn.execute("SELECT status FROM channel WHERE id=%s", (ch["id"],)).fetchone()["status"] == "degraded"
+
+    # already degraded -> no state change / no duplicate alert path
+    channel_mod.flag_channel_problem(tenant["org_id"], ch["id"], "lần nữa")
+    with tenant_tx(tenant["org_id"]) as conn:
+        assert conn.execute("SELECT status FROM channel WHERE id=%s", (ch["id"],)).fetchone()["status"] == "degraded"

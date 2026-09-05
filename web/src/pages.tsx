@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api, clearAuth } from "./api";
 import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, LoadMore, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars, BarList } from "./charts";
-import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight, Lock, ShieldCheck, UserRound } from "lucide-react";
+import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight, Lock, ShieldCheck, UserRound, AlertTriangle } from "lucide-react";
 import QRCode from "qrcode";
 
 const fmt = (n: number) => n.toLocaleString("vi-VN");
@@ -365,13 +365,25 @@ export function Channels({ shopId }: { shopId: string }) {
             <Button size="sm" onClick={() => setOpen(true)}><Plug className="w-4 h-4" /> Kết nối kênh</Button>
           </div>}>Kênh kết nối</CardTitle>
         <Msg type="err">{err}</Msg><Msg type="ok">{msg}</Msg>
+        {items && items.some((c) => VERIFIABLE.includes(c.kind) && c.status !== "connected") && (
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-bad/50 bg-bad/10 px-3 py-2.5 text-[13px] text-bad font-normal">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span><b>Có kênh chưa thông.</b> {items.filter((c) => VERIFIABLE.includes(c.kind) && c.status !== "connected").map((c) => c.name).join(", ")} có thể không nhận/trả lời tin của khách. Bấm “Kiểm tra kết nối” để kiểm tra lại.</span>
+          </div>
+        )}
         {!items ? <Spinner /> : items.length === 0 ? <Empty>Chưa có kênh nào. Bấm Kết nối kênh để bắt đầu.</Empty> :
           <div className="space-y-3">
             {items.map((ch) => {
               const url = (ch.kind === "website" && ch.public_key) ? `${location.origin}/widget.html?key=${ch.public_key}` : "";
               const canVerify = VERIFIABLE.includes(ch.kind);
+              // Green ring when live, red when a verifiable channel isn't connected,
+              // amber while pending — so tenants spot a broken channel instantly.
+              const tone = !canVerify ? "border-line"
+                : ch.status === "connected" ? "border-ok/60 bg-ok/5 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
+                : ch.status === "pending" ? "border-warn/60 bg-warn/5"
+                : "border-bad/70 bg-bad/5 shadow-[0_0_0_1px_rgba(251,113,133,0.25)]";
               return (
-                <div key={ch.id} className="border border-line rounded-xl p-4">
+                <div key={ch.id} className={"border-2 rounded-xl p-4 transition " + tone}>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] font-semibold border border-line rounded-full pl-1 pr-2.5 py-0.5 text-muted inline-flex items-center gap-1.5"><ChannelMark kind={ch.kind} /> {kindLabel(ch.kind)}</span>
                     <span className="font-semibold">{ch.name}</span>

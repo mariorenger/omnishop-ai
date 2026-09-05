@@ -88,7 +88,7 @@ export function Badge({ kind = "default", children }: { kind?: string; children:
   const map: Record<string, string> = {
     default: "text-muted border-line",
     ai: "text-indigo-300 border-indigo-500/40 bg-indigo-500/10",
-    connected: "text-indigo-300 border-indigo-500/40 bg-indigo-500/10",
+    connected: "text-ok border-ok/40 bg-ok/10",
     active: "text-indigo-300 border-indigo-500/40 bg-indigo-500/10",
     paid: "text-ok border-ok/40 bg-ok/10",
     ready: "text-ok border-ok/40 bg-ok/10",
@@ -97,6 +97,8 @@ export function Badge({ kind = "default", children }: { kind?: string; children:
     pending: "text-warn border-warn/40 bg-warn/10",
     queued: "text-warn border-warn/40 bg-warn/10",
     processing: "text-warn border-warn/40 bg-warn/10",
+    degraded: "text-bad border-bad/40 bg-bad/10",
+    disconnected: "text-bad border-bad/40 bg-bad/10",
     error: "text-bad border-bad/40 bg-bad/10",
     void: "text-bad border-bad/40 bg-bad/10",
     closed: "text-muted border-line",

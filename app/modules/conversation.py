@@ -193,6 +193,9 @@ def agent_reply(conv_id: str, body: AgentReply, ctx: OrgContext = Depends(requir
     from . import channel as channel_mod
     delivered, note = channel_mod.deliver_agent_reply(
         ctx.org_id, str(conv["channel_id"]), conv["customer_ref"], body.text)
+    if not delivered:
+        # a real send failure means the channel is broken — flag it + alert the team
+        channel_mod.flag_channel_problem(ctx.org_id, str(conv["channel_id"]), note or "gửi tin thất bại")
     return {"ok": True, "delivered": bool(delivered), "note": note}
 
 

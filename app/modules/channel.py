@@ -348,10 +348,11 @@ def get_channel(channel_id: str, ctx: OrgContext = Depends(get_org_context)):
 @router.post("/channels/{channel_id}/verify")
 def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admin"))):
     with tenant_tx(ctx.org_id) as conn:
-        r = conn.execute("SELECT kind, credentials_enc, config, public_key FROM channel WHERE id=%s", (channel_id,)).fetchone()
+        r = conn.execute("SELECT kind, name, status, credentials_enc, config, public_key FROM channel WHERE id=%s", (channel_id,)).fetchone()
         if not r:
             raise not_found("channel not found")
         kind = r["kind"]
+        prev_status = r["status"]
         if kind not in ("messenger", "instagram", "telegram", "zalo", "whatsapp"):
             return {"status": "connected", "note": "Kênh này không cần kiểm tra token."}
         creds = {}
@@ -421,6 +422,9 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
         conn.execute("UPDATE channel SET status=%s WHERE id=%s", (status, channel_id))
     audit.record("channel.verify", organization_id=ctx.org_id, actor_user_id=ctx.user.id, target=channel_id,
                  detail={"status": status})
+    # notify the team when a previously-broken channel comes back online
+    if status == "connected" and prev_status not in ("connected", None):
+        _notify_recovered(ctx.org_id, channel_id, r["name"], kind)
     return {"status": status, "note": info}
 
 
@@ -498,7 +502,9 @@ async def meta_webhook(request: Request):
             )
             creds = _creds(row["credentials_enc"])
             if creds.get("access_token") and result["reply"]:
-                whatsapp.send_message(creds["access_token"], pnid, sender, result["reply"])
+                sok, sinfo = whatsapp.send_message(creds["access_token"], pnid, sender, result["reply"])
+                if not sok:
+                    flag_channel_problem(str(row["organization_id"]), str(row["id"]), sinfo)
         return {"ok": True}
     for page_id, sender, text, ts in meta.normalize_entries(payload):
         with no_tenant() as conn:
@@ -511,7 +517,9 @@ async def meta_webhook(request: Request):
         )
         token = _creds(ch["credentials_enc"]).get("page_access_token", "")
         if token and result["reply"]:
-            meta.send_message(token, sender, result["reply"])
+            sok, sinfo = meta.send_message(token, sender, result["reply"])
+            if not sok:
+                flag_channel_problem(str(ch["organization_id"]), str(ch["channel_id"]), sinfo)
     return {"ok": True}
 
 
@@ -566,6 +574,55 @@ def _resolve_by_cfg(kind: str, key: str, value: str):
         ).fetchone()
 
 
+# --------------------------- health alerts ----------------------------------
+
+def _alert_recipients(org_id: str) -> list[str]:
+    """Emails of the owners/admins of a workspace — who should hear about a
+    channel outage."""
+    with tenant_tx(org_id) as conn:
+        rows = conn.execute(
+            """SELECT u.email FROM membership m JOIN app_user u ON u.id = m.user_id
+               WHERE m.role IN ('owner','admin')""",
+        ).fetchall()
+    return [r["email"] for r in rows if r["email"]]
+
+
+def _email_channels(org_id: str, subject: str, html: str) -> None:
+    from ..providers import email
+    for to in _alert_recipients(org_id):
+        email.send_safe(to, subject, html)
+
+
+def flag_channel_problem(org_id: str, channel_id: str, reason: str) -> None:
+    """Mark a channel degraded and email owners/admins — but only on the
+    transition from a healthy state, so a burst of failed messages sends ONE
+    alert, not one per message. Called from webhooks when a real send fails."""
+    with tenant_tx(org_id) as conn:
+        row = conn.execute("SELECT name, kind, status FROM channel WHERE id=%s", (channel_id,)).fetchone()
+        if not row or row["status"] == "degraded":
+            return  # unknown, or already flagged (don't repeat the email)
+        conn.execute("UPDATE channel SET status='degraded' WHERE id=%s", (channel_id,))
+    audit.record("channel.degraded", organization_id=org_id, target=channel_id, detail={"reason": reason[:300]})
+    label = KIND_SPECS.get(row["kind"], {}).get("label", row["kind"])
+    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    _email_channels(
+        org_id,
+        f"[OmniShop AI] Kênh {row['name']} đang gặp sự cố",
+        f"<p>Kênh <b>{row['name']}</b> ({label}) vừa gửi tin thất bại và có thể không "
+        f"trả lời được khách hàng.</p><p>Nguyên nhân: {reason}</p>"
+        f"<p>Vui lòng đăng nhập kiểm tra lại kết nối kênh: <a href=\"{base}\">{base}</a></p>",
+    )
+
+
+def _notify_recovered(org_id: str, channel_id: str, name: str, kind: str) -> None:
+    label = KIND_SPECS.get(kind, {}).get("label", kind)
+    _email_channels(
+        org_id,
+        f"[OmniShop AI] Kênh {name} đã hoạt động trở lại",
+        f"<p>Kênh <b>{name}</b> ({label}) đã kết nối lại bình thường và tiếp tục trả lời khách.</p>",
+    )
+
+
 @router.post("/channels/webhook/telegram/{public_key}")
 async def telegram_webhook(public_key: str, request: Request):
     from ..db import admin_tx
@@ -587,7 +644,9 @@ async def telegram_webhook(public_key: str, request: Request):
     )
     token = _creds(ch["credentials_enc"]).get("bot_token", "")
     if token and result["reply"]:
-        telegram.send_message(token, chat_id, result["reply"])
+        sok, sinfo = telegram.send_message(token, chat_id, result["reply"])
+        if not sok:
+            flag_channel_problem(str(ch["organization_id"]), str(ch["id"]), sinfo)
     return {"ok": True}
 
 
@@ -606,5 +665,7 @@ async def zalo_webhook(request: Request):
     )
     creds = _creds(row["credentials_enc"])
     if creds.get("access_token") and result["reply"]:
-        zalo.send_message(creds["access_token"], sender, result["reply"])
+        sok, sinfo = zalo.send_message(creds["access_token"], sender, result["reply"])
+        if not sok:
+            flag_channel_problem(str(row["organization_id"]), str(row["id"]), sinfo)
     return {"ok": True}
