@@ -189,6 +189,7 @@ def admin_test_llm(body: LLMConfigBody, _: CurrentUser = Depends(require_platfor
 
 PAYMENT_PROVIDERS = [
     {"id": "manual", "label": "Thủ công / chuyển khoản (demo)"},
+    {"id": "sepay", "label": "SePay (QR + tự động xác nhận)"},
     {"id": "vietqr", "label": "VietQR (QR chuyển khoản)"},
     {"id": "vnpay", "label": "VNPay (thẻ/ATM/QR nội địa)"},
     {"id": "momo", "label": "MoMo (ví điện tử)"},
@@ -225,7 +226,8 @@ class PaymentConfigBody(BaseModel):
 
 @router.get("/admin/settings/payment")
 def admin_get_payment(_: CurrentUser = Depends(require_platform_admin)):
-    return {"config": registry.public_view("payment:platform"), "providers": PAYMENT_PROVIDERS}
+    return {"config": registry.public_view("payment:platform"), "providers": PAYMENT_PROVIDERS,
+            "sepay_webhook_url": registry.public_base() + "/webhook/sepay-webhook"}
 
 
 @router.put("/admin/settings/payment")
@@ -443,29 +445,6 @@ def admin_test_email(body: EmailBody, admin: CurrentUser = Depends(require_platf
     cfg = {"provider": body.provider, "from": body.from_addr or None, "secret": secret,
            "smtp_host": body.smtp_host, "smtp_port": body.smtp_port, "smtp_user": body.smtp_user}
     return email.send_test(cfg, body.to or admin.email)
-
-
-# ============================ admin: SePay (auto-confirm transfers) ==========
-
-class SepayBody(BaseModel):
-    api_key: Optional[str] = None     # None=keep, ""=clear
-    account_no: str = ""
-
-
-@router.get("/admin/settings/sepay")
-def admin_get_sepay(_: CurrentUser = Depends(require_platform_admin)):
-    v = registry.public_view("payment:sepay") or {}
-    ex = v.get("extra") or {}
-    return {"has_key": v.get("has_key", False), "account_no": ex.get("account_no", ""),
-            "webhook_url": registry.public_base() + "/webhook/sepay-webhook"}
-
-
-@router.put("/admin/settings/sepay")
-def admin_set_sepay(body: SepayBody, admin: CurrentUser = Depends(require_platform_admin)):
-    registry.write_config("payment:sepay", provider="sepay", api_key=body.api_key,
-                          extra={"account_no": body.account_no})
-    audit.record("admin.sepay.update", actor_user_id=admin.id)
-    return {"ok": True}
 
 
 # ============================ admin: runtime (domain + guard) ================

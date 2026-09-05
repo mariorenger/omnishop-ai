@@ -11,8 +11,10 @@ _RID = random.randint(10_000_000, 99_000_000)
 
 
 def _set_key(key: str):
+    """SePay is a payment gateway now — its webhook key lives in payment:platform."""
     from app.providers import registry
-    registry.write_config("payment:sepay", provider="sepay", api_key=key, extra={"account_no": "0123"})
+    registry.write_config("payment:platform", provider="sepay", api_key=key,
+                          extra={"bank_bin": "TPBank", "account_no": "0123", "account_name": "OMNI"})
 
 
 @requires_db
@@ -67,8 +69,9 @@ def test_sepay_unmatched_transfer_is_logged_not_applied(client):
 @requires_db
 def test_sepay_not_configured_rejects(client):
     from app.providers import registry
-    registry.delete_config("payment:sepay")
+    # payment gateway is NOT sepay -> webhook rejects
+    registry.write_config("payment:platform", provider="manual", api_key="")
     r = client.post("/webhook/sepay-webhook",
-                    json={"id": 555003, "transferType": "in", "transferAmount": 1000, "content": "x"},
+                    json={"id": _RID + 2, "transferType": "in", "transferAmount": 1000, "content": "x"},
                     headers={"Authorization": "Apikey anything"})
     assert r.status_code == 400

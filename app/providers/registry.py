@@ -165,11 +165,13 @@ def resolve_email_config() -> dict:
 
 
 def resolve_sepay() -> dict:
-    """SePay bank-reconciliation webhook settings (auto-confirm bank transfers)."""
-    c = _load("payment:sepay") or {}
-    ex = c.get("extra") or {}
-    return {"api_key": c.get("api_key", ""), "account_no": ex.get("account_no", ""),
-            "enabled": bool(c.get("api_key"))}
+    """SePay webhook settings — SePay is a payment gateway option, so its webhook
+    API key + bank account live in the active payment config (payment:platform)."""
+    c = _load("payment:platform") or {}
+    if (c.get("provider") or "") != "sepay":
+        return {"api_key": "", "enabled": False, "extra": {}}
+    return {"api_key": c.get("api_key", ""), "enabled": bool(c.get("api_key")),
+            "extra": c.get("extra") or {}}
 
 
 def resolve_meta_app() -> dict:

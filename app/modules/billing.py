@@ -106,7 +106,25 @@ def list_plans():
 def get_subscription(ctx: OrgContext = Depends(get_org_context)):
     ent = resolve_entitlements(ctx.org_id)
     quota = check_ai_quota(ctx.org_id)
-    return {"entitlements": ent, "quota": quota}
+    return {"entitlements": ent, "quota": quota, "renewal": _renewal(ctx.org_id, ent)}
+
+
+def _renewal(org_id: str, ent: dict) -> dict:
+    """Renewal status for the paid plan so the UI can remind the tenant to renew.
+    Free plans (price 0) never expire -> no reminder."""
+    if float(ent.get("_price_month", 0) or 0) <= 0:
+        return {"expires": False}
+    with no_tenant() as conn:
+        row = conn.execute(
+            "SELECT current_period_end FROM subscription WHERE organization_id=%s", (org_id,)
+        ).fetchone()
+    end = row["current_period_end"] if row else None
+    if not end:
+        return {"expires": False}
+    from datetime import datetime, timezone
+    days = (end - datetime.now(timezone.utc)).total_seconds() / 86400.0
+    return {"expires": True, "period_end": end.isoformat(), "days_left": int(days),
+            "expired": days < 0, "expiring": 0 <= days <= 7}
 
 
 @router.post("/subscription")
@@ -121,10 +139,10 @@ def change_plan(body: ChangePlan, ctx: OrgContext = Depends(require_role("owner"
         if float(plan["price_month"]) > 0:
             raise bad_request("Gói trả phí cần thanh toán — hãy dùng nút Nâng cấp để thanh toán.")
         conn.execute(
-            """INSERT INTO subscription (organization_id, plan_code)
-               VALUES (%s,%s)
+            """INSERT INTO subscription (organization_id, plan_code, current_period_end)
+               VALUES (%s,%s, NULL)
                ON CONFLICT (organization_id)
-               DO UPDATE SET plan_code = EXCLUDED.plan_code, status='active'""",
+               DO UPDATE SET plan_code = EXCLUDED.plan_code, status='active', current_period_end=NULL""",
             (ctx.org_id, body.plan_code),
         )
     return {"ok": True, "plan": body.plan_code}
@@ -175,9 +193,11 @@ def _activate_invoice(invoice_id: str, provider: str = "stripe") -> bool:
             (inv["organization_id"], invoice_id, inv["amount"], inv["currency"], provider),
         )
         conn.execute(
-            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,%s)
+            """INSERT INTO subscription (organization_id, plan_code, provider, current_period_end)
+               VALUES (%s,%s,%s, now() + interval '30 days')
                ON CONFLICT (organization_id)
-               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider=EXCLUDED.provider""",
+               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider=EXCLUDED.provider,
+                             current_period_end = now() + interval '30 days'""",
             (inv["organization_id"], inv["plan_code"], provider),
         )
     return True

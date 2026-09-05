@@ -57,6 +57,22 @@ def test_tenant_cannot_self_activate_paid_plan(client, tenant):
 
 
 @requires_db
+def test_renewal_reminder_surfaces(client, tenant):
+    """A paid plan nearing its period end reports an 'expiring' renewal so the UI
+    can remind the tenant; a free plan never expires."""
+    from app.db import admin_tx
+    h, org = tenant["headers"], tenant["org_id"]
+    _force_plan(org, "growth")
+    with admin_tx() as conn:
+        conn.execute("UPDATE subscription SET current_period_end = now() + interval '3 days' WHERE organization_id=%s", (org,))
+    rn = client.get("/api/subscription", headers=h).json()["renewal"]
+    assert rn["expires"] is True and rn["expiring"] is True and rn["days_left"] <= 7
+
+    _force_plan(org, "free")
+    assert client.get("/api/subscription", headers=h).json()["renewal"]["expires"] is False
+
+
+@requires_db
 def test_report_transfer_does_not_activate(client, tenant):
     """QR/bank transfer: reporting a transfer marks the invoice 'submitted' and
     does NOT activate the plan (an admin must confirm)."""

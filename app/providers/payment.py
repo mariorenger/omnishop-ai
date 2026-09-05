@@ -104,6 +104,32 @@ class VietQRPaymentProvider:
                                 "nội dung giữ nguyên. Gói kích hoạt sau khi xác nhận."}
 
 
+class SePayPaymentProvider:
+    """SePay QR + automatic bank reconciliation. Renders a SePay VietQR image
+    carrying the invoice code; when the customer transfers, SePay calls our
+    /webhook/sepay-webhook and the plan activates automatically."""
+    name = "sepay"
+
+    def __init__(self, extra: dict):
+        self.extra = extra or {}
+
+    def create_checkout(self, *, invoice_id, amount, currency, plan_code) -> dict:
+        bank = str(self.extra.get("bank_bin") or self.extra.get("bank") or "").strip()
+        account = str(self.extra.get("account_no") or "").strip()
+        name = str(self.extra.get("account_name") or "").strip()
+        if not (bank and account):
+            return {"provider": self.name, "invoice_id": invoice_id,
+                    "error": "SePay chưa cấu hình số tài khoản / ngân hàng."}
+        amt = int(round(float(amount)))
+        info = invoice_code(invoice_id)
+        qs = urllib.parse.urlencode({"acc": account, "bank": bank, "amount": amt, "des": info})
+        qr_image_url = f"https://qr.sepay.vn/img?{qs}"
+        return {"provider": self.name, "invoice_id": invoice_id, "qr_image_url": qr_image_url,
+                "amount_vnd": amt, "transfer_note": info, "auto": True,
+                "instructions": f"Quét mã QR bằng app ngân hàng, giữ nguyên nội dung {info}. "
+                                "Gói sẽ tự kích hoạt ngay sau khi hệ thống nhận được tiền."}
+
+
 class VNPayPaymentProvider:
     """Real VNPay redirect (pay.vnpay.vn / sandbox). Params sorted + HMAC-SHA512."""
     name = "vnpay"
@@ -217,6 +243,8 @@ def get_payment():
         return StripePaymentProvider(cfg["api_key"], extra)
     if provider == "vietqr":
         return VietQRPaymentProvider(extra)
+    if provider == "sepay":
+        return SePayPaymentProvider(extra)
     if provider == "vnpay":
         return VNPayPaymentProvider(cfg.get("api_key") or "", extra)
     if provider == "momo":

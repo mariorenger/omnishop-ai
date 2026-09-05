@@ -4,7 +4,7 @@ import { Button, Card, Field, Input, Msg, Select, Toaster } from "./ui";
 import { Admin, Billing, Bots, Channels, Help, Inbox, Knowledge, Members, Overview, Products, Settings } from "./pages";
 import {
   Bot, LayoutDashboard, MessagesSquare, BookOpen, Plug, Package, Users,
-  CreditCard, Settings as Cog, Shield, LifeBuoy, LogOut, Store, Sparkles,
+  CreditCard, Settings as Cog, Shield, LifeBuoy, LogOut, Store, Sparkles, AlertTriangle,
 } from "lucide-react";
 
 type User = { id: string; email: string; is_platform_admin: boolean; platform_role?: string | null };
@@ -27,6 +27,7 @@ export default function App() {
   const [shops, setShops] = useState<any[]>([]);
   const [shop, setShop] = useState<any>(null);
   const [tab, setTab] = useState<string>(localStorage.getItem("omnishop.tab") || "overview");
+  const [renewal, setRenewal] = useState<any>(null);
   const [brand, setBrand] = useState<{ app_name: string; logo_url: string | null }>({ app_name: "OmniShop AI", logo_url: null });
   useEffect(() => { api.get("/api/branding").then(setBrand).catch(() => {}); }, []);
   useEffect(() => {
@@ -38,6 +39,8 @@ export default function App() {
       link.href = brand.logo_url;
     }
   }, [brand]);
+
+  useEffect(() => { if (org) api.get("/api/subscription").then((s) => setRenewal(s.renewal)).catch(() => setRenewal(null)); else setRenewal(null); }, [org]);
 
   const setActiveOrg = async (o: Org | null) => {
     setOrg(o); saveAuth({ token: loadAuth().token, orgId: o?.id });
@@ -119,6 +122,15 @@ export default function App() {
         </header>
 
         <main className="p-4 md:p-6 w-full max-w-[1680px] mx-auto">
+          {renewal?.expires && (renewal.expiring || renewal.expired) && tab !== "billing" && (
+            <div className={"mb-4 flex items-center gap-3 rounded-xl border px-4 py-3 text-[13px] font-normal " + (renewal.expired ? "border-bad/50 bg-bad/10 text-bad" : "border-warn/50 bg-warn/10 text-warn")}>
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{renewal.expired
+                ? "Gói dịch vụ của bạn đã hết hạn. Vui lòng gia hạn để tiếp tục sử dụng đầy đủ tính năng."
+                : `Gói dịch vụ sắp hết hạn (còn ${renewal.days_left} ngày). Hãy gia hạn để không bị gián đoạn.`}</span>
+              <Button size="sm" onClick={() => setTab("billing")}>Gia hạn ngay</Button>
+            </div>
+          )}
           {needOrg ? <WorkspaceSetup onCreated={boot} isAdmin={isStaff} />
             : needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
             : tab === "overview" ? <Overview shopId={shop.id} onGoInbox={() => setTab("inbox")} />

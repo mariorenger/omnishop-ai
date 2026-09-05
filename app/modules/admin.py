@@ -260,9 +260,11 @@ def admin_set_tenant_plan(org_id: str, body: SetPlanBody, admin: CurrentUser = D
             (org_id, plan["code"], plan["price_month"]),
         )
         conn.execute(
-            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,'admin_manual')
+            """INSERT INTO subscription (organization_id, plan_code, provider, current_period_end)
+               VALUES (%s,%s,'admin_manual', now() + interval '30 days')
                ON CONFLICT (organization_id)
-               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider='admin_manual'""",
+               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider='admin_manual',
+                             current_period_end = now() + interval '30 days'""",
             (org_id, plan["code"]),
         )
     audit.record("admin.tenant.plan", organization_id=org_id, actor_user_id=admin.id,
