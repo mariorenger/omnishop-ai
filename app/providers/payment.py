@@ -27,12 +27,21 @@ from typing import Optional
 from .registry import resolve_payment_config
 
 
+def invoice_code(invoice_id) -> str:
+    """Short transfer memo embedded in the bank content so an incoming transfer
+    can be matched back to its invoice (used by VietQR + the SePay webhook)."""
+    return "OMNI" + str(invoice_id).replace("-", "")[:8].upper()
+
+
 class ManualPaymentProvider:
     name = "manual"
 
     def create_checkout(self, *, invoice_id, amount, currency, plan_code) -> dict:
+        note = invoice_code(invoice_id)
         return {"provider": self.name, "invoice_id": invoice_id, "redirect_url": None,
-                "instructions": "Xác nhận thanh toán để kích hoạt gói (chuyển khoản thủ công / demo)."}
+                "transfer_note": note,
+                "instructions": f"Chuyển khoản theo hướng dẫn của cửa hàng, nội dung ghi: {note}. "
+                                "Gói kích hoạt sau khi thanh toán được xác nhận."}
 
 
 class StripePaymentProvider:
@@ -86,7 +95,7 @@ class VietQRPaymentProvider:
             return {"provider": self.name, "invoice_id": invoice_id,
                     "error": "VietQR chưa cấu hình số tài khoản / ngân hàng."}
         amt = int(round(float(amount)))
-        info = f"OMNISHOP {str(invoice_id)[:8]}"
+        info = invoice_code(invoice_id)
         qs = urllib.parse.urlencode({"amount": amt, "addInfo": info, "accountName": name})
         qr_image_url = f"https://img.vietqr.io/image/{bank}-{account}-{template}.png?{qs}"
         return {"provider": self.name, "invoice_id": invoice_id, "qr_image_url": qr_image_url,

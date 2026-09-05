@@ -292,6 +292,28 @@ def billing_pending(limit: int = 25, offset: int = 0, _: CurrentUser = Depends(r
             "has_more": offset + len(items) < int(total)}
 
 
+@router.get("/billing/sepay")
+def billing_sepay(limit: int = 25, offset: int = 0, _: CurrentUser = Depends(require_platform_admin)):
+    """Incoming bank transfers received via the SePay webhook (matched or not),
+    so the admin can see money arriving and which invoices auto-activated."""
+    limit = max(1, min(limit, 100)); offset = max(0, offset)
+    with admin_tx() as conn:
+        total = conn.execute("SELECT count(*) AS n FROM sepay_transaction").fetchone()["n"]
+        rows = conn.execute(
+            """SELECT s.gateway, s.account_no, s.amount, s.content, s.reference, s.transfer_type,
+                      s.status, s.matched_invoice, s.created_at, o.name AS tenant
+               FROM sepay_transaction s LEFT JOIN organization o ON o.id = s.organization_id
+               ORDER BY s.created_at DESC LIMIT %s OFFSET %s""",
+            (limit, offset),
+        ).fetchall()
+    items = [{"gateway": r["gateway"], "account_no": r["account_no"], "amount": float(r["amount"]),
+              "content": r["content"], "reference": r["reference"], "transfer_type": r["transfer_type"],
+              "status": r["status"], "matched": bool(r["matched_invoice"]), "tenant": r["tenant"],
+              "created_at": r["created_at"].isoformat()} for r in rows]
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset,
+            "has_more": offset + len(items) < int(total)}
+
+
 @router.post("/invoices/{invoice_id}/confirm")
 def admin_confirm_invoice(invoice_id: str, admin: CurrentUser = Depends(require_platform_admin)):
     """Admin confirms a real bank/QR payment after checking it — activates the

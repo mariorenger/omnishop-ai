@@ -164,6 +164,14 @@ def resolve_email_config() -> dict:
             "smtp_host": config.SMTP_HOST, "smtp_port": config.SMTP_PORT, "smtp_user": config.SMTP_USER}
 
 
+def resolve_sepay() -> dict:
+    """SePay bank-reconciliation webhook settings (auto-confirm bank transfers)."""
+    c = _load("payment:sepay") or {}
+    ex = c.get("extra") or {}
+    return {"api_key": c.get("api_key", ""), "account_no": ex.get("account_no", ""),
+            "enabled": bool(c.get("api_key"))}
+
+
 def resolve_meta_app() -> dict:
     """Shared Facebook App credentials (used by OAuth + webhook verify/signature)."""
     c = _load("channel:meta") or {}

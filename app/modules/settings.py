@@ -445,6 +445,29 @@ def admin_test_email(body: EmailBody, admin: CurrentUser = Depends(require_platf
     return email.send_test(cfg, body.to or admin.email)
 
 
+# ============================ admin: SePay (auto-confirm transfers) ==========
+
+class SepayBody(BaseModel):
+    api_key: Optional[str] = None     # None=keep, ""=clear
+    account_no: str = ""
+
+
+@router.get("/admin/settings/sepay")
+def admin_get_sepay(_: CurrentUser = Depends(require_platform_admin)):
+    v = registry.public_view("payment:sepay") or {}
+    ex = v.get("extra") or {}
+    return {"has_key": v.get("has_key", False), "account_no": ex.get("account_no", ""),
+            "webhook_url": registry.public_base() + "/webhook/sepay-webhook"}
+
+
+@router.put("/admin/settings/sepay")
+def admin_set_sepay(body: SepayBody, admin: CurrentUser = Depends(require_platform_admin)):
+    registry.write_config("payment:sepay", provider="sepay", api_key=body.api_key,
+                          extra={"account_no": body.account_no})
+    audit.record("admin.sepay.update", actor_user_id=admin.id)
+    return {"ok": True}
+
+
 # ============================ admin: runtime (domain + guard) ================
 
 class RuntimeBody(BaseModel):

@@ -954,6 +954,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
           <LlmForm initial={s.embedding} providers={embProviders} endpoints={{ save: "/api/admin/settings/embedding", test: "/api/admin/settings/embedding/test", models: "/api/admin/settings/embedding/models" }} /></Card>
         <RuntimeCard />
         <PaymentCard />
+        <SepayCard />
         <MetaAppCard />
         <GoogleCard />
         <EmailCard />
@@ -1187,6 +1188,41 @@ function EmailCard() {
       </div>
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
+  );
+}
+
+function SepayCard() {
+  const [c, setC] = useState<any>(null); const [key, setKey] = useState(""); const [acc, setAcc] = useState("");
+  const [txns, setTxns] = useState<any[]>([]); const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  const loadCfg = () => api.get("/api/admin/settings/sepay").then((d) => { setC(d); setAcc(d.account_no || ""); }).catch((e) => setErr(e.message));
+  const loadTxns = () => api.get("/api/admin/billing/sepay?limit=10").then((d) => setTxns(d.items)).catch(() => {});
+  useEffect(() => { loadCfg(); loadTxns(); }, []);
+  const save = async () => { setOk(""); setErr(""); try { await api.put("/api/admin/settings/sepay", { api_key: key || null, account_no: acc }); setOk("Đã lưu cấu hình SePay."); setKey(""); loadCfg(); } catch (e: any) { setErr(e.message); } };
+  return (
+    <Card>
+      <CardTitle sub="Tự động xác nhận chuyển khoản/QR: SePay theo dõi tài khoản ngân hàng của bạn và gọi webhook khi có tiền vào; hệ thống khớp theo nội dung chuyển khoản (mã OMNI…) và kích hoạt gói ngay. Dùng kèm cổng VietQR để hiển thị mã QR.">SePay — tự động đối soát chuyển khoản</CardTitle>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="API Key (Webhook)" info="SePay gửi header Authorization: Apikey &lt;key&gt;. Nhập đúng key bạn đặt trong SePay. Mã hoá khi lưu."><Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={c && c.has_key ? "•••• (giữ nguyên)" : "khoá webhook SePay"} /></Field>
+        <Field label="Số tài khoản nhận (tham chiếu)" info="Số tài khoản ngân hàng bạn dùng với SePay — để đối chiếu."><Input value={acc} onChange={(e) => setAcc(e.target.value)} placeholder="Số tài khoản" /></Field>
+      </div>
+      <div className="mt-3"><CopyField label="Webhook URL (dán vào SePay → Cấu hình webhook)" value={c?.webhook_url}
+        info="SePay → Tích hợp → Webhooks → URL nhận. Phương thức POST, xác thực bằng API Key ở trên." /></div>
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+      <div className="mt-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1.5">Giao dịch gần đây (10)</div>
+        {txns.length === 0 ? <div className="text-[13px] text-muted font-normal py-3">Chưa nhận giao dịch nào từ SePay.</div> :
+          <Table head={["Thời gian", "Ngân hàng", "Số tiền", "Nội dung", "Khách/Kết quả"]}>
+            {txns.map((t, i) => <tr key={i}>
+              <Td className="text-muted whitespace-nowrap">{new Date(t.created_at).toLocaleString("vi-VN")}</Td>
+              <Td>{t.gateway || "—"}</Td>
+              <Td className="font-semibold whitespace-nowrap">{fmt(Math.round(t.amount))}</Td>
+              <Td className="text-muted max-w-[220px] truncate" title={t.content}>{t.content || "—"}</Td>
+              <Td>{t.matched ? <Badge kind="connected">{t.tenant || "Đã khớp"}</Badge> : <Badge kind="default">Chưa khớp</Badge>}</Td>
+            </tr>)}
+          </Table>}
+      </div>
     </Card>
   );
 }
