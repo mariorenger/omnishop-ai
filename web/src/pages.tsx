@@ -688,9 +688,9 @@ function PlanFeature({ children }: { children: React.ReactNode }) {
 function PlanPicker({ open, onClose, plans, cur, isOwner, usdVnd, onPick }:
   { open: boolean; onClose: () => void; plans: any[]; cur: string; isOwner: boolean; usdVnd?: number; onPick: (p: any) => void }) {
   return (
-    <Modal open={open} onClose={onClose} size="lg" title="Chọn gói dịch vụ"
+    <Modal open={open} onClose={onClose} size="xl" title="Chọn gói dịch vụ"
       sub="So sánh hạn mức từng gói và nâng cấp. Giá theo USD, thu bằng VND theo tỷ giá hệ thống.">
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
         {plans.map((p) => {
           const e = p.entitlements; const t = TIER[p.code] || { ring: "border-violet-500/50", text: "text-violet-300", chip: "bg-violet-500/15 text-violet-200" };
           const isCur = cur === p.code;

@@ -176,7 +176,7 @@ export function LoadMore({ show, loading, onClick, shown, total }:
 }
 
 export function Modal({ open, onClose, title, sub, children, footer, size = "md", z = "z-50" }: {
-  open: boolean; onClose: () => void; title: string; sub?: string; children: React.ReactNode; footer?: React.ReactNode; size?: "sm" | "md" | "lg"; z?: string;
+  open: boolean; onClose: () => void; title: string; sub?: string; children: React.ReactNode; footer?: React.ReactNode; size?: "sm" | "md" | "lg" | "xl"; z?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -185,18 +185,18 @@ export function Modal({ open, onClose, title, sub, children, footer, size = "md"
     return () => window.removeEventListener("keydown", h);
   }, [open, onClose]);
   if (!open) return null;
-  const w = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg" }[size];
+  const w = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", xl: "max-w-5xl" }[size];
   // Backdrop clicks do NOT close the dialog on purpose — an accidental outside
   // click must never wipe a half-filled form. Close only via the X / Huỷ / Esc.
   return (
     <div className={cx("fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4", z)}>
-      <div className={cx("w-full bg-card border border-line2 rounded-2xl shadow-soft", w)}>
-        <div className="flex items-start justify-between gap-3 px-5 pt-5">
+      <div className={cx("w-full bg-card border border-line2 rounded-2xl shadow-soft max-h-[92vh] flex flex-col", w)}>
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 shrink-0">
           <div><h3 className="text-[15px] font-bold">{title}</h3>{sub && <p className="text-[13px] text-muted mt-0.5 font-normal">{sub}</p>}</div>
           <button onClick={onClose} className="text-muted hover:text-fg transition"><X className="w-5 h-5" /></button>
         </div>
-        <div className="px-5 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 px-5 py-4 border-t border-line">{footer}</div>}
+        <div className="px-5 py-4 overflow-y-auto">{children}</div>
+        {footer && <div className="flex justify-end gap-2 px-5 py-4 border-t border-line shrink-0">{footer}</div>}
       </div>
     </div>
   );
