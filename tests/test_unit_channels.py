@@ -6,28 +6,29 @@ from app.providers.channels import meta, telegram, whatsapp, zalo
 
 
 def test_telegram_normalize_update():
-    chat_id, text = telegram.normalize_update(
-        {"message": {"chat": {"id": 12345}, "text": "xin chào"}})
-    assert chat_id == "12345" and text == "xin chào"
+    chat_id, text, ts = telegram.normalize_update(
+        {"message": {"chat": {"id": 12345}, "text": "xin chào", "date": 1700000000}})
+    assert chat_id == "12345" and text == "xin chào" and ts == 1700000000
     # non-text update -> ignored
-    assert telegram.normalize_update({"message": {"chat": {"id": 1}}}) == (None, None)
+    assert telegram.normalize_update({"message": {"chat": {"id": 1}}}) == (None, None, None)
 
 
 def test_whatsapp_normalize_entries():
     payload = {"object": "whatsapp_business_account", "entry": [
         {"changes": [{"value": {"metadata": {"phone_number_id": "PN1"},
                                  "contacts": [{"wa_id": "849xx", "profile": {"name": "Chị Lan"}}],
-                                 "messages": [{"from": "849xx", "text": {"body": "còn hàng không"}}]}}]}]}
+                                 "messages": [{"from": "849xx", "timestamp": "1700000000",
+                                               "text": {"body": "còn hàng không"}}]}}]}]}
     got = list(whatsapp.normalize_entries(payload))
-    assert got == [("PN1", "849xx", "còn hàng không", "Chị Lan")]
+    assert got == [("PN1", "849xx", "còn hàng không", "Chị Lan", "1700000000")]
 
 
 def test_zalo_normalize_event():
-    ev = {"event_name": "user_send_text", "recipient": {"id": "OA1"},
-          "sender": {"id": "U1"}, "message": {"text": "giá bao nhiêu"}}
-    assert zalo.normalize_event(ev) == ("OA1", "U1", "giá bao nhiêu")
+    ev = {"event_name": "user_send_text", "recipient": {"id": "OA1"}, "sender": {"id": "U1"},
+          "message": {"text": "giá bao nhiêu"}, "timestamp": "1700000000000"}
+    assert zalo.normalize_event(ev) == ("OA1", "U1", "giá bao nhiêu", 1700000000.0)
     # a non-text event is ignored
-    assert zalo.normalize_event({"event_name": "follow"}) == (None, None, None)
+    assert zalo.normalize_event({"event_name": "follow"}) == (None, None, None, None)
 
 
 def test_meta_signature_verify():
@@ -41,5 +42,5 @@ def test_meta_signature_verify():
 
 def test_meta_normalize_entries():
     payload = {"entry": [{"id": "PAGE1", "messaging": [
-        {"sender": {"id": "PSID"}, "message": {"text": "hi"}}]}]}
-    assert list(meta.normalize_entries(payload)) == [("PAGE1", "PSID", "hi")]
+        {"sender": {"id": "PSID"}, "timestamp": 1700000000000, "message": {"text": "hi"}}]}]}
+    assert list(meta.normalize_entries(payload)) == [("PAGE1", "PSID", "hi", 1700000000.0)]

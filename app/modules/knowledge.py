@@ -133,6 +133,38 @@ def get_document(doc_id: str, ctx: OrgContext = Depends(get_org_context)):
             "text": text[:200_000]}
 
 
+class EditDocBody(BaseModel):
+    title: Optional[str] = None
+    text: Optional[str] = None    # when set, the document is re-chunked and re-embedded
+
+
+@router.put("/documents/{doc_id}")
+def edit_document(doc_id: str, body: EditDocBody, ctx: OrgContext = Depends(require_role("admin"))):
+    """Correct the extracted text or rename a document. Editing the text re-chunks
+    and re-embeds it (OCR/parse errors are common, so tenants can fix them). Note:
+    running "Xử lý lại" on a file-backed document re-extracts from the original
+    file and overwrites manual edits."""
+    with tenant_tx(ctx.org_id) as conn:
+        r = conn.execute("SELECT knowledge_base_id, bot_id FROM document WHERE id=%s", (doc_id,)).fetchone()
+        if not r:
+            raise not_found("document not found")
+        if body.title is not None and body.title.strip():
+            conn.execute("UPDATE document SET title=%s WHERE id=%s", (body.title.strip(), doc_id))
+        rechunk = body.text is not None
+        if rechunk:
+            if not body.text.strip():
+                raise bad_request("text is empty")
+            chunks = chunk_text(body.text)
+            _write_chunks(conn, ctx.org_id, str(r["knowledge_base_id"]), doc_id, chunks, r["bot_id"])
+            conn.execute("UPDATE document SET char_count=%s, status='pending', error=NULL WHERE id=%s",
+                         (len(body.text), doc_id))
+    if rechunk:
+        enqueue("embed_document", {"document_id": doc_id}, organization_id=ctx.org_id)
+    audit.record("knowledge.edit", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+                 target=doc_id, detail={"reindexed": rechunk})
+    return {"ok": True, "reindexed": rechunk, "status": "pending" if rechunk else None}
+
+
 class ActiveBody(BaseModel):
     active: bool
 

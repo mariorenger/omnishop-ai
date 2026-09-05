@@ -44,14 +44,17 @@ def send_message(access_token: str, user_id: str, text: str) -> Tuple[bool, str]
 
 
 def normalize_event(payload: dict):
-    """Return (oa_id, sender_id, text) from a Zalo OA webhook, or (None, None, None)."""
+    """Return (oa_id, sender_id, text, ts) from a Zalo OA webhook, else all None.
+    ts is the event's unix time in SECONDS (Zalo sends milliseconds)."""
     if payload.get("event_name") not in ("user_send_text", None):
         # only handle inbound text for now
         if payload.get("event_name") != "user_send_text":
-            return None, None, None
+            return None, None, None, None
     oa_id = str((payload.get("recipient") or {}).get("id", "") or payload.get("oa_id", ""))
     sender = str((payload.get("sender") or {}).get("id", ""))
     text = (payload.get("message") or {}).get("text")
+    ts_ms = payload.get("timestamp")
+    ts = (float(ts_ms) / 1000.0) if ts_ms else None
     if oa_id and sender and text:
-        return oa_id, sender, text
-    return None, None, None
+        return oa_id, sender, text, ts
+    return None, None, None, None

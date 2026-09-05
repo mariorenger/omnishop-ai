@@ -1,5 +1,6 @@
 """Shared inbox: agent replies are delivered to the channel (website => widget),
 recorded with the sender, and conversations can be assigned/claimed."""
+import time
 import uuid
 
 from conftest import requires_db
@@ -37,3 +38,26 @@ def test_assign_conversation(client, tenant):
     conv = _website_conversation(client, tenant)
     a = client.post(f"/api/conversations/{conv['id']}/assign", json={}, headers=h)
     assert a.status_code == 200 and a.json()["assignee"] == tenant["email"]
+
+
+@requires_db
+def test_stale_backlog_message_is_recorded_but_not_answered(client, tenant):
+    """A message queued while a channel was offline (old timestamp) must be
+    recorded and flagged for a human, but must NOT trigger an AI reply (tokens)."""
+    from app.modules import orchestrator
+    h, shop = tenant["headers"], tenant["shop_id"]
+    ch = client.post("/api/channels", json={"shop_id": shop, "kind": "website", "name": "Web"}, headers=h).json()
+    r = orchestrator.handle_incoming(tenant["org_id"], shop, ch["id"], "u_old", "tin nhắn cũ tồn đọng",
+                                     event_ts=time.time() - 100000)
+    assert r["reply"] == "" and r["status"] == "needs_human" and r.get("skipped") == "stale"
+    # the customer message is stored; no AI answer was generated
+    conv = next(c for c in client.get(f"/api/conversations?shop_id={shop}", headers=h).json()["items"]
+                if c["customer_ref"] == "u_old")
+    msgs = client.get(f"/api/conversations/{conv['id']}/messages", headers=h).json()["items"]
+    assert any(m["role"] == "customer" for m in msgs)
+    assert not any(m["role"] == "ai" for m in msgs)
+
+    # a fresh message (recent timestamp) is answered normally
+    r2 = orchestrator.handle_incoming(tenant["org_id"], shop, ch["id"], "u_new", "xin chào",
+                                      event_ts=time.time())
+    assert r2["reply"] and r2.get("skipped") is None

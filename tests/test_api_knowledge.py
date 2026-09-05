@@ -60,6 +60,31 @@ def test_document_deactivate_excludes_from_retrieval(client, tenant):
 
 
 @requires_db
+def test_edit_extracted_text_reindexes(client, tenant):
+    """Tenants can correct extracted/OCR text; saving re-chunks + re-embeds and
+    the corrected content becomes retrievable."""
+    h, shop = tenant["headers"], tenant["shop_id"]
+    r = client.post("/api/knowledge/documents", json={"shop_id": shop, "title": "Bảo hành",
+                    "text": "Sản phaam bảo hanh 12 thang."}, headers=h)   # deliberately garbled
+    doc_id = r.json()["id"]
+    drain_jobs()
+
+    # edit title + fix the text
+    e = client.put(f"/api/knowledge/documents/{doc_id}",
+                   json={"title": "Chính sách bảo hành", "text": "Sản phẩm được bảo hành 12 tháng kể từ ngày mua."},
+                   headers=h)
+    assert e.status_code == 200 and e.json()["reindexed"] is True
+    drain_jobs()
+
+    detail = client.get(f"/api/knowledge/documents/{doc_id}", headers=h).json()
+    assert detail["title"] == "Chính sách bảo hành"
+    assert "bảo hành 12 tháng" in detail["text"]
+    q = {"shop_id": shop, "query": "sản phẩm bảo hành bao lâu", "top_k": 5}
+    titles = [c["title"] for c in client.post("/api/rag/query", json=q, headers=h).json()["chunks"]]
+    assert any("bảo hành" in t.lower() for t in titles)
+
+
+@requires_db
 def test_knowledge_base_rename(client, tenant):
     h, shop = tenant["headers"], tenant["shop_id"]
     client.get(f"/api/knowledge/kb?shop_id={shop}", headers=h)   # ensure exists

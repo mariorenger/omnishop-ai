@@ -79,8 +79,22 @@ def _product_block(conn, p) -> ContextBlock:
     return ContextBlock(source="product", title=p["name"], body=body)
 
 
+def _is_stale(event_ts) -> bool:
+    """True if an inbound message is older than the configured window. Guards
+    against replaying a whole backlog the platform queued while a channel was
+    disconnected (which would burn tokens on old messages)."""
+    from ..config import Config
+    window = Config.CHANNEL_STALE_SECONDS
+    if not window or not event_ts:
+        return False
+    try:
+        return (time.time() - float(event_ts)) > window
+    except (TypeError, ValueError):
+        return False
+
+
 def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: str, text: str,
-                    customer_name: str = None) -> dict:
+                    customer_name: str = None, event_ts=None) -> dict:
     started = time.time()
     intent = classify(text)
 
@@ -105,6 +119,13 @@ def handle_incoming(org_id: str, shop_id: str, channel_id: str, customer_ref: st
             "INSERT INTO message (organization_id, conversation_id, role, content) VALUES (%s,%s,'customer',%s)",
             (org_id, conv_id, text),
         )
+
+    # 1b) staleness guard: record the message but skip the AI reply (no tokens).
+    # Flag the conversation for a human so nothing is silently lost.
+    if _is_stale(event_ts):
+        with tenant_tx(org_id) as conn:
+            conn.execute("UPDATE conversation SET status='needs_human', last_at=now() WHERE id=%s", (conv_id,))
+        return {"conversation_id": conv_id, "reply": "", "status": "needs_human", "skipped": "stale"}
 
     # 2) quota gate (ADR-004) — enforced server-side
     quota = check_ai_quota(org_id)

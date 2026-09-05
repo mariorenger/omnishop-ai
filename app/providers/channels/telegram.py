@@ -25,9 +25,13 @@ def verify_token(token: str) -> Tuple[bool, str]:
         return False, str(e)
 
 
-def set_webhook(token: str, url: str) -> Tuple[bool, str]:
+def set_webhook(token: str, url: str, drop_pending_updates: bool = False) -> Tuple[bool, str]:
+    """Register the webhook. drop_pending_updates=True tells Telegram to discard
+    the backlog it queued while we were disconnected, so we don't reply to (and
+    pay tokens for) a flood of old messages the moment the channel comes online."""
     try:
-        r = httpx.post(f"{API}/bot{token}/setWebhook", json={"url": url}, timeout=20)
+        r = httpx.post(f"{API}/bot{token}/setWebhook",
+                       json={"url": url, "drop_pending_updates": drop_pending_updates}, timeout=20)
         ok = r.status_code == 200 and r.json().get("ok")
         return bool(ok), r.json().get("description", "ok")
     except Exception as e:  # noqa: BLE001
@@ -55,14 +59,15 @@ def send_message(token: str, chat_id: str, text: str) -> Tuple[bool, str]:
 
 
 def normalize_update(update: dict):
-    """Return (chat_id, text) from a Telegram update, or (None, None)."""
+    """Return (chat_id, text, ts) from a Telegram update, or (None, None, None).
+    ts is the message's unix time (seconds), used to skip stale backlog."""
     msg = update.get("message") or update.get("edited_message") or {}
     chat = msg.get("chat") or {}
     chat_id = chat.get("id")
     text = msg.get("text")
     if chat_id is not None and text:
-        return str(chat_id), text
-    return None, None
+        return str(chat_id), text, msg.get("date")
+    return None, None, None
 
 
 def sender_name(update: dict) -> str:

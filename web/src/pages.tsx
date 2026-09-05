@@ -179,7 +179,8 @@ function CopyField({ label, value, info }: { label: string; value?: string; info
 }
 
 // ============================================================ Knowledge
-export function Knowledge({ shopId }: { shopId: string }) {
+export function Knowledge({ shopId, role }: { shopId: string; role?: string }) {
+  const canManage = role === "owner" || role === "admin";
   const [docs, setDocs] = useState<any[] | null>(null);
   const [title, setTitle] = useState(""); const [text, setText] = useState(""); const [botId, setBotId] = useState("");
   const [bots, setBots] = useState<any[]>([]); const [kb, setKb] = useState<any>(null); const [kbName, setKbName] = useState(""); const [editKb, setEditKb] = useState(false);
@@ -251,20 +252,40 @@ export function Knowledge({ shopId }: { shopId: string }) {
           </Table>}
         {docs && docs.length > 0 && <LoadMore show={more} loading={loadingMore} onClick={loadMore} shown={docs.length} total={total} />}
       </Card>
-      <DocDetail id={open} onClose={() => setOpen(null)} onDelete={del} onReprocess={reprocess} onSetActive={setActive} />
+      <DocDetail id={open} canEdit={canManage} onClose={() => setOpen(null)} onDelete={del} onReprocess={reprocess} onSetActive={setActive} onSaved={() => load(docs?.length)} />
     </div>
   );
 }
 const docStatus = (s: string) => ({ queued: "Trong hàng đợi", pending: "Đang chờ", processing: "Đang xử lý", ready: "Sẵn sàng", error: "Lỗi" } as any)[s] || s;
 
-function DocDetail({ id, onClose, onDelete, onReprocess, onSetActive }: { id: string | null; onClose: () => void; onDelete: (id: string) => void; onReprocess: (id: string) => void; onSetActive: (id: string, active: boolean) => void }) {
+function DocDetail({ id, canEdit, onClose, onDelete, onReprocess, onSetActive, onSaved }: { id: string | null; canEdit?: boolean; onClose: () => void; onDelete: (id: string) => void; onReprocess: (id: string) => void; onSetActive: (id: string, active: boolean) => void; onSaved?: () => void }) {
   const [d, setD] = useState<any>(null);
-  useEffect(() => { setD(null); if (id) api.get(`/api/knowledge/documents/${id}`).then(setD).catch(() => {}); }, [id]);
+  const [edit, setEdit] = useState(false); const [title, setTitle] = useState(""); const [text, setText] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { setD(null); setEdit(false); if (id) api.get(`/api/knowledge/documents/${id}`).then(setD).catch(() => {}); }, [id]);
   const toggle = async () => { if (!d) return; await onSetActive(d.id, d.active === false); setD({ ...d, active: !(d.active !== false) }); };
+  const startEdit = () => { setTitle(d.title || ""); setText(d.text || ""); setEdit(true); };
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/api/knowledge/documents/${d.id}`, { title, text });
+      const fresh = await api.get(`/api/knowledge/documents/${d.id}`);
+      setD(fresh); setEdit(false); onSaved && onSaved();
+      notify("Đã lưu và lập chỉ mục lại tài liệu.", "ok");
+    } catch (e: any) { notify(e.message, "err"); } finally { setBusy(false); }
+  };
+  const footer = d ? (edit
+    ? <><Button variant="sec" onClick={() => setEdit(false)}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu văn bản</Button></>
+    : <><div className="flex-1" />{canEdit && <Button variant="sec" onClick={startEdit}><Pencil className="w-3.5 h-3.5" /> Sửa văn bản</Button>}<Button variant="sec" onClick={() => onReprocess(d.id)}>Xử lý lại</Button><Button variant="danger" onClick={() => onDelete(d.id)}>Xoá</Button></>
+  ) : undefined;
   return (
-    <Modal open={!!id} onClose={onClose} size="lg" title={d?.title || "Tài liệu"} sub={d ? `${d.source || "Nhập tay"} · ${d.mime || ""}` : ""}
-      footer={d ? <><Button variant="sec" onClick={() => onReprocess(d.id)}>Xử lý lại</Button><Button variant="danger" onClick={() => onDelete(d.id)}>Xoá</Button></> : undefined}>
-      {!d ? <Spinner /> : (
+    <Modal open={!!id} onClose={onClose} size="lg" title={d?.title || "Tài liệu"} sub={d ? `${d.source || "Nhập tay"} · ${d.mime || ""}` : ""} footer={footer}>
+      {!d ? <Spinner /> : edit ? (
+        <div className="space-y-3">
+          <Field label="Tiêu đề"><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+          <Field label="Văn bản" info="Sửa để chỉnh lại lỗi trích xuất/OCR. Khi lưu, tài liệu sẽ được chia đoạn và lập chỉ mục lại."><Textarea value={text} onChange={(e) => setText(e.target.value)} className="min-h-[46vh] text-[12.5px] leading-relaxed" /></Field>
+          {d.source && d.source !== "text" ? <div className="text-[12px] text-warn font-normal">Lưu ý: nếu bấm “Xử lý lại” trên tài liệu từ tệp, hệ thống sẽ trích xuất lại từ tệp gốc và ghi đè phần sửa tay.</div> : null}
+        </div>
+      ) : (
         <div>
           <div className="flex flex-wrap items-center gap-4 text-[13px] mb-3">
             <span className="flex items-center gap-1.5"><Badge kind={d.status}>{docStatus(d.status)}</Badge></span>

@@ -39,6 +39,14 @@ class Config:
     META_VERIFY_TOKEN = _get("META_VERIFY_TOKEN", "omnishop-verify")  # webhook handshake
     OAUTH_REDIRECT_BASE = _get("OAUTH_REDIRECT_BASE", "http://localhost:8000")  # public base for callbacks
 
+    # When a channel is disconnected, the platform (Telegram/Meta/Zalo) queues the
+    # undelivered messages and floods them all at once on reconnect. Auto-replying
+    # to that whole backlog wastes tokens, so an inbound message older than this
+    # many seconds is still recorded but NOT answered by the AI (it is flagged for
+    # a human instead). 0 disables the guard. Telegram additionally drops its own
+    # backlog at connect time (drop_pending_updates).
+    CHANNEL_STALE_SECONDS = int(_get("CHANNEL_STALE_SECONDS", "600"))
+
     # Transactional email
     EMAIL_PROVIDER = _get("EMAIL_PROVIDER", "console")  # console | smtp | resend
     EMAIL_FROM = _get("EMAIL_FROM", "OmniShop AI <no-reply@omnishop.local>")

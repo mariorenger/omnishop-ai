@@ -283,7 +283,9 @@ def create_channel(body: ChannelBody, ctx: OrgContext = Depends(require_role("ad
             good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
             if ok and good_base:
                 hook = f"{base}/api/channels/webhook/telegram/{public_key}"
-                wok, winfo = telegram.set_webhook(creds["bot_token"], hook)
+                # drop the backlog Telegram queued before we were reachable, so we
+                # don't auto-reply to a flood of old messages (wasted tokens).
+                wok, winfo = telegram.set_webhook(creds["bot_token"], hook, drop_pending_updates=True)
                 note = f"{info} · webhook: {'đã đặt' if wok else winfo}"
             elif ok:
                 status = "degraded"
@@ -486,28 +488,29 @@ async def meta_webhook(request: Request):
     payload = json.loads(body or b"{}")
     # WhatsApp Cloud shares this app + endpoint but a different body shape.
     if payload.get("object") == "whatsapp_business_account":
-        for pnid, sender, text, name in whatsapp.normalize_entries(payload):
+        for pnid, sender, text, name, ts in whatsapp.normalize_entries(payload):
             row = _resolve_by_cfg("whatsapp", "phone_number_id", pnid)
             if not row:
                 continue
             result = orchestrator.handle_incoming(
                 str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text,
-                customer_name=name or None
+                customer_name=name or None, event_ts=ts
             )
             creds = _creds(row["credentials_enc"])
-            if creds.get("access_token"):
+            if creds.get("access_token") and result["reply"]:
                 whatsapp.send_message(creds["access_token"], pnid, sender, result["reply"])
         return {"ok": True}
-    for page_id, sender, text in meta.normalize_entries(payload):
+    for page_id, sender, text, ts in meta.normalize_entries(payload):
         with no_tenant() as conn:
             ch = conn.execute("SELECT * FROM resolve_channel_by_meta(%s)", (page_id,)).fetchone()
         if not ch:
             continue
         result = orchestrator.handle_incoming(
-            str(ch["organization_id"]), str(ch["shop_id"]), str(ch["channel_id"]), sender, text
+            str(ch["organization_id"]), str(ch["shop_id"]), str(ch["channel_id"]), sender, text,
+            event_ts=ts
         )
         token = _creds(ch["credentials_enc"]).get("page_access_token", "")
-        if token:
+        if token and result["reply"]:
             meta.send_message(token, sender, result["reply"])
     return {"ok": True}
 
@@ -567,7 +570,7 @@ def _resolve_by_cfg(kind: str, key: str, value: str):
 async def telegram_webhook(public_key: str, request: Request):
     from ..db import admin_tx
     update = json.loads(await request.body() or b"{}")
-    chat_id, text = telegram.normalize_update(update)
+    chat_id, text, ts = telegram.normalize_update(update)
     if not chat_id:
         return {"ok": True}
     with admin_tx() as conn:
@@ -580,10 +583,10 @@ async def telegram_webhook(public_key: str, request: Request):
         return {"ok": True}
     result = orchestrator.handle_incoming(
         str(ch["organization_id"]), str(ch["shop_id"]), str(ch["id"]), chat_id, text,
-        customer_name=telegram.sender_name(update) or None
+        customer_name=telegram.sender_name(update) or None, event_ts=ts
     )
     token = _creds(ch["credentials_enc"]).get("bot_token", "")
-    if token:
+    if token and result["reply"]:
         telegram.send_message(token, chat_id, result["reply"])
     return {"ok": True}
 
@@ -591,16 +594,17 @@ async def telegram_webhook(public_key: str, request: Request):
 @router.post("/channels/webhook/zalo")
 async def zalo_webhook(request: Request):
     payload = json.loads(await request.body() or b"{}")
-    oa_id, sender, text = zalo.normalize_event(payload)
+    oa_id, sender, text, ts = zalo.normalize_event(payload)
     if not oa_id:
         return {"ok": True}
     row = _resolve_by_cfg("zalo", "oa_id", oa_id)
     if not row:
         return {"ok": True}
     result = orchestrator.handle_incoming(
-        str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text
+        str(row["organization_id"]), str(row["shop_id"]), str(row["id"]), sender, text,
+        event_ts=ts
     )
     creds = _creds(row["credentials_enc"])
-    if creds.get("access_token"):
+    if creds.get("access_token") and result["reply"]:
         zalo.send_message(creds["access_token"], sender, result["reply"])
     return {"ok": True}

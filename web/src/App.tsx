@@ -124,7 +124,7 @@ export default function App() {
             : tab === "overview" ? <Overview shopId={shop.id} onGoInbox={() => setTab("inbox")} />
             : tab === "inbox" ? <Inbox shopId={shop.id} me={user} role={role} />
             : tab === "bots" ? <Bots shopId={shop.id} role={role} />
-            : tab === "knowledge" ? <Knowledge shopId={shop.id} />
+            : tab === "knowledge" ? <Knowledge shopId={shop.id} role={role} />
             : tab === "channels" ? <Channels shopId={shop.id} />
             : tab === "products" ? <Products shopId={shop.id} role={role} />
             : tab === "members" ? <Members role={role} />

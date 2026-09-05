@@ -42,8 +42,9 @@ def send_message(access_token: str, phone_number_id: str, to: str, text: str) ->
 
 
 def normalize_entries(payload: dict):
-    """Yield (phone_number_id, sender, text, name) from a WhatsApp Cloud webhook
-    body. `name` is the sender's profile name when present, else ''."""
+    """Yield (phone_number_id, sender, text, name, ts) from a WhatsApp Cloud
+    webhook body. `name` is the sender's profile name when present, else ''.
+    ts is the message's unix time in seconds (used to skip stale backlog)."""
     for entry in payload.get("entry", []):
         for ch in entry.get("changes", []):
             value = ch.get("value", {})
@@ -53,5 +54,6 @@ def normalize_entries(payload: dict):
             for m in value.get("messages", []):
                 sender = str(m.get("from", ""))
                 text = (m.get("text") or {}).get("body")
+                ts = m.get("timestamp")
                 if pnid and sender and text:
-                    yield pnid, sender, text, names.get(sender, "")
+                    yield pnid, sender, text, names.get(sender, ""), ts

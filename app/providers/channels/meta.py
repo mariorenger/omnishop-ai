@@ -68,12 +68,15 @@ def verify_signature(app_secret: str, body: bytes, header: str) -> bool:
 
 
 def normalize_entries(payload: dict):
-    """Yield (page_id, sender_id, text) tuples from a Messenger/IG webhook body."""
+    """Yield (page_id, sender_id, text, ts) from a Messenger/IG webhook body.
+    ts is the event's unix time in SECONDS (Meta sends milliseconds)."""
     for entry in payload.get("entry", []):
         page_id = str(entry.get("id", ""))
         for ev in entry.get("messaging", []):
             sender = str(ev.get("sender", {}).get("id", ""))
             msg = ev.get("message", {})
             text = msg.get("text")
+            ts_ms = ev.get("timestamp")
+            ts = (float(ts_ms) / 1000.0) if ts_ms else None
             if sender and text:
-                yield page_id, sender, text
+                yield page_id, sender, text, ts
