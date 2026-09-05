@@ -69,13 +69,22 @@ export default function App() {
   if (!user) return <Login onAuthed={boot} brand={brand} />;
 
   const isStaff = user.platform_role === "admin" || user.platform_role === "manager";
-  const groups = isStaff
-    ? [...GROUPS, { section: "Quản trị", items: [["admin", Shield, user.platform_role === "manager" ? "Báo cáo hệ thống" : "Quản trị hệ thống"]] as [string, any, string][] }]
-    : GROUPS;
-  const TENANT_TABS = [...NEEDS_SHOP, "members", "billing", "settings"];
-  const needOrg = !org && TENANT_TABS.includes(tab);   // no workspace yet
-  const needShop = !!org && !shop && NEEDS_SHOP.includes(tab);
   const role = org?.role || "viewer";
+  // tenant RBAC: owner > admin > agent > viewer. Management tabs need admin+.
+  const RANK: Record<string, number> = { owner: 3, admin: 2, agent: 1, viewer: 0 };
+  const MIN_ROLE: Record<string, number> = { members: 2, settings: 2, billing: 2 };
+  const canSee = (id: string) => (RANK[role] ?? 0) >= (MIN_ROLE[id] || 0);
+  const tenantGroups = GROUPS
+    .map((g) => ({ ...g, items: g.items.filter(([id]) => canSee(id)) }))
+    .filter((g) => g.items.length > 0);
+  const groups = isStaff
+    ? [...tenantGroups, { section: "Quản trị", items: [["admin", Shield, user.platform_role === "manager" ? "Báo cáo hệ thống" : "Quản trị hệ thống"]] as [string, any, string][] }]
+    : tenantGroups;
+  // fall back to Tổng quan if the saved tab isn't allowed for this role/space
+  const view = ((canSee(tab) && (tab !== "admin" || isStaff)) || tab === "overview") ? tab : "overview";
+  const TENANT_TABS = [...NEEDS_SHOP, "members", "billing", "settings"];
+  const needOrg = !org && TENANT_TABS.includes(view);   // no workspace yet
+  const needShop = !!org && !shop && NEEDS_SHOP.includes(view);
 
   return (
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr]">
@@ -92,7 +101,7 @@ export default function App() {
             {g.items.map(([id, Icon, label]) => (
               <button key={id} onClick={() => setTab(id)}
                 className={"w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition " +
-                  (tab === id ? "bg-gradient-to-r from-accent/25 to-transparent text-fg border border-line" : "text-muted hover:bg-card hover:text-fg")}>
+                  (view === id ? "bg-gradient-to-r from-accent/25 to-transparent text-fg border border-line" : "text-muted hover:bg-card hover:text-fg")}>
                 <Icon className="w-[18px] h-[18px]" /> {label}
               </button>
             ))}
@@ -113,7 +122,7 @@ export default function App() {
             </Select>
           </div>
           {/* mobile tab select */}
-          <Select className="w-auto md:hidden" value={tab} onChange={(e) => setTab(e.target.value)}>
+          <Select className="w-auto md:hidden" value={view} onChange={(e) => setTab(e.target.value)}>
             {groups.flatMap((g) => g.items).map(([id, , label]) => <option key={id} value={id}>{label}</option>)}
           </Select>
           <div className="flex-1" />
@@ -122,7 +131,7 @@ export default function App() {
         </header>
 
         <main className="p-4 md:p-6 w-full max-w-[1680px] mx-auto">
-          {renewal?.expires && (renewal.expiring || renewal.expired) && tab !== "billing" && (
+          {renewal?.expires && (renewal.expiring || renewal.expired) && view !== "billing" && canSee("billing") && (
             <div className={"mb-4 flex items-center gap-3 rounded-xl border px-4 py-3 text-[13px] font-normal " + (renewal.expired ? "border-bad/50 bg-bad/10 text-bad" : "border-warn/50 bg-warn/10 text-warn")}>
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span className="flex-1">{renewal.expired
@@ -133,17 +142,17 @@ export default function App() {
           )}
           {needOrg ? <WorkspaceSetup onCreated={boot} isAdmin={isStaff} />
             : needShop ? <ShopSetup onCreated={async () => { const s = await api.get("/api/shops"); setShops(s); setShop(s[0]); }} />
-            : tab === "overview" ? <Overview shopId={shop.id} onGoInbox={() => setTab("inbox")} />
-            : tab === "inbox" ? <Inbox shopId={shop.id} me={user} role={role} />
-            : tab === "bots" ? <Bots shopId={shop.id} role={role} />
-            : tab === "knowledge" ? <Knowledge shopId={shop.id} role={role} />
-            : tab === "channels" ? <Channels shopId={shop.id} />
-            : tab === "products" ? <Products shopId={shop.id} role={role} />
-            : tab === "members" ? <Members role={role} />
-            : tab === "billing" ? <Billing role={role} />
-            : tab === "settings" ? <Settings />
-            : tab === "help" ? <Help />
-            : tab === "admin" ? <Admin role={user.platform_role || ""} />
+            : view === "overview" ? <Overview shopId={shop.id} onGoInbox={() => setTab("inbox")} />
+            : view === "inbox" ? <Inbox shopId={shop.id} me={user} role={role} />
+            : view === "bots" ? <Bots shopId={shop.id} role={role} />
+            : view === "knowledge" ? <Knowledge shopId={shop.id} role={role} />
+            : view === "channels" ? <Channels shopId={shop.id} />
+            : view === "products" ? <Products shopId={shop.id} role={role} />
+            : view === "members" ? <Members role={role} />
+            : view === "billing" ? <Billing role={role} />
+            : view === "settings" ? <Settings />
+            : view === "help" ? <Help />
+            : view === "admin" ? <Admin role={user.platform_role || ""} />
             : null}
         </main>
       </div>
