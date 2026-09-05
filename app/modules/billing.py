@@ -288,13 +288,18 @@ def confirm_payment(invoice_id: str, ctx: OrgContext = Depends(require_role("own
 
 
 @router.get("/billing/invoices")
-def list_invoices(ctx: OrgContext = Depends(get_org_context)):
+def list_invoices(limit: int = 50, offset: int = 0, ctx: OrgContext = Depends(get_org_context)):
+    limit = max(1, min(limit, 200)); offset = max(0, offset)
     with tenant_tx(ctx.org_id) as conn:
+        total = conn.execute("SELECT count(*) AS n FROM invoice").fetchone()["n"]
         rows = conn.execute(
             """SELECT id, plan_code, amount, currency, status, provider, created_at, paid_at
-               FROM invoice ORDER BY created_at DESC LIMIT 50"""
+               FROM invoice ORDER BY created_at DESC LIMIT %s OFFSET %s""",
+            (limit, offset),
         ).fetchall()
-    return [{"id": str(r["id"]), "plan": r["plan_code"], "amount": float(r["amount"]),
-             "currency": r["currency"], "status": r["status"], "provider": r["provider"],
-             "created_at": r["created_at"].isoformat(),
-             "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None} for r in rows]
+    items = [{"id": str(r["id"]), "plan": r["plan_code"], "amount": float(r["amount"]),
+              "currency": r["currency"], "status": r["status"], "provider": r["provider"],
+              "created_at": r["created_at"].isoformat(),
+              "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None} for r in rows]
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset,
+            "has_more": offset + len(items) < int(total)}

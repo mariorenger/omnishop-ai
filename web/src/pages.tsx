@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, clearAuth } from "./api";
-import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
+import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, LoadMore, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars, BarList } from "./charts";
 import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight, Lock, ShieldCheck, UserRound } from "lucide-react";
 import QRCode from "qrcode";
@@ -15,7 +15,7 @@ export function Overview({ shopId, onGoInbox }: { shopId: string; onGoInbox?: ()
     setA(null);
     api.get(`/api/analytics/overview?shop_id=${shopId}`).then(setA).catch((e) => setErr(e.message));
     api.get("/api/subscription").then(setSub).catch(() => {});
-    api.get(`/api/conversations?shop_id=${shopId}`).then((d) => setConvs(d.slice(0, 6))).catch(() => {});
+    api.get(`/api/conversations?shop_id=${shopId}&limit=6`).then((d) => setConvs((d.items || d).slice(0, 6))).catch(() => {});
   }, [shopId]);
   if (err) return <Msg type="err">{err}</Msg>;
   if (!a) return <Spinner />;
@@ -72,8 +72,20 @@ export function Products({ shopId, role }: { shopId: string; role?: string }) {
   const [q, setQ] = useState(""); const [editId, setEditId] = useState<string | null>(null);   // null=closed, ""=new, id=edit
   const [f, setF] = useState<any>({ name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const [total, setTotal] = useState(0); const [more, setMore] = useState(false); const [loadingMore, setLoadingMore] = useState(false);
   const canManage = role === "owner" || role === "admin";
-  const load = () => { api.get(`/api/products?shop_id=${shopId}`).then(setItems).catch((e) => setErr(e.message)); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); };
+  const PAGE = 50;
+  const load = (count = PAGE) => {
+    api.get(`/api/products?shop_id=${shopId}&limit=${Math.max(count, PAGE)}&offset=0`)
+      .then((d) => { setItems(d.items); setTotal(d.total); setMore(d.has_more); }).catch((e) => setErr(e.message));
+    api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {});
+  };
+  const loadMore = async () => {
+    if (!items) return; setLoadingMore(true);
+    try { const d = await api.get(`/api/products?shop_id=${shopId}&limit=${PAGE}&offset=${items.length}`);
+      setItems([...items, ...d.items]); setTotal(d.total); setMore(d.has_more); }
+    finally { setLoadingMore(false); }
+  };
   useEffect(() => { setItems(null); load(); }, [shopId]);
   const blank = { name: "", price: "", currency: "VND", sku: "", category: "", description: "", variants: "", bot_id: "" };
   const openNew = () => { setF(blank); setEditId(""); setErr(""); };
@@ -89,10 +101,10 @@ export function Products({ shopId, role }: { shopId: string; role?: string }) {
     const body = { shop_id: shopId, name: f.name, price: f.price ? parseFloat(f.price) : null, currency: f.currency, sku: f.sku, description: f.description, attributes: f.category ? { category: f.category } : {}, variants, bot_id: f.bot_id || null };
     try {
       if (editId) await api.put(`/api/products/${editId}`, body); else await api.post("/api/products", body);
-      setEditId(null); load(); notify(editId ? "Đã cập nhật sản phẩm." : "Đã thêm sản phẩm.", "ok");
+      setEditId(null); load(items?.length); notify(editId ? "Đã cập nhật sản phẩm." : "Đã thêm sản phẩm.", "ok");
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
-  const del = async (p: any) => { if (!confirm(`Xoá sản phẩm "${p.name}"? Không thể hoàn tác.`)) return; try { await api.del(`/api/products/${p.id}`); load(); notify("Đã xoá sản phẩm.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
+  const del = async (p: any) => { if (!confirm(`Xoá sản phẩm "${p.name}"? Không thể hoàn tác.`)) return; try { await api.del(`/api/products/${p.id}`); load(items?.length); notify("Đã xoá sản phẩm.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
   const totalStock = (p: any) => (p.variants || []).reduce((s: number, v: any) => s + (v.stock || 0), 0);
   const botName = (id: string) => bots.find((b) => b.id === id)?.name;
   const rows = (items || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || (p.sku || "").toLowerCase().includes(q.toLowerCase()));
@@ -117,6 +129,7 @@ export function Products({ shopId, role }: { shopId: string; role?: string }) {
             </tr>
           ))}
         </Table>}
+      {items && items.length > 0 && !q && <LoadMore show={more} loading={loadingMore} onClick={loadMore} shown={items.length} total={total} />}
       <Msg type="err">{!editId ? err : ""}</Msg>
       <Modal open={editId !== null} onClose={() => setEditId(null)} title={editId ? "Sửa sản phẩm" : "Thêm sản phẩm"} size="lg"
         footer={<><Button variant="sec" onClick={() => setEditId(null)}>Huỷ</Button><Button loading={busy} onClick={save}>Lưu sản phẩm</Button></>}>
@@ -171,20 +184,34 @@ export function Knowledge({ shopId }: { shopId: string }) {
   const [title, setTitle] = useState(""); const [text, setText] = useState(""); const [botId, setBotId] = useState("");
   const [bots, setBots] = useState<any[]>([]); const [kb, setKb] = useState<any>(null); const [kbName, setKbName] = useState(""); const [editKb, setEditKb] = useState(false);
   const [msg, setMsg] = useState(""); const [err, setErr] = useState(""); const [open, setOpen] = useState<string | null>(null);
+  const [total, setTotal] = useState(0); const [more, setMore] = useState(false); const [loadingMore, setLoadingMore] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const load = () => { api.get(`/api/knowledge/documents?shop_id=${shopId}`).then((d) => { setDocs(d); if (d.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(load, 2000); }).catch((e) => setErr(e.message)); };
+  const PAGE = 50;
+  const load = (count = PAGE) => {
+    const lim = Math.max(count, PAGE);
+    api.get(`/api/knowledge/documents?shop_id=${shopId}&limit=${lim}&offset=0`).then((d) => {
+      setDocs(d.items); setTotal(d.total); setMore(d.has_more);
+      if (d.items.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(() => load(lim), 2000);
+    }).catch((e) => setErr(e.message));
+  };
+  const loadMore = async () => {
+    if (!docs) return; setLoadingMore(true);
+    try { const d = await api.get(`/api/knowledge/documents?shop_id=${shopId}&limit=${PAGE}&offset=${docs.length}`);
+      setDocs([...docs, ...d.items]); setTotal(d.total); setMore(d.has_more); }
+    finally { setLoadingMore(false); }
+  };
   useEffect(() => { setDocs(null); load(); api.get(`/api/bots?shop_id=${shopId}`).then(setBots).catch(() => {}); api.get(`/api/knowledge/kb?shop_id=${shopId}`).then((k) => { setKb(k); setKbName(k.name); }).catch(() => {}); }, [shopId]);
-  const addText = async () => { setErr(""); setMsg(""); if (!text.trim()) { setErr("Nội dung trống"); return; } try { await api.post("/api/knowledge/documents", { shop_id: shopId, title, text, bot_id: botId || null }); setTitle(""); setText(""); setMsg("Đã thêm tài liệu, đang lập chỉ mục."); load(); } catch (e: any) { setErr(e.message); } };
+  const addText = async () => { setErr(""); setMsg(""); if (!text.trim()) { setErr("Nội dung trống"); return; } try { await api.post("/api/knowledge/documents", { shop_id: shopId, title, text, bot_id: botId || null }); setTitle(""); setText(""); setMsg("Đã thêm tài liệu, đang lập chỉ mục."); load(docs?.length); } catch (e: any) { setErr(e.message); } };
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return; setErr(""); setMsg(`Đang tải ${file.name}…`);
     const fd = new FormData(); fd.append("shop_id", shopId); fd.append("file", file); if (botId) fd.append("bot_id", botId);
-    try { await api.upload("/api/knowledge/upload", fd); setMsg(`Đã nhận ${file.name} — đang trích xuất & lập chỉ mục ở nền.`); load(); }
+    try { await api.upload("/api/knowledge/upload", fd); setMsg(`Đã nhận ${file.name} — đang trích xuất & lập chỉ mục ở nền.`); load(docs?.length); }
     catch (ex: any) { setErr(ex.message); setMsg(""); } finally { if (fileRef.current) fileRef.current.value = ""; }
   };
   const saveKb = async () => { try { await api.put("/api/knowledge/kb", { shop_id: shopId, name: kbName }); setKb({ ...kb, name: kbName }); setEditKb(false); } catch (e: any) { setErr(e.message); } };
-  const del = async (id: string) => { if (!confirm("Xoá tài liệu này?")) return; try { await api.del(`/api/knowledge/documents/${id}`); setOpen(null); load(); } catch (e: any) { setErr(e.message); } };
-  const reprocess = async (id: string) => { try { await api.post(`/api/knowledge/documents/${id}/reprocess`, {}); setOpen(null); load(); } catch (e: any) { setErr(e.message); } };
-  const setActive = async (id: string, active: boolean) => { try { await api.put(`/api/knowledge/documents/${id}/active`, { active }); load(); } catch (e: any) { setErr(e.message); } };
+  const del = async (id: string) => { if (!confirm("Xoá tài liệu này?")) return; try { await api.del(`/api/knowledge/documents/${id}`); setOpen(null); load(docs?.length); } catch (e: any) { setErr(e.message); } };
+  const reprocess = async (id: string) => { try { await api.post(`/api/knowledge/documents/${id}/reprocess`, {}); setOpen(null); load(docs?.length); } catch (e: any) { setErr(e.message); } };
+  const setActive = async (id: string, active: boolean) => { try { await api.put(`/api/knowledge/documents/${id}/active`, { active }); load(docs?.length); } catch (e: any) { setErr(e.message); } };
   return (
     <div className="space-y-4">
       <Card>
@@ -222,6 +249,7 @@ export function Knowledge({ shopId }: { shopId: string }) {
               <Td className="text-right text-muted"><ChevronRight className="w-4 h-4 inline" /></Td>
             </tr>)}
           </Table>}
+        {docs && docs.length > 0 && <LoadMore show={more} loading={loadingMore} onClick={loadMore} shown={docs.length} total={total} />}
       </Card>
       <DocDetail id={open} onClose={() => setOpen(null)} onDelete={del} onReprocess={reprocess} onSetActive={setActive} />
     </div>
@@ -431,14 +459,38 @@ function EditChannelModal({ channel, kinds, bots, onClose, onSaved }: { channel:
 
 // ============================================================ Inbox
 export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string; email: string }; role?: string }) {
-  const [convs, setConvs] = useState<any[] | null>(null);
-  const [active, setActive] = useState<any>(null); const [msgs, setMsgs] = useState<any[]>([]); const [reply, setReply] = useState("");
+  const PAGE = 30, MSG_PAGE = 50;
+  const [convs, setConvs] = useState<any[] | null>(null); const [convTotal, setConvTotal] = useState(0); const [convMore, setConvMore] = useState(false); const [loadingMore, setLoadingMore] = useState(false);
+  const [active, setActive] = useState<any>(null); const [msgs, setMsgs] = useState<any[]>([]); const [msgMore, setMsgMore] = useState(false); const [loadingOld, setLoadingOld] = useState(false); const [reply, setReply] = useState("");
   const [members, setMembers] = useState<any[]>([]); const [busy, setBusy] = useState(false);
   const canManage = role === "owner" || role === "admin";
-  const loadList = () => api.get(`/api/conversations?shop_id=${shopId}`).then(setConvs);
+  const loadList = async (count = PAGE) => {
+    const d = await api.get(`/api/conversations?shop_id=${shopId}&limit=${count}&offset=0`);
+    setConvs(d.items); setConvTotal(d.total); setConvMore(d.has_more);
+  };
+  const loadMore = async () => {
+    if (!convs) return; setLoadingMore(true);
+    try { const d = await api.get(`/api/conversations?shop_id=${shopId}&limit=${PAGE}&offset=${convs.length}`);
+      setConvs([...convs, ...d.items]); setConvTotal(d.total); setConvMore(d.has_more); }
+    finally { setLoadingMore(false); }
+  };
   useEffect(() => { setConvs(null); setActive(null); loadList(); if (canManage) api.get("/api/members").then(setMembers).catch(() => {}); }, [shopId]);
-  const open = async (c: any) => { setActive(c); setMsgs(await api.get(`/api/conversations/${c.id}/messages`)); };
-  const refresh = async () => { await loadList(); if (active) { const c = (await api.get(`/api/conversations?shop_id=${shopId}`)).find((x: any) => x.id === active.id); if (c) setActive(c); } };
+  const open = async (c: any) => {
+    setActive(c);
+    const d = await api.get(`/api/conversations/${c.id}/messages?limit=${MSG_PAGE}`);
+    setMsgs(d.items); setMsgMore(d.has_more);
+  };
+  const loadOlder = async () => {
+    if (!active || !msgs.length) return; setLoadingOld(true);
+    try { const d = await api.get(`/api/conversations/${active.id}/messages?limit=${MSG_PAGE}&before=${encodeURIComponent(msgs[0].at)}`);
+      setMsgs([...d.items, ...msgs]); setMsgMore(d.has_more); }
+    finally { setLoadingOld(false); }
+  };
+  const refresh = async () => {
+    const keep = Math.max(PAGE, convs?.length || 0);
+    await loadList(keep);
+    if (active) { const c = (await api.get(`/api/conversations?shop_id=${shopId}&limit=${keep}&offset=0`)).items.find((x: any) => x.id === active.id); if (c) setActive(c); }
+  };
   const send = async () => {
     if (!reply.trim()) return; setBusy(true);
     try {
@@ -469,6 +521,7 @@ export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string;
                 </div>
               </div>
             ))}
+          {convs && convs.length > 0 && <LoadMore show={convMore} loading={loadingMore} onClick={loadMore} shown={convs.length} total={convTotal} />}
         </div>
         <div className="flex-[1.4] min-w-[260px] w-full">
           {!active ? <Empty>Chọn một hội thoại để xem chi tiết.</Empty> : (
@@ -490,7 +543,7 @@ export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string;
                   <span className={active.assignee ? "font-semibold" : "text-muted font-normal"}>{active.assignee ? (assignedToMe ? "Bạn" : active.assignee) : "Chưa ai nhận"}</span>
                   {!assignedToMe && <Button size="sm" variant="ghost" onClick={() => claim()}>Nhận xử lý</Button>}
                   {canManage && members.length > 0 && (
-                    <Select className="w-auto h-8 py-1 text-[12px]" value={active.assigned_user_id || ""} onChange={(e) => claim(e.target.value || undefined)}>
+                    <Select className="w-auto h-9 py-0 leading-none text-[12px]" value={active.assigned_user_id || ""} onChange={(e) => claim(e.target.value || undefined)}>
                       <option value="">— Gán cho —</option>
                       {members.map((m) => <option key={m.email} value={m.user_id || ""}>{m.email}</option>)}
                     </Select>
@@ -498,6 +551,7 @@ export function Inbox({ shopId, me, role }: { shopId: string; me?: { id: string;
                 </div>
               </div>
               <div className="max-h-[54vh] overflow-auto pr-1 space-y-3 py-1">
+                {msgMore && <div className="text-center"><Button variant="ghost" size="sm" loading={loadingOld} onClick={loadOlder}>Tải tin cũ hơn</Button></div>}
                 {msgs.map((m, i) => {
                   if (m.role === "system") return <div key={i} className="mx-auto text-[11.5px] text-warn bg-warn/10 border border-warn/30 rounded-full px-3 py-1 font-normal">{m.content}</div>;
                   const mine = m.role === "ai" || m.role === "agent";
@@ -581,7 +635,7 @@ export function Billing({ role }: { role: string }) {
   const [checkout, setCheckout] = useState<any>(null); const [busy, setBusy] = useState(false);
   const isOwner = role === "owner";
   const load = () => Promise.all([api.get("/api/plans"), api.get("/api/subscription"), api.get("/api/billing/invoices"), api.get("/api/usage/by-customer")])
-    .then(([p, s, i, c]) => { setPlans(p); setSub(s); setInvoices(i); setCustomers(c); }).catch((e) => setErr(e.message));
+    .then(([p, s, i, c]) => { setPlans(p); setSub(s); setInvoices(i.items || i); setCustomers(c); }).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   if (err) return <Msg type="err">{err}</Msg>;
   if (!plans || !sub) return <Spinner />;

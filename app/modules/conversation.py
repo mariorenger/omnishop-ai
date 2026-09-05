@@ -91,8 +91,11 @@ class AgentReply(BaseModel):
 
 
 @router.get("/conversations")
-def list_conversations(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
+def list_conversations(shop_id: str, limit: int = 50, offset: int = 0,
+                       ctx: OrgContext = Depends(get_org_context)):
+    limit = max(1, min(limit, 100)); offset = max(0, offset)
     with tenant_tx(ctx.org_id) as conn:
+        total = conn.execute("SELECT count(*) AS n FROM conversation WHERE shop_id=%s", (shop_id,)).fetchone()["n"]
         rows = conn.execute(
             """SELECT c.id, c.customer_ref, c.customer_name, c.status, c.created_at, c.last_at,
                       c.assigned_user_id, c.channel_id,
@@ -101,30 +104,41 @@ def list_conversations(shop_id: str, ctx: OrgContext = Depends(get_org_context))
                       (SELECT ch.name FROM channel ch WHERE ch.id=c.channel_id) AS channel_name,
                       (SELECT count(*) FROM message m WHERE m.conversation_id=c.id) AS messages,
                       (SELECT content FROM message m WHERE m.conversation_id=c.id ORDER BY created_at DESC LIMIT 1) AS last_message
-               FROM conversation c WHERE c.shop_id=%s ORDER BY c.last_at DESC LIMIT 100""",
-            (shop_id,),
+               FROM conversation c WHERE c.shop_id=%s ORDER BY c.last_at DESC LIMIT %s OFFSET %s""",
+            (shop_id, limit, offset),
         ).fetchall()
-    return [{"id": str(r["id"]), "customer_ref": r["customer_ref"], "customer_name": r["customer_name"],
-             "status": r["status"], "created_at": r["created_at"].isoformat(), "last_at": r["last_at"].isoformat(),
-             "last_message": r["last_message"], "channel_kind": r["channel_kind"], "channel_name": r["channel_name"],
-             "messages": int(r["messages"]),
-             "assigned_user_id": str(r["assigned_user_id"]) if r["assigned_user_id"] else None,
-             "assignee": r["assignee"]} for r in rows]
+    items = [{"id": str(r["id"]), "customer_ref": r["customer_ref"], "customer_name": r["customer_name"],
+              "status": r["status"], "created_at": r["created_at"].isoformat(), "last_at": r["last_at"].isoformat(),
+              "last_message": r["last_message"], "channel_kind": r["channel_kind"], "channel_name": r["channel_name"],
+              "messages": int(r["messages"]),
+              "assigned_user_id": str(r["assigned_user_id"]) if r["assigned_user_id"] else None,
+              "assignee": r["assignee"]} for r in rows]
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset,
+            "has_more": offset + len(items) < int(total)}
 
 
 @router.get("/conversations/{conv_id}/messages")
-def conversation_messages(conv_id: str, ctx: OrgContext = Depends(get_org_context)):
+def conversation_messages(conv_id: str, limit: int = 50, before: str = "",
+                          ctx: OrgContext = Depends(get_org_context)):
+    """Return the newest `limit` messages (ascending). To page backwards through
+    a long thread, pass `before` = the timestamp of the oldest message you hold."""
+    limit = max(1, min(limit, 200))
     with tenant_tx(ctx.org_id) as conn:
         if not conn.execute("SELECT 1 FROM conversation WHERE id=%s", (conv_id,)).fetchone():
             raise not_found()
+        clause = "AND m.created_at < %s::timestamptz" if before else ""
+        params = [conv_id] + ([before] if before else []) + [limit]
         rows = conn.execute(
-            """SELECT m.role, m.content, m.meta, m.created_at,
-                      (SELECT email FROM app_user u WHERE u.id=m.sender_user_id) AS sender
-               FROM message m WHERE m.conversation_id=%s ORDER BY m.created_at""",
-            (conv_id,),
+            f"""SELECT m.role, m.content, m.meta, m.created_at,
+                       (SELECT email FROM app_user u WHERE u.id=m.sender_user_id) AS sender
+                FROM message m WHERE m.conversation_id=%s {clause}
+                ORDER BY m.created_at DESC LIMIT %s""",
+            tuple(params),
         ).fetchall()
-    return [{"role": r["role"], "content": r["content"], "meta": r["meta"],
-             "sender": r["sender"], "at": r["created_at"].isoformat()} for r in rows]
+    has_more = len(rows) == limit
+    items = [{"role": r["role"], "content": r["content"], "meta": r["meta"],
+              "sender": r["sender"], "at": r["created_at"].isoformat()} for r in reversed(rows)]
+    return {"items": items, "has_more": has_more}
 
 
 class AssignBody(BaseModel):

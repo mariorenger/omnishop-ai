@@ -14,10 +14,10 @@ def test_product_create_update_delete(client, tenant):
     u = client.put(f"/api/products/{pid}", json={"shop_id": shop, "name": "Áo thun cotton", "price": 120000,
                                                  "variants": [{"name": "L", "stock": 3}]}, headers=h)
     assert u.status_code == 200, u.text
-    got = next(p for p in client.get(f"/api/products?shop_id={shop}", headers=h).json() if p["id"] == pid)
+    got = next(p for p in client.get(f"/api/products?shop_id={shop}", headers=h).json()["items"] if p["id"] == pid)
     assert got["name"] == "Áo thun cotton" and got["price"] == 120000
     assert [v["name"] for v in got["variants"]] == ["L"]
 
     # delete
     assert client.delete(f"/api/products/{pid}", headers=h).json()["ok"] is True
-    assert all(p["id"] != pid for p in client.get(f"/api/products?shop_id={shop}", headers=h).json())
+    assert all(p["id"] != pid for p in client.get(f"/api/products?shop_id={shop}", headers=h).json()["items"])

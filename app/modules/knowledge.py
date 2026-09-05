@@ -93,18 +93,25 @@ def store_document(org_id: str, shop_id: str, title: str, source: Optional[str],
 
 
 @router.get("/documents")
-def list_documents(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
+def list_documents(shop_id: str, limit: int = 50, offset: int = 0,
+                   ctx: OrgContext = Depends(get_org_context)):
+    limit = max(1, min(limit, 200)); offset = max(0, offset)
     with tenant_tx(ctx.org_id) as conn:
+        total = conn.execute(
+            """SELECT count(*) AS n FROM document d JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
+               WHERE kb.shop_id = %s""", (shop_id,)).fetchone()["n"]
         rows = conn.execute(
             """SELECT d.id, d.title, d.status, d.source, d.error, d.char_count, d.mime, d.active, d.created_at,
                       (SELECT count(*) FROM chunk c WHERE c.document_id = d.id) AS chunks
                FROM document d JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
-               WHERE kb.shop_id = %s ORDER BY d.created_at DESC""",
-            (shop_id,),
+               WHERE kb.shop_id = %s ORDER BY d.created_at DESC LIMIT %s OFFSET %s""",
+            (shop_id, limit, offset),
         ).fetchall()
-    return [{"id": str(r["id"]), "title": r["title"], "status": r["status"], "source": r["source"],
-             "error": r["error"], "char_count": r["char_count"], "mime": r["mime"], "active": bool(r["active"]),
-             "chunks": int(r["chunks"]), "created_at": r["created_at"].isoformat()} for r in rows]
+    items = [{"id": str(r["id"]), "title": r["title"], "status": r["status"], "source": r["source"],
+              "error": r["error"], "char_count": r["char_count"], "mime": r["mime"], "active": bool(r["active"]),
+              "chunks": int(r["chunks"]), "created_at": r["created_at"].isoformat()} for r in rows]
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset,
+            "has_more": offset + len(items) < int(total)}
 
 
 @router.get("/documents/{doc_id}")

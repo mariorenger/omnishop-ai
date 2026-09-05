@@ -136,6 +136,20 @@ export function Kpi({ n, l, info }: { n: React.ReactNode; l: string; info?: stri
 }
 export function Spinner() { return <div className="flex items-center gap-2 text-muted text-sm py-8 justify-center font-normal"><Loader2 className="w-4 h-4 animate-spin" /> Đang tải</div>; }
 
+// "Load more" row for paginated lists. Shows a count when known, hides itself
+// when there is nothing more to load.
+export function LoadMore({ show, loading, onClick, shown, total }:
+  { show: boolean; loading?: boolean; onClick: () => void; shown?: number; total?: number }) {
+  if (!show) return total != null && (shown ?? 0) > 0
+    ? <div className="text-[11px] text-muted text-center py-2 font-normal">Đã hiển thị tất cả {total}</div> : null;
+  return (
+    <div className="flex items-center justify-center gap-3 py-2">
+      <Button variant="ghost" size="sm" loading={loading} onClick={onClick}>Xem thêm</Button>
+      {total != null && <span className="text-[11px] text-muted font-normal">{shown ?? 0} / {total}</span>}
+    </div>
+  );
+}
+
 export function Modal({ open, onClose, title, sub, children, footer, size = "md" }: {
   open: boolean; onClose: () => void; title: string; sub?: string; children: React.ReactNode; footer?: React.ReactNode; size?: "sm" | "md" | "lg";
 }) {

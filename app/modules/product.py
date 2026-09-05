@@ -40,12 +40,15 @@ def _assert_shop(conn, shop_id: str):
 
 
 @router.get("")
-def list_products(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
+def list_products(shop_id: str, limit: int = 50, offset: int = 0,
+                  ctx: OrgContext = Depends(get_org_context)):
+    limit = max(1, min(limit, 200)); offset = max(0, offset)
     with tenant_tx(ctx.org_id) as conn:
         _assert_shop(conn, shop_id)
+        total = conn.execute("SELECT count(*) AS n FROM product WHERE shop_id=%s", (shop_id,)).fetchone()["n"]
         rows = conn.execute(
-            "SELECT id, name, description, price, currency, sku, attributes, bot_id FROM product WHERE shop_id=%s ORDER BY created_at DESC",
-            (shop_id,),
+            "SELECT id, name, description, price, currency, sku, attributes, bot_id FROM product WHERE shop_id=%s ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (shop_id, limit, offset),
         ).fetchall()
         out = []
         for r in rows:
@@ -62,7 +65,8 @@ def list_products(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
                               "price": float(v["price"]) if v["price"] is not None else None,
                               "stock": int(v["stock"])} for v in variants],
             })
-    return out
+    return {"items": out, "total": int(total), "limit": limit, "offset": offset,
+            "has_more": offset + len(out) < int(total)}
 
 
 @router.post("")

@@ -31,7 +31,7 @@ def test_cross_tenant_isolation(client, tenant):
 
     # B cannot list products under A's shop (RLS: shop not visible)
     resp = client.get(f"/api/products?shop_id={a['shop_id']}", headers=hb)
-    assert resp.status_code >= 400 or resp.json() == []
+    assert resp.status_code >= 400 or resp.json().get("items") == []
 
 
 @requires_db

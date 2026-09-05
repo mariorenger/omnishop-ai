@@ -17,7 +17,7 @@ def test_upload_ingest_view_delete(client, tenant):
 
     drain_jobs()                                    # worker extracts + embeds
 
-    docs = client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json()
+    docs = client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json()["items"]
     row = next(d for d in docs if d["id"] == doc_id)
     assert row["status"] == "ready" and row["char_count"] > 0 and row["chunks"] >= 1
 
@@ -30,7 +30,7 @@ def test_upload_ingest_view_delete(client, tenant):
 
     # delete
     assert client.delete(f"/api/knowledge/documents/{doc_id}", headers=h).json()["ok"] is True
-    docs2 = client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json()
+    docs2 = client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json()["items"]
     assert all(d["id"] != doc_id for d in docs2)
 
 
@@ -48,7 +48,7 @@ def test_document_deactivate_excludes_from_retrieval(client, tenant):
 
     # deactivate -> excluded from retrieval but still listed
     assert client.put(f"/api/knowledge/documents/{doc_id}/active", json={"active": False}, headers=h).json()["active"] is False
-    row = next(d for d in client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json() if d["id"] == doc_id)
+    row = next(d for d in client.get(f"/api/knowledge/documents?shop_id={shop}", headers=h).json()["items"] if d["id"] == doc_id)
     assert row["active"] is False
     titles2 = [c["title"] for c in client.post("/api/rag/query", json=q, headers=h).json()["chunks"]]
     assert all("Giờ mở cửa" not in t for t in titles2), "inactive doc must not be retrieved"
