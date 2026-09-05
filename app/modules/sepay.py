@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from ..db import admin_tx
 from ..providers import registry
-from ..providers.payment import invoice_code
+from ..providers.payment import invoice_code, sepay_code
 
 router = APIRouter(tags=["sepay"])   # mounted at the app root (no prefix)
 
@@ -77,14 +77,14 @@ async def sepay_webhook(request: Request, authorization: str = Header(default=""
         if sepay_id is not None and conn.execute(
                 "SELECT 1 FROM sepay_transaction WHERE sepay_id=%s", (sepay_id,)).fetchone():
             return {"success": True, "duplicate": True}
-        # only incoming money can pay an invoice; match by the OMNI code in the memo
+        # only incoming money can pay an invoice; match by the SEVQR/OMNI code
         if transfer_type in ("in", "") and content:
             norm = _norm(content)
             invs = conn.execute(
                 "SELECT id, organization_id FROM invoice WHERE status in ('pending','submitted')"
             ).fetchall()
             for r in invs:
-                if invoice_code(r["id"]) in norm:
+                if sepay_code(r["id"]) in norm or invoice_code(r["id"]) in norm:
                     matched = str(r["id"]); org_id = str(r["organization_id"]); break
         conn.execute(
             """INSERT INTO sepay_transaction

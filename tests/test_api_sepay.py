@@ -20,13 +20,14 @@ def _set_key(key: str):
 @requires_db
 def test_sepay_webhook_auto_activates(client, tenant):
     from app.db import admin_tx
-    from app.providers.payment import invoice_code
+    from app.providers.payment import sepay_code
     h = tenant["headers"]
     _set_key("sepaysecret")
 
     co = client.post("/api/billing/checkout", json={"plan_code": "growth"}, headers=h).json()
     inv = co["invoice_id"]
-    code = invoice_code(inv)
+    code = sepay_code(inv)          # SePay content starts with SEVQR
+    assert code.startswith("SEVQR")
 
     # wrong key is rejected
     bad = client.post("/webhook/sepay-webhook",

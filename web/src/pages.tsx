@@ -670,6 +670,20 @@ export function Billing({ role }: { role: string }) {
   const load = () => Promise.all([api.get("/api/plans"), api.get("/api/subscription"), api.get("/api/billing/invoices"), api.get("/api/usage/by-customer")])
     .then(([p, s, i, c]) => { setPlans(p); setSub(s); setInvoices(i.items || i); setCustomers(c); }).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
+  // While a SePay/auto QR is open, poll for activation so the tenant sees success
+  // without reloading — SePay confirms the transfer via webhook in the background.
+  useEffect(() => {
+    if (!checkout?.auto || !checkout?.plan) return;
+    const target = checkout.plan;
+    const iv = setInterval(async () => {
+      try {
+        const s = await api.get("/api/subscription");
+        if (s.entitlements._plan === target) { clearInterval(iv); await load(); setCheckout(null); notify("Thanh toán thành công! Gói đã được kích hoạt.", "ok"); }
+      } catch { /* keep polling */ }
+    }, 4000);
+    const stop = setTimeout(() => clearInterval(iv), 180000);
+    return () => { clearInterval(iv); clearTimeout(stop); };
+  }, [checkout?.invoice_id, checkout?.auto]);
   if (err) return <Msg type="err">{err}</Msg>;
   if (!plans || !sub) return <Spinner />;
   const cur = sub.entitlements._plan;
@@ -685,6 +699,12 @@ export function Billing({ role }: { role: string }) {
     <div className="space-y-4">
       <Card>
         <CardTitle right={<Badge kind="ai">{modeLabel(sub.quota.llm_mode, sub.quota.billing_mode)}</Badge>}>Gói hiện tại: {sub.entitlements._plan_name}</CardTitle>
+        {sub.renewal?.expires && (
+          <div className={"text-[13px] font-normal mb-2 " + (sub.renewal.expired ? "text-bad" : sub.renewal.expiring ? "text-warn" : "text-muted")}>
+            {sub.renewal.expired ? "Gói đã hết hạn — vui lòng gia hạn."
+              : `Còn ${sub.renewal.days_left} ngày · hết hạn ${new Date(sub.renewal.period_end).toLocaleDateString("vi-VN")}`}
+          </div>
+        )}
         {sub.quota.billing_mode === "payg" ? (
           <div className="text-[13px] font-normal">
             <div className="flex justify-between"><span className="text-muted">Đã dùng tháng này</span><span className="font-semibold">{fmt(sub.quota.tokens_used)} token · {fmt(sub.quota.messages_used)} tin nhắn</span></div>

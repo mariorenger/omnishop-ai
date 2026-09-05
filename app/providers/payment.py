@@ -30,10 +30,19 @@ from .registry import resolve_payment_config
 DEFAULT_USD_VND = 25000   # fallback USD->VND rate; admin can override per gateway
 
 
+def _frag(invoice_id) -> str:
+    return str(invoice_id).replace("-", "")[:8].upper()
+
+
 def invoice_code(invoice_id) -> str:
-    """Short transfer memo embedded in the bank content so an incoming transfer
-    can be matched back to its invoice (used by VietQR + the SePay webhook)."""
-    return "OMNI" + str(invoice_id).replace("-", "")[:8].upper()
+    """Transfer memo for plain VietQR / manual transfers."""
+    return "OMNI" + _frag(invoice_id)
+
+
+def sepay_code(invoice_id) -> str:
+    """SePay requires the transfer content to start with the SEVQR prefix so it
+    recognises the payment code. Used for the SePay QR + webhook matching."""
+    return "SEVQR" + _frag(invoice_id)
 
 
 def _to_vnd(amount_usd, extra: dict) -> int:
@@ -130,7 +139,7 @@ class SePayPaymentProvider:
             return {"provider": self.name, "invoice_id": invoice_id,
                     "error": "SePay chưa cấu hình số tài khoản / ngân hàng."}
         amt = _to_vnd(amount, self.extra)
-        info = invoice_code(invoice_id)
+        info = sepay_code(invoice_id)   # SePay content must start with SEVQR
         qs = urllib.parse.urlencode({"acc": account, "bank": bank, "amount": amt, "des": info})
         qr_image_url = f"https://qr.sepay.vn/img?{qs}"
         return {"provider": self.name, "invoice_id": invoice_id, "qr_image_url": qr_image_url,
