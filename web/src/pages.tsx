@@ -186,10 +186,13 @@ export function Knowledge({ shopId, role }: { shopId: string; role?: string }) {
   const [bots, setBots] = useState<any[]>([]); const [kb, setKb] = useState<any>(null); const [kbName, setKbName] = useState(""); const [editKb, setEditKb] = useState(false);
   const [msg, setMsg] = useState(""); const [err, setErr] = useState(""); const [open, setOpen] = useState<string | null>(null);
   const [total, setTotal] = useState(0); const [more, setMore] = useState(false); const [loadingMore, setLoadingMore] = useState(false);
+  const [limits, setLimits] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const PAGE = 50;
+  const loadLimits = () => api.get(`/api/knowledge/limits?shop_id=${shopId}`).then(setLimits).catch(() => {});
   const load = (count = PAGE) => {
     const lim = Math.max(count, PAGE);
+    loadLimits();
     api.get(`/api/knowledge/documents?shop_id=${shopId}&limit=${lim}&offset=0`).then((d) => {
       setDocs(d.items); setTotal(d.total); setMore(d.has_more);
       if (d.items.some((x: any) => x.status !== "ready" && x.status !== "error")) setTimeout(() => load(lim), 2000);
@@ -223,8 +226,14 @@ export function Knowledge({ shopId, role }: { shopId: string; role?: string }) {
         <div onClick={() => fileRef.current?.click()} className="border border-dashed border-line rounded-xl p-6 text-center text-muted cursor-pointer hover:border-accent hover:text-fg transition flex flex-col items-center gap-2">
           <Upload className="w-6 h-6" />
           <div className="text-sm font-medium text-fg">Tải tệp lên</div>
-          <div className="text-xs font-normal">PDF, Word, PowerPoint, Excel, CSV, JSON, HTML, văn bản và hình ảnh. Ảnh/PDF scan nhận dạng bằng OCR. Tối đa 25MB.</div>
+          <div className="text-xs font-normal">PDF, Word, PowerPoint, Excel, CSV, JSON, HTML, văn bản và hình ảnh. Ảnh/PDF scan nhận dạng bằng OCR. Tối đa {limits?.max_file_mb || 25}MB/tệp.</div>
         </div>
+        {limits && <div className="mt-2 text-[12px] font-normal flex items-center justify-between gap-2">
+          <span className={"" + (limits.docs_limit && limits.docs_used >= limits.docs_limit ? "text-bad" : "text-muted")}>
+            Tài liệu: <b className="text-fg">{fmt(limits.docs_used)}{limits.docs_limit ? ` / ${fmt(limits.docs_limit)}` : " (không giới hạn)"}</b>
+          </span>
+          {limits.docs_limit && limits.docs_used >= limits.docs_limit ? <span className="text-bad">Đã đạt giới hạn gói — nâng cấp để thêm.</span> : null}
+        </div>}
         <input ref={fileRef} type="file" className="hidden" onChange={onFile} />
         <div className="mt-4 grid gap-3">
           <div className="grid sm:grid-cols-2 gap-3">
@@ -662,10 +671,69 @@ function UsageBar({ used, total, unit, note }: { used: number; total: number; un
   );
 }
 
+// Distinct colour per plan tier so they're easy to tell apart (professional
+// pricing pages colour-code tiers + highlight a recommended one).
+const TIER: Record<string, { ring: string; text: string; chip: string; popular?: boolean }> = {
+  free: { ring: "border-slate-500/40", text: "text-slate-300", chip: "bg-slate-500/15 text-slate-200" },
+  starter: { ring: "border-sky-500/50", text: "text-sky-300", chip: "bg-sky-500/15 text-sky-200" },
+  growth: { ring: "border-accent ring-2 ring-accent/40", text: "text-accent", chip: "bg-accent/20 text-accent", popular: true },
+  payg: { ring: "border-emerald-500/50", text: "text-emerald-300", chip: "bg-emerald-500/15 text-emerald-200" },
+};
+const _stor = (mb: number) => mb >= 1000 ? `${(mb / 1000).toFixed(mb % 1000 ? 1 : 0)} GB` : `${mb} MB`;
+
+function PlanFeature({ children }: { children: React.ReactNode }) {
+  return <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-ok shrink-0 mt-0.5" /><span>{children}</span></li>;
+}
+
+function PlanPicker({ open, onClose, plans, cur, isOwner, usdVnd, onPick }:
+  { open: boolean; onClose: () => void; plans: any[]; cur: string; isOwner: boolean; usdVnd?: number; onPick: (p: any) => void }) {
+  return (
+    <Modal open={open} onClose={onClose} size="lg" title="Chọn gói dịch vụ"
+      sub="So sánh hạn mức từng gói và nâng cấp. Giá theo USD, thu bằng VND theo tỷ giá hệ thống.">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {plans.map((p) => {
+          const e = p.entitlements; const t = TIER[p.code] || { ring: "border-violet-500/50", text: "text-violet-300", chip: "bg-violet-500/15 text-violet-200" };
+          const isCur = cur === p.code;
+          return (
+            <div key={p.code} className={"relative rounded-2xl border-2 bg-card2/40 p-4 flex flex-col " + t.ring}>
+              {t.popular && <span className="absolute -top-2.5 left-4 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-accent text-white">Phổ biến</span>}
+              <div className="flex items-center justify-between gap-2">
+                <span className={"font-bold text-[15px] " + t.text}>{p.name}</span>
+                <span className={"text-[10.5px] font-semibold px-2 py-0.5 rounded-full " + t.chip}>{modeLabel(e.llm_mode, e.billing_mode)}</span>
+              </div>
+              <div className="mt-2 mb-1">
+                {e.billing_mode === "payg"
+                  ? <span className="text-2xl font-extrabold">${e.payg_per_1k}<span className="text-xs text-muted font-semibold">/1k token</span></span>
+                  : <span className="text-2xl font-extrabold">${p.price_month}<span className="text-xs text-muted font-semibold">/tháng</span></span>}
+                {e.billing_mode !== "payg" && p.price_month > 0 && usdVnd ? <div className="text-[12px] text-muted font-normal mt-0.5">≈ {fmt(Math.round(p.price_month * usdVnd))} đ/tháng</div> : null}
+              </div>
+              <ul className="text-[12.5px] text-muted mt-2 space-y-1.5 font-normal flex-1">
+                {e.llm_mode === "managed"
+                  ? <PlanFeature>{e.billing_mode === "payg" ? "AI trọn gói, trả theo token dùng" : `${fmt(e.ai_tokens_month)} token AI/tháng${e.overage_per_1k > 0 ? `, vượt $${e.overage_per_1k}/1k` : ""}`}</PlanFeature>
+                  : <PlanFeature>Tự nhập khoá AI (OpenAI/Gemini/Claude)</PlanFeature>}
+                {e.llm_mode === "byok" && <PlanFeature>{e.ai_messages_month ? `${fmt(e.ai_messages_month)} tin nhắn/tháng` : "Không giới hạn tin nhắn"}</PlanFeature>}
+                <PlanFeature>{e.shops} cửa hàng · {(e.channels_allowed || []).length} loại kênh</PlanFeature>
+                <PlanFeature>{e.knowledge_docs ? `${fmt(e.knowledge_docs)} tài liệu tri thức` : "Không giới hạn tài liệu"}</PlanFeature>
+                <PlanFeature>Tối đa {e.max_file_mb || 25} MB/tệp · lưu trữ {_stor(e.storage_mb || 0)}</PlanFeature>
+                {e.human_handoff && <PlanFeature>Bàn giao nhân viên trực</PlanFeature>}
+              </ul>
+              <div className="mt-3">
+                {isCur ? <Badge kind="active">Đang sử dụng</Badge>
+                  : isOwner ? <Button size="sm" className="w-full" variant={t.popular ? "primary" : "sec"} onClick={() => onPick(p)}>{p.price_month || e.billing_mode === "payg" ? "Chọn gói" : "Chuyển gói"}</Button>
+                  : <span className="text-xs text-muted">Liên hệ chủ sở hữu</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
 export function Billing({ role }: { role: string }) {
   const [plans, setPlans] = useState<any[] | null>(null); const [sub, setSub] = useState<any>(null);
   const [invoices, setInvoices] = useState<any[]>([]); const [err, setErr] = useState(""); const [customers, setCustomers] = useState<any[]>([]);
-  const [checkout, setCheckout] = useState<any>(null); const [busy, setBusy] = useState(false);
+  const [checkout, setCheckout] = useState<any>(null); const [busy, setBusy] = useState(false); const [plansOpen, setPlansOpen] = useState(false);
   const isOwner = role === "owner";
   const load = () => Promise.all([api.get("/api/plans"), api.get("/api/subscription"), api.get("/api/billing/invoices"), api.get("/api/usage/by-customer")])
     .then(([p, s, i, c]) => { setPlans(p); setSub(s); setInvoices(i.items || i); setCustomers(c); }).catch((e) => setErr(e.message));
@@ -696,6 +764,7 @@ export function Billing({ role }: { role: string }) {
         ? `Chuyển sang gói "${p.name}"? Bạn sẽ rời gói hiện tại và MẤT thời hạn còn lại (${sub.renewal.days_left} ngày), không thể hoàn lại.`
         : `Chuyển sang gói "${p.name}"?`;
       if (!(await confirmDialog({ title: "Đổi gói", message: msg, confirmText: "Đổi gói", danger: onPaid }))) return;
+      setPlansOpen(false);
       await api.post("/api/subscription", { plan_code: p.code }); await load(); notify("Đã đổi gói.", "ok"); return;
     }
     const same = p.code === cur;
@@ -703,6 +772,7 @@ export function Billing({ role }: { role: string }) {
       ? `Gia hạn/thanh toán thêm cho gói "${p.name}"? Thời hạn sẽ được cộng dồn vào hạn hiện tại.`
       : `Đăng ký gói "${p.name}" (${p.price_month ? "$" + p.price_month + "/tháng" : "trả theo dùng"})? Gói hiện tại vẫn giữ nguyên cho tới khi thanh toán thành công; thời gian đã trả còn lại được cộng bù sang gói mới.`;
     if (!(await confirmDialog({ title: same ? "Gia hạn gói" : "Đổi gói", message: msg, confirmText: same ? "Gia hạn" : "Tiếp tục thanh toán" }))) return;
+    setPlansOpen(false);
     const co = await api.post("/api/billing/checkout", { plan_code: p.code });
     if (co.redirect_url) { window.location.href = co.redirect_url; return; }  // VNPay/MoMo/Stripe
     setCheckout(co);  // VietQR / SePay (qr_image_url) or manual (instructions)
@@ -730,29 +800,12 @@ export function Billing({ role }: { role: string }) {
           <div><UsageBar used={sub.quota.messages_used} total={sub.quota.messages_limit} unit="tin nhắn" note="Bạn dùng khoá AI của mình nên chỉ tính phí phần mềm, không tính token." />
             <div className="text-[12px] text-muted font-normal mt-1.5">Đã tiêu thụ {fmt(sub.quota.tokens_used)} token (bằng khoá của bạn).</div></div>
         )}
-        {!isOwner && <p className="text-[13px] text-muted font-normal mt-2">Chỉ Chủ sở hữu mới thay đổi được gói dịch vụ.</p>}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          {isOwner ? <Button onClick={() => setPlansOpen(true)}>Xem & nâng cấp gói</Button>
+            : <p className="text-[13px] text-muted font-normal">Chỉ Chủ sở hữu mới thay đổi được gói dịch vụ.</p>}
+        </div>
       </Card>
-      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {plans.map((p) => { const e = p.entitlements; return (
-          <Card key={p.code} className={cur === p.code ? "border-accent shadow-glow" : ""}>
-            <div className="flex items-start justify-between gap-2"><span className="font-bold text-[15px]">{p.name}</span><Badge kind={e.llm_mode === "managed" ? "ai" : "default"}>{modeLabel(e.llm_mode, e.billing_mode)}</Badge></div>
-            <div className="mt-2 mb-1">{e.billing_mode === "payg"
-              ? <span className="text-2xl font-extrabold">${e.payg_per_1k}<span className="text-xs text-muted font-semibold">/1k token</span></span>
-              : <span className="text-2xl font-extrabold">${p.price_month}<span className="text-xs text-muted font-semibold">/tháng</span></span>}
-              {e.billing_mode !== "payg" && p.price_month > 0 && sub.usd_vnd ? <div className="text-[12px] text-muted font-normal mt-0.5">≈ {fmt(Math.round(p.price_month * sub.usd_vnd))} đ/tháng</div> : null}</div>
-            <ul className="text-[13px] text-muted mt-3 space-y-1.5 font-normal">
-              {e.llm_mode === "managed"
-                ? <li className="text-fg">{e.billing_mode === "payg" ? "Trả theo token thực dùng" : `${fmt(e.ai_tokens_month)} token AI/tháng`}</li>
-                : <li className="text-fg">Tự nhập khoá OpenAI / Gemini / Claude</li>}
-              {e.llm_mode === "byok" && <li>{e.ai_messages_month ? `${fmt(e.ai_messages_month)} tin nhắn/tháng` : "Không giới hạn tin nhắn"}</li>}
-              {e.overage_per_1k > 0 && <li>Vượt hạn mức ${e.overage_per_1k}/1k token</li>}
-              <li>{e.shops} cửa hàng · {(e.channels_allowed || []).length} loại kênh</li>
-            </ul>
-            <div className="mt-4">{cur === p.code ? <Badge kind="active">Đang sử dụng</Badge> :
-              isOwner ? <Button variant={p.price_month || e.billing_mode === "payg" ? "primary" : "sec"} onClick={() => pick(p)}>{p.price_month || e.billing_mode === "payg" ? "Chọn gói" : "Chuyển gói"}</Button> : <span className="text-xs text-muted">—</span>}</div>
-          </Card>
-        ); })}
-      </div>
+      <PlanPicker open={plansOpen} onClose={() => setPlansOpen(false)} plans={plans} cur={cur} isOwner={isOwner} usdVnd={sub.usd_vnd} onPick={pick} />
       <Card>
         <CardTitle sub="Token và chi phí ước tính theo từng khách hàng trong tháng.">Sử dụng theo khách</CardTitle>
         {customers.length === 0 ? <Empty>Chưa có dữ liệu sử dụng tháng này.</Empty> :
@@ -1266,6 +1319,12 @@ function PlansCard() {
                 <Field label="Vượt hạn mức ($/1k)"><Input type="number" step="0.001" value={num(p.entitlements.overage_per_1k)} onChange={(e) => setEnt(i, { overage_per_1k: num(e.target.value) })} /></Field>
                 <Field label="PAYG ($/1k)"><Input type="number" step="0.001" value={num(p.entitlements.payg_per_1k)} onChange={(e) => setEnt(i, { payg_per_1k: num(e.target.value) })} /></Field>
                 <Field label="Trần tin nhắn" info="Gói tự nhập khoá: 0 = không giới hạn."><Input type="number" value={num(p.entitlements.ai_messages_month)} onChange={(e) => setEnt(i, { ai_messages_month: num(e.target.value) })} /></Field>
+              </div>
+              <div className="grid md:grid-cols-4 gap-2 items-end mt-2">
+                <Field label="Số tài liệu tri thức" info="0 = không giới hạn."><Input type="number" value={num(p.entitlements.knowledge_docs)} onChange={(e) => setEnt(i, { knowledge_docs: num(e.target.value) })} /></Field>
+                <Field label="MB/tệp tối đa"><Input type="number" value={num(p.entitlements.max_file_mb)} onChange={(e) => setEnt(i, { max_file_mb: num(e.target.value) })} /></Field>
+                <Field label="Lưu trữ (MB)"><Input type="number" value={num(p.entitlements.storage_mb)} onChange={(e) => setEnt(i, { storage_mb: num(e.target.value) })} /></Field>
+                <Field label="Số cửa hàng"><Input type="number" value={num(p.entitlements.shops)} onChange={(e) => setEnt(i, { shops: num(e.target.value) })} /></Field>
               </div>
               <div className="mt-2"><Button size="sm" variant="sec" onClick={() => save(p)}>Lưu gói</Button></div>
             </div>

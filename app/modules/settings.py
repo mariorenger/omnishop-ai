@@ -300,7 +300,7 @@ def admin_test_embedding(body: LLMConfigBody, _: CurrentUser = Depends(require_p
 
 _PLAN_ENT_KEYS = ("llm_mode", "billing_mode", "ai_tokens_month", "overage_per_1k",
                   "payg_per_1k", "ai_messages_month", "shops", "channels", "storage_mb",
-                  "human_handoff", "channels_allowed")
+                  "human_handoff", "channels_allowed", "knowledge_docs", "max_file_mb")
 
 
 class PlanBody(BaseModel):

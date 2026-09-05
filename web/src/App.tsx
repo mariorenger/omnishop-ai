@@ -14,7 +14,7 @@ const GROUPS: { section: string | null; items: [string, any, string][] }[] = [
   { section: null, items: [["overview", LayoutDashboard, "Tổng quan"]] },
   { section: "Trợ lý AI", items: [["bots", Bot, "Trợ lý"], ["knowledge", BookOpen, "Kiến thức"], ["products", Package, "Sản phẩm"], ["channels", Plug, "Kênh kết nối"]] },
   { section: "Vận hành", items: [["inbox", MessagesSquare, "Hộp thư"]] },
-  { section: "Quản lý", items: [["members", Users, "Thành viên"], ["billing", CreditCard, "Thanh toán"], ["settings", Cog, "Cài đặt"]] },
+  { section: "Quản lý", items: [["members", Users, "Thành viên"], ["billing", CreditCard, "Gói & Thanh toán"], ["settings", Cog, "Cài đặt"]] },
   { section: "Hỗ trợ", items: [["help", LifeBuoy, "Hướng dẫn"]] },
 ];
 const NEEDS_SHOP = ["overview", "inbox", "bots", "products", "knowledge", "channels"];

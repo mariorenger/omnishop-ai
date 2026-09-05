@@ -21,7 +21,31 @@ from ..tenancy import OrgContext, get_org_context, require_role
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
-MAX_UPLOAD = 25 * 1024 * 1024
+MAX_UPLOAD = 25 * 1024 * 1024   # hard ceiling; the per-plan limit may be lower
+
+
+def knowledge_limits(org_id: str, shop_id: str) -> dict:
+    """Per-plan knowledge limits + current usage (0 limit = unlimited)."""
+    from .billing import resolve_entitlements
+    ent = resolve_entitlements(org_id)
+    docs_limit = int(ent.get("knowledge_docs", 0) or 0)
+    max_file_mb = int(ent.get("max_file_mb", 25) or 25)
+    with tenant_tx(org_id) as conn:
+        used = conn.execute(
+            """SELECT count(*) AS n FROM document d JOIN knowledge_base kb ON kb.id=d.knowledge_base_id
+               WHERE kb.shop_id=%s""", (shop_id,)).fetchone()["n"]
+    return {"docs_used": int(used), "docs_limit": docs_limit, "max_file_mb": max_file_mb}
+
+
+def _assert_can_add(org_id: str, shop_id: str) -> None:
+    lim = knowledge_limits(org_id, shop_id)
+    if lim["docs_limit"] and lim["docs_used"] >= lim["docs_limit"]:
+        raise bad_request(f"Đã đạt giới hạn {lim['docs_limit']} tài liệu của gói. Vui lòng nâng cấp để thêm.")
+
+
+@router.get("/limits")
+def get_limits(shop_id: str, ctx: OrgContext = Depends(get_org_context)):
+    return knowledge_limits(ctx.org_id, shop_id)
 
 
 class DocBody(BaseModel):
@@ -216,6 +240,7 @@ def reprocess_document(doc_id: str, ctx: OrgContext = Depends(require_role("admi
 def create_document(body: DocBody, ctx: OrgContext = Depends(require_role("admin"))):
     if not body.text.strip():
         raise bad_request("text is empty")
+    _assert_can_add(ctx.org_id, body.shop_id)
     doc_id, n = store_document(ctx.org_id, body.shop_id, body.title, "text", body.text, body.bot_id)
     audit.record("knowledge.upload", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=doc_id, detail={"title": body.title, "chunks": n})
@@ -240,8 +265,11 @@ async def upload_file(
     data = await file.read()
     if not data:
         raise bad_request("empty file")
-    if len(data) > MAX_UPLOAD:
-        raise bad_request("file too large (max 25MB)")
+    _assert_can_add(ctx.org_id, shop_id)
+    max_mb = knowledge_limits(ctx.org_id, shop_id)["max_file_mb"]
+    cap = min(MAX_UPLOAD, max_mb * 1024 * 1024)
+    if len(data) > cap:
+        raise bad_request(f"Tệp vượt giới hạn {max_mb}MB của gói. Vui lòng nén nhỏ hơn hoặc nâng cấp gói.")
     filename = file.filename or "upload"
     mime = file.content_type or "application/octet-stream"
     with tenant_tx(ctx.org_id) as conn:
