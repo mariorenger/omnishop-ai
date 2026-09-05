@@ -38,16 +38,29 @@ def sepay_webhook_health():
 @router.post("/webhook/sepay-webhook")
 async def sepay_webhook(request: Request, authorization: str = Header(default="")):
     cfg = registry.resolve_sepay()
-    if not cfg["api_key"]:
-        return JSONResponse({"success": False, "error": "SePay chưa được cấu hình"}, status_code=400)
-    provided = authorization.replace("Apikey", "").replace("apikey", "").replace("Bearer", "").strip()
-    if provided != cfg["api_key"]:
-        return JSONResponse({"success": False, "error": "unauthorized"}, status_code=401)
+    # Auth: only enforced when an API key is configured on our side (SePay also
+    # supports a no-auth webhook). A configured key must match the "Apikey <key>"
+    # header SePay sends; otherwise 401. We never 400 on the test ping itself.
+    if cfg["api_key"]:
+        provided = authorization.replace("Apikey", "").replace("apikey", "").replace("Bearer", "").strip()
+        if provided != cfg["api_key"]:
+            return JSONResponse({"success": False, "error": "unauthorized"}, status_code=401)
 
-    try:
-        p = json.loads(await request.body() or b"{}")
-    except Exception:  # noqa: BLE001
-        return JSONResponse({"success": False, "error": "bad payload"}, status_code=400)
+    # Parse leniently: SePay sends JSON, but a test ping / empty / form body must
+    # not break with a 400 — treat anything unparseable as an empty payload.
+    raw = await request.body()
+    p: dict = {}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                p = parsed
+        except Exception:  # noqa: BLE001
+            try:
+                from urllib.parse import parse_qs
+                p = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", "ignore")).items()}
+            except Exception:  # noqa: BLE001
+                p = {}
 
     sepay_id = p.get("id")
     amount = float(p.get("transferAmount") or 0)

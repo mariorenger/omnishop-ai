@@ -67,11 +67,17 @@ def test_sepay_unmatched_transfer_is_logged_not_applied(client):
 
 
 @requires_db
-def test_sepay_not_configured_rejects(client):
-    from app.providers import registry
-    # payment gateway is NOT sepay -> webhook rejects
-    registry.write_config("payment:platform", provider="manual", api_key="")
-    r = client.post("/webhook/sepay-webhook",
-                    json={"id": _RID + 2, "transferType": "in", "transferAmount": 1000, "content": "x"},
-                    headers={"Authorization": "Apikey anything"})
-    assert r.status_code == 400
+def test_sepay_test_ping_and_empty_body_never_400(client):
+    """SePay's test ping (and any empty/odd body) must return 2xx, never 400 —
+    that was the cause of the 'method/400' failures during setup."""
+    _set_key("pingkey")
+    # empty body with the right key -> accepted, nothing matched
+    r = client.post("/webhook/sepay-webhook", content=b"",
+                    headers={"Authorization": "Apikey pingkey"})
+    assert r.status_code == 200 and r.json()["matched"] is False
+    # non-JSON body is tolerated, still 2xx
+    r2 = client.post("/webhook/sepay-webhook", content=b"not-json",
+                     headers={"Authorization": "Apikey pingkey", "Content-Type": "text/plain"})
+    assert r2.status_code == 200
+    # GET (browser check) returns a hint, not 405
+    assert client.get("/webhook/sepay-webhook").status_code == 200
