@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, clearAuth } from "./api";
-import { Badge, Button, Card, CardTitle, Empty, Field, Info, Input, Kpi, LoadMore, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
+import { Badge, Button, Card, CardTitle, confirmDialog, Empty, Field, Info, Input, Kpi, LoadMore, Modal, Msg, notify, Select, Spinner, Table, Td, Textarea } from "./ui";
 import { StackedBars, IntentBars, BarList } from "./charts";
 import { RefreshCw, Upload, Plug, Send, UserPlus, CheckCircle2, ArrowUpRight, Bot, MessageSquare, Plus, Pencil, ChevronRight, Lock, ShieldCheck, UserRound, AlertTriangle } from "lucide-react";
 import QRCode from "qrcode";
@@ -104,7 +104,7 @@ export function Products({ shopId, role }: { shopId: string; role?: string }) {
       setEditId(null); load(items?.length); notify(editId ? "Đã cập nhật sản phẩm." : "Đã thêm sản phẩm.", "ok");
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
-  const del = async (p: any) => { if (!confirm(`Xoá sản phẩm "${p.name}"? Không thể hoàn tác.`)) return; try { await api.del(`/api/products/${p.id}`); load(items?.length); notify("Đã xoá sản phẩm.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
+  const del = async (p: any) => { if (!(await confirmDialog({ title: "Xoá sản phẩm", message: `Xoá sản phẩm "${p.name}"? Không thể hoàn tác.`, confirmText: "Xoá", danger: true }))) return; try { await api.del(`/api/products/${p.id}`); load(items?.length); notify("Đã xoá sản phẩm.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
   const totalStock = (p: any) => (p.variants || []).reduce((s: number, v: any) => s + (v.stock || 0), 0);
   const botName = (id: string) => bots.find((b) => b.id === id)?.name;
   const rows = (items || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || (p.sku || "").toLowerCase().includes(q.toLowerCase()));
@@ -210,7 +210,7 @@ export function Knowledge({ shopId, role }: { shopId: string; role?: string }) {
     catch (ex: any) { setErr(ex.message); setMsg(""); } finally { if (fileRef.current) fileRef.current.value = ""; }
   };
   const saveKb = async () => { try { await api.put("/api/knowledge/kb", { shop_id: shopId, name: kbName }); setKb({ ...kb, name: kbName }); setEditKb(false); } catch (e: any) { setErr(e.message); } };
-  const del = async (id: string) => { if (!confirm("Xoá tài liệu này?")) return; try { await api.del(`/api/knowledge/documents/${id}`); setOpen(null); load(docs?.length); } catch (e: any) { setErr(e.message); } };
+  const del = async (id: string) => { if (!(await confirmDialog({ title: "Xoá tài liệu", message: "Xoá tài liệu này khỏi kho kiến thức?", confirmText: "Xoá", danger: true }))) return; try { await api.del(`/api/knowledge/documents/${id}`); setOpen(null); load(docs?.length); } catch (e: any) { setErr(e.message); } };
   const reprocess = async (id: string) => { try { await api.post(`/api/knowledge/documents/${id}/reprocess`, {}); setOpen(null); load(docs?.length); } catch (e: any) { setErr(e.message); } };
   const setActive = async (id: string, active: boolean) => { try { await api.put(`/api/knowledge/documents/${id}/active`, { active }); load(docs?.length); } catch (e: any) { setErr(e.message); } };
   return (
@@ -392,7 +392,7 @@ export function Channels({ shopId }: { shopId: string }) {
                     <span className="flex-1" />
                     {canVerify && <Button size="sm" variant="ghost" loading={verifying === ch.id} onClick={() => verify(ch)}>Kiểm tra kết nối</Button>}
                     {ch.kind !== "website" && <Button size="sm" variant="ghost" onClick={() => setEditing(ch)}>Chỉnh sửa</Button>}
-                    <Button size="sm" variant="danger" onClick={async () => { if (confirm("Ngắt kết nối kênh này?")) { await api.del(`/api/channels/${ch.id}`); load(); } }}>Ngắt kết nối</Button>
+                    <Button size="sm" variant="danger" onClick={async () => { if (await confirmDialog({ title: "Ngắt kết nối kênh", message: `Ngắt kết nối kênh "${ch.name}"? Kênh sẽ ngừng nhận và trả lời tin.`, confirmText: "Ngắt kết nối", danger: true })) { await api.del(`/api/channels/${ch.id}`); load(); } }}>Ngắt kết nối</Button>
                   </div>
                   {url && <div className="mt-3 flex gap-4 flex-col sm:flex-row">
                     <div className="flex-1 min-w-0">
@@ -688,13 +688,27 @@ export function Billing({ role }: { role: string }) {
   if (!plans || !sub) return <Spinner />;
   const cur = sub.entitlements._plan;
   const pick = async (p: any) => {
-    if (p.price_month === 0) { await api.post("/api/subscription", { plan_code: p.code }); await load(); return; }
+    // Free / PAYG plans activate directly (no upfront payment) — but confirm,
+    // because switching AWAY from a paid plan forfeits its remaining term.
+    if (p.price_month === 0) {
+      const onPaid = !!sub.renewal?.expires && !sub.renewal?.expired;
+      const msg = onPaid
+        ? `Chuyển sang gói "${p.name}"? Bạn sẽ rời gói hiện tại và MẤT thời hạn còn lại (${sub.renewal.days_left} ngày), không thể hoàn lại.`
+        : `Chuyển sang gói "${p.name}"?`;
+      if (!(await confirmDialog({ title: "Đổi gói", message: msg, confirmText: "Đổi gói", danger: onPaid }))) return;
+      await api.post("/api/subscription", { plan_code: p.code }); await load(); notify("Đã đổi gói.", "ok"); return;
+    }
+    const same = p.code === cur;
+    const msg = same
+      ? `Gia hạn/thanh toán thêm cho gói "${p.name}"? Thời hạn sẽ được cộng dồn vào hạn hiện tại.`
+      : `Đăng ký gói "${p.name}" (${p.price_month ? "$" + p.price_month + "/tháng" : "trả theo dùng"})? Gói hiện tại vẫn giữ nguyên cho tới khi thanh toán thành công; thời gian đã trả còn lại được cộng bù sang gói mới.`;
+    if (!(await confirmDialog({ title: same ? "Gia hạn gói" : "Đổi gói", message: msg, confirmText: same ? "Gia hạn" : "Tiếp tục thanh toán" }))) return;
     const co = await api.post("/api/billing/checkout", { plan_code: p.code });
     if (co.redirect_url) { window.location.href = co.redirect_url; return; }  // VNPay/MoMo/Stripe
-    setCheckout(co);  // VietQR (qr_image_url) or manual (instructions)
+    setCheckout(co);  // VietQR / SePay (qr_image_url) or manual (instructions)
   };
   const reportTransfer = async () => { setBusy(true); try { await api.post(`/api/billing/checkout/${checkout.invoice_id}/submitted`); setCheckout(null); await load(); notify("Đã ghi nhận. Gói sẽ kích hoạt sau khi quản trị xác nhận khoản chuyển.", "ok"); } catch (e: any) { notify(e.message, "err"); } finally { setBusy(false); } };
-  const cancelInvoice = async (iv: any) => { if (!confirm(`Huỷ yêu cầu nâng cấp gói ${iv.plan}?`)) return; try { await api.post(`/api/billing/checkout/${iv.id}/cancel`, {}); await load(); notify("Đã huỷ yêu cầu.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
+  const cancelInvoice = async (iv: any) => { if (!(await confirmDialog({ title: "Huỷ yêu cầu", message: `Huỷ yêu cầu nâng cấp gói ${iv.plan}?`, confirmText: "Huỷ yêu cầu", danger: true }))) return; try { await api.post(`/api/billing/checkout/${iv.id}/cancel`, {}); await load(); notify("Đã huỷ yêu cầu.", "ok"); } catch (e: any) { notify(e.message, "err"); } };
   return (
     <div className="space-y-4">
       <Card>
@@ -864,7 +878,7 @@ export function Settings() {
 function SecurityCard() {
   const [ok, setOk] = useState(""); const [err, setErr] = useState("");
   const logoutAll = async () => {
-    if (!confirm("Đăng xuất khỏi tất cả thiết bị? Bạn sẽ cần đăng nhập lại.")) return;
+    if (!(await confirmDialog({ title: "Đăng xuất mọi thiết bị", message: "Đăng xuất khỏi tất cả thiết bị? Bạn sẽ cần đăng nhập lại.", confirmText: "Đăng xuất tất cả", danger: true }))) return;
     try { await api.post("/api/auth/logout-all", {}); clearAuth(); location.reload(); } catch (e: any) { setErr(e.message); }
   };
   return (
@@ -1010,15 +1024,15 @@ function TenantBillingCard() {
   const loadMore = async () => { if (!rows) return; setLoadingMore(true); try { const d = await api.get(`/api/admin/billing/tenants?limit=${PAGE}&offset=${rows.length}&q=${encodeURIComponent(q)}`); setRows([...rows, ...d.items]); setTotal(d.total); setMore(d.has_more); } finally { setLoadingMore(false); } };
   const setPlan = async (org: any, code: string) => {
     if (!code || code === org.plan) return;
-    if (!confirm(`Cấp gói "${code}" cho ${org.name}? Đây là cấp thủ công (không tính vào doanh thu).`)) return;
+    if (!(await confirmDialog({ title: "Cấp gói thủ công", message: `Cấp gói "${code}" cho ${org.name}?\nĐây là cấp thủ công (admin), không tính vào doanh thu.`, confirmText: "Cấp gói" }))) return;
     try { await api.put(`/api/admin/tenants/${org.id}/plan`, { plan_code: code }); notify("Đã cấp gói (admin_manual).", "ok"); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
   };
   const confirmInvoice = async (iv: any) => {
-    if (!confirm(`Xác nhận đã nhận tiền hoá đơn của ${iv.tenant} (gói ${iv.plan}, $${iv.amount})? Sẽ kích hoạt gói và tính vào doanh thu.`)) return;
+    if (!(await confirmDialog({ title: "Xác nhận thanh toán", message: `Xác nhận đã nhận tiền hoá đơn của ${iv.tenant} (gói ${iv.plan}, $${iv.amount})?\nSẽ kích hoạt gói và tính vào doanh thu.`, confirmText: "Xác nhận" }))) return;
     try { await api.post(`/api/admin/invoices/${iv.id}/confirm`, {}); notify("Đã xác nhận thanh toán.", "ok"); loadPending(); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
   };
   const rejectInvoice = async (iv: any) => {
-    if (!confirm(`Từ chối yêu cầu của ${iv.tenant} (gói ${iv.plan})? Hoá đơn sẽ bị huỷ và khách được thông báo.`)) return;
+    if (!(await confirmDialog({ title: "Từ chối yêu cầu", message: `Từ chối yêu cầu của ${iv.tenant} (gói ${iv.plan})?\nHoá đơn sẽ bị huỷ và khách được thông báo.`, confirmText: "Từ chối", danger: true }))) return;
     try { await api.post(`/api/admin/invoices/${iv.id}/reject`, {}); notify("Đã từ chối yêu cầu.", "ok"); loadPending(); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
   };
   if (err) return <Msg type="err">{err}</Msg>;
@@ -1530,7 +1544,7 @@ function BotDetail({ bot, shopId, canManage, onBack, onSaved }: { bot: any; shop
             </div>
           </div>
           {canManage && <div className="mt-4 flex gap-2"><Button loading={busy} onClick={save}>Lưu</Button>
-            {!isNew && <Button variant="danger" onClick={async () => { if (confirm("Xoá trợ lý này?")) { try { await api.del(`/api/bots/${f.id}`); onBack(); } catch (e: any) { setErr(e.message); } } }}>Xoá</Button>}</div>}
+            {!isNew && <Button variant="danger" onClick={async () => { if (await confirmDialog({ title: "Xoá trợ lý", message: `Xoá trợ lý "${f.name || ""}"? Không thể hoàn tác.`, confirmText: "Xoá", danger: true })) { try { await api.del(`/api/bots/${f.id}`); onBack(); } catch (e: any) { setErr(e.message); } } }}>Xoá</Button>}</div>}
           <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
         </Card>
       </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, clearAuth, loadAuth, saveAuth } from "./api";
-import { Button, Card, Field, Input, Msg, Select, Toaster } from "./ui";
+import { Button, Card, ConfirmHost, Field, Input, Msg, Select, Toaster } from "./ui";
 import { Admin, Billing, Bots, Channels, Help, Inbox, Knowledge, Members, Overview, Products, Settings } from "./pages";
 import {
   Bot, LayoutDashboard, MessagesSquare, BookOpen, Plug, Package, Users,
@@ -79,7 +79,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr]">
-      <Toaster />
+      <Toaster /><ConfirmHost />
       <aside className="border-r border-line bg-panel/70 backdrop-blur px-3 py-4 md:min-h-screen sticky top-0 z-20 overflow-y-auto hidden md:block">
         <div className="flex items-center gap-2 px-2 pb-4 font-extrabold text-lg">
           <span className="w-8 h-8 rounded-lg bg-pastel flex items-center justify-center shadow-[0_4px_16px_rgba(129,140,248,.4)] overflow-hidden">

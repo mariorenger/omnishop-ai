@@ -163,6 +163,11 @@ def checkout(body: Checkout, ctx: OrgContext = Depends(require_role("owner"))):
         raise bad_request("unknown plan")
     prov = get_payment()
     with tenant_tx(ctx.org_id) as conn:
+        # one open request at a time: void any earlier unpaid requests first
+        conn.execute(
+            "UPDATE invoice SET status='void' WHERE organization_id=%s AND status in ('pending','submitted')",
+            (ctx.org_id,),
+        )
         inv = conn.execute(
             """INSERT INTO invoice (organization_id, plan_code, amount, currency, provider)
                VALUES (%s,%s,%s,'USD',%s) RETURNING id""",
@@ -195,13 +200,28 @@ def _activate_invoice(invoice_id: str, provider: str = "stripe") -> bool:
                VALUES (%s,%s,%s,%s,%s,'succeeded')""",
             (inv["organization_id"], invoice_id, inv["amount"], inv["currency"], provider),
         )
+        # Fair term handling:
+        #  - renew the SAME plan  -> add 30 days on top of remaining time (stacks).
+        #  - switch to a NEW plan  -> 30 days PLUS any remaining paid days carried
+        #    over as credit, so the user never loses time they already paid for.
+        #  - expired / none        -> a fresh 30 days.
         conn.execute(
             """INSERT INTO subscription (organization_id, plan_code, provider, current_period_end)
                VALUES (%s,%s,%s, now() + interval '30 days')
-               ON CONFLICT (organization_id)
-               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider=EXCLUDED.provider,
-                             current_period_end = now() + interval '30 days'""",
+               ON CONFLICT (organization_id) DO UPDATE SET
+                 plan_code=EXCLUDED.plan_code, status='active', provider=EXCLUDED.provider,
+                 current_period_end = CASE
+                   WHEN subscription.plan_code = EXCLUDED.plan_code AND subscription.current_period_end > now()
+                     THEN subscription.current_period_end + interval '30 days'
+                   WHEN subscription.current_period_end > now()
+                     THEN now() + interval '30 days' + (subscription.current_period_end - now())
+                   ELSE now() + interval '30 days' END""",
             (inv["organization_id"], inv["plan_code"], provider),
+        )
+        # a successful registration clears any other pending/submitted requests
+        conn.execute(
+            "UPDATE invoice SET status='void' WHERE organization_id=%s AND id<>%s AND status in ('pending','submitted')",
+            (inv["organization_id"], invoice_id),
         )
     return True
 

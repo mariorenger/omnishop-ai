@@ -87,6 +87,36 @@ def test_report_transfer_does_not_activate(client, tenant):
 
 
 @requires_db
+def test_paid_term_stacks_and_carries_over(client, tenant):
+    """Fairness: renewing the same plan stacks the term; switching plans carries
+    the remaining paid days over so the user never loses time they paid for."""
+    from app.modules.billing import _activate_invoice
+    h = tenant["headers"]
+
+    def buy(plan):
+        inv = client.post("/api/billing/checkout", json={"plan_code": plan}, headers=h).json()["invoice_id"]
+        _activate_invoice(inv, provider="sepay")
+        return client.get("/api/subscription", headers=h).json()
+
+    s1 = buy("growth")
+    assert s1["entitlements"]["_plan"] == "growth" and s1["renewal"]["days_left"] in (29, 30)
+    s2 = buy("growth")                       # renew same plan -> ~60 days
+    assert s2["renewal"]["days_left"] >= 58
+    s3 = buy("starter")                      # switch plan -> ~30 + carried remaining
+    assert s3["entitlements"]["_plan"] == "starter" and s3["renewal"]["days_left"] >= 85
+
+
+@requires_db
+def test_checkout_voids_previous_pending(client, tenant):
+    """Only one open request at a time: a new checkout voids earlier unpaid ones."""
+    h = tenant["headers"]
+    i1 = client.post("/api/billing/checkout", json={"plan_code": "growth"}, headers=h).json()["invoice_id"]
+    client.post("/api/billing/checkout", json={"plan_code": "starter"}, headers=h)
+    invs = {i["id"]: i for i in client.get("/api/billing/invoices", headers=h).json()["items"]}
+    assert invs[i1]["status"] == "void"
+
+
+@requires_db
 def test_tenant_cancels_own_request(client, tenant):
     """The tenant can cancel their own unpaid payment request."""
     h, org = tenant["headers"], tenant["org_id"]

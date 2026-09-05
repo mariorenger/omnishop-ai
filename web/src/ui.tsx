@@ -34,6 +34,29 @@ export function Toaster() {
   );
 }
 
+// ---- shared confirm dialog (replaces native confirm) ----------------------
+type ConfirmOpts = { title?: string; message: React.ReactNode; confirmText?: string; cancelText?: string; danger?: boolean };
+type ConfirmState = ConfirmOpts & { resolve: (v: boolean) => void };
+let _confirmSub: ((c: ConfirmState | null) => void) | null = null;
+export function confirmDialog(opts: ConfirmOpts): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!_confirmSub) { resolve(typeof window !== "undefined" ? window.confirm(typeof opts.message === "string" ? opts.message : (opts.title || "Xác nhận?")) : false); return; }
+    _confirmSub({ ...opts, resolve });
+  });
+}
+export function ConfirmHost() {
+  const [c, setC] = useState<ConfirmState | null>(null);
+  useEffect(() => { _confirmSub = setC; return () => { _confirmSub = null; }; }, []);
+  const close = (v: boolean) => { setC((cur) => { cur?.resolve(v); return null; }); };
+  return (
+    <Modal open={!!c} onClose={() => close(false)} title={c?.title || "Xác nhận"} size="sm" z="z-[70]"
+      footer={<><Button variant="sec" onClick={() => close(false)}>{c?.cancelText || "Huỷ"}</Button>
+        <Button variant={c?.danger ? "danger" : "primary"} onClick={() => close(true)}>{c?.confirmText || "Đồng ý"}</Button></>}>
+      <div className="text-[13.5px] text-fg font-normal leading-relaxed whitespace-pre-line">{c?.message}</div>
+    </Modal>
+  );
+}
+
 export function Button({ variant = "primary", size = "md", className, children, loading, ...p }:
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "sec" | "ghost" | "danger"; size?: "sm" | "md"; loading?: boolean }) {
   const base = "inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
@@ -152,8 +175,8 @@ export function LoadMore({ show, loading, onClick, shown, total }:
   );
 }
 
-export function Modal({ open, onClose, title, sub, children, footer, size = "md" }: {
-  open: boolean; onClose: () => void; title: string; sub?: string; children: React.ReactNode; footer?: React.ReactNode; size?: "sm" | "md" | "lg";
+export function Modal({ open, onClose, title, sub, children, footer, size = "md", z = "z-50" }: {
+  open: boolean; onClose: () => void; title: string; sub?: string; children: React.ReactNode; footer?: React.ReactNode; size?: "sm" | "md" | "lg"; z?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -166,7 +189,7 @@ export function Modal({ open, onClose, title, sub, children, footer, size = "md"
   // Backdrop clicks do NOT close the dialog on purpose — an accidental outside
   // click must never wipe a half-filled form. Close only via the X / Huỷ / Esc.
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className={cx("fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4", z)}>
       <div className={cx("w-full bg-card border border-line2 rounded-2xl shadow-soft", w)}>
         <div className="flex items-start justify-between gap-3 px-5 pt-5">
           <div><h3 className="text-[15px] font-bold">{title}</h3>{sub && <p className="text-[13px] text-muted mt-0.5 font-normal">{sub}</p>}</div>
