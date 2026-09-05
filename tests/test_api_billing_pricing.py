@@ -12,26 +12,62 @@ def test_plans_expose_modes(client):
     assert plans["payg"]["entitlements"]["payg_per_1k"] > 0
 
 
+def _force_plan(org_id, code):
+    """Set a plan directly (bypassing the payment guard) — this test checks quota
+    semantics, not the payment flow."""
+    from app.db import admin_tx
+    with admin_tx() as conn:
+        conn.execute(
+            """INSERT INTO subscription (organization_id, plan_code) VALUES (%s,%s)
+               ON CONFLICT (organization_id) DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active'""",
+            (org_id, code))
+
+
 @requires_db
 def test_quota_is_mode_aware(client, tenant):
-    h = tenant["headers"]
+    h, org = tenant["headers"], tenant["org_id"]
 
     # managed subscription -> token allowance reported, allowed while under cap
-    client.post("/api/subscription", json={"plan_code": "growth"}, headers=h)
+    _force_plan(org, "growth")
     q = client.get("/api/subscription", headers=h).json()["quota"]
     assert q["llm_mode"] == "managed"
     assert q["tokens_included"] >= 1_000_000
     assert q["allowed"] is True
 
     # pay-as-you-go -> never blocked
-    client.post("/api/subscription", json={"plan_code": "payg"}, headers=h)
+    _force_plan(org, "payg")
     q2 = client.get("/api/subscription", headers=h).json()["quota"]
     assert q2["billing_mode"] == "payg" and q2["allowed"] is True
 
     # byok -> message fair-use cap surfaced
-    client.post("/api/subscription", json={"plan_code": "starter"}, headers=h)
+    _force_plan(org, "starter")
     q3 = client.get("/api/subscription", headers=h).json()["quota"]
     assert q3["llm_mode"] == "byok" and q3["messages_limit"] > 0
+
+
+@requires_db
+def test_tenant_cannot_self_activate_paid_plan(client, tenant):
+    """A paid plan must go through checkout/payment — POST /subscription only
+    accepts free plans."""
+    h = tenant["headers"]
+    r = client.post("/api/subscription", json={"plan_code": "growth"}, headers=h)
+    assert r.status_code >= 400
+    # free is fine
+    assert client.post("/api/subscription", json={"plan_code": "free"}, headers=h).status_code == 200
+
+
+@requires_db
+def test_report_transfer_does_not_activate(client, tenant):
+    """QR/bank transfer: reporting a transfer marks the invoice 'submitted' and
+    does NOT activate the plan (an admin must confirm)."""
+    h, org = tenant["headers"], tenant["org_id"]
+    _force_plan(org, "free")
+    co = client.post("/api/billing/checkout", json={"plan_code": "growth"}, headers=h).json()
+    inv = co["invoice_id"]
+    r = client.post(f"/api/billing/checkout/{inv}/submitted", headers=h).json()
+    assert r["status"] == "submitted"
+    # plan is still free — not activated by the tenant's self-report
+    assert client.get("/api/subscription", headers=h).json()["entitlements"]["_plan"] == "free"
 
 
 @requires_db

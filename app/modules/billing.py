@@ -111,11 +111,15 @@ def get_subscription(ctx: OrgContext = Depends(get_org_context)):
 
 @router.post("/subscription")
 def change_plan(body: ChangePlan, ctx: OrgContext = Depends(require_role("owner"))):
-    # Direct plan change (used for free/downgrade). Paid upgrades go through checkout.
+    # Direct plan change is ONLY for free plans (or downgrading to a free plan).
+    # Any paid plan must go through checkout + payment, so a tenant can't self-
+    # activate a paid plan for free.
     with no_tenant() as conn:
         plan = conn.execute("SELECT code, price_month FROM plan WHERE code=%s", (body.plan_code,)).fetchone()
         if not plan:
             raise bad_request("unknown plan")
+        if float(plan["price_month"]) > 0:
+            raise bad_request("Gói trả phí cần thanh toán — hãy dùng nút Nâng cấp để thanh toán.")
         conn.execute(
             """INSERT INTO subscription (organization_id, plan_code)
                VALUES (%s,%s)
@@ -256,35 +260,44 @@ async def momo_ipn(request: Request):
     return {"ok": True}
 
 
-@router.post("/billing/checkout/{invoice_id}/confirm")
-def confirm_payment(invoice_id: str, ctx: OrgContext = Depends(require_role("owner"))):
+@router.post("/billing/checkout/{invoice_id}/submitted")
+def report_transfer(invoice_id: str, ctx: OrgContext = Depends(require_role("owner"))):
+    """QR / bank-transfer path: the tenant reports they have transferred. This does
+    NOT activate the plan — bank transfers can't be auto-verified, so the invoice
+    moves to 'submitted' and a platform admin confirms it after checking the bank.
+    Online gateways (Stripe/VNPay/MoMo) activate automatically via webhook/IPN and
+    never reach this endpoint."""
     with tenant_tx(ctx.org_id) as conn:
         inv = conn.execute(
             "SELECT id, plan_code, amount, currency, status FROM invoice WHERE id=%s", (invoice_id,)
         ).fetchone()
         if not inv:
             raise not_found("invoice not found")
-        if inv["status"] != "paid":
-            conn.execute("UPDATE invoice SET status='paid', paid_at=now() WHERE id=%s", (invoice_id,))
-            conn.execute(
-                """INSERT INTO payment (organization_id, invoice_id, amount, currency, provider, status)
-                   VALUES (%s,%s,%s,%s,'manual','succeeded')""",
-                (ctx.org_id, invoice_id, inv["amount"], inv["currency"]),
-            )
+        if inv["status"] == "paid":
+            return {"ok": True, "status": "paid"}
+        conn.execute("UPDATE invoice SET status='submitted' WHERE id=%s AND status<>'paid'", (invoice_id,))
     with no_tenant() as conn:
-        conn.execute(
-            """INSERT INTO subscription (organization_id, plan_code, provider) VALUES (%s,%s,'manual')
-               ON CONFLICT (organization_id)
-               DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active', provider='manual'""",
-            (ctx.org_id, inv["plan_code"]),
-        )
-    audit.record("billing.paid", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
+        org = conn.execute("SELECT name FROM organization WHERE id=%s", (ctx.org_id,)).fetchone()
+    audit.record("billing.submitted", organization_id=ctx.org_id, actor_user_id=ctx.user.id,
                  target=invoice_id, detail={"plan": inv["plan_code"]})
-    from ..providers.email import send_safe
-    send_safe(ctx.user.email, "Xác nhận thanh toán OmniShop AI",
-              f"<p>Cảm ơn bạn! Gói <b>{inv['plan_code']}</b> đã được kích hoạt. "
-              f"Số tiền: {inv['amount']} {inv['currency']}.</p>")
-    return {"ok": True, "plan": inv["plan_code"]}
+    _notify_admins_pending(org["name"] if org else ctx.org_id, ctx.user.email,
+                           inv["plan_code"], float(inv["amount"]), inv["currency"])
+    return {"ok": True, "status": "submitted"}
+
+
+def _notify_admins_pending(org_name: str, requester: str, plan: str, amount: float, currency: str) -> None:
+    """Email platform admins that a tenant reported a bank transfer to confirm."""
+    from ..providers import email, registry
+    with no_tenant() as conn:
+        admins = conn.execute("SELECT email FROM app_user WHERE is_platform_admin=true").fetchall()
+    base = registry.public_base()
+    for a in admins:
+        if a["email"]:
+            email.send_safe(
+                a["email"], f"[OmniShop AI] Cần xác nhận thanh toán — {org_name}",
+                f"<p>Khách hàng <b>{org_name}</b> ({requester}) báo đã chuyển khoản cho gói "
+                f"<b>{plan}</b> ({amount} {currency}).</p><p>Vui lòng đối chiếu ngân hàng rồi vào "
+                f"Quản trị → Khách hàng để xác nhận: <a href=\"{base}\">{base}</a></p>")
 
 
 @router.get("/billing/invoices")

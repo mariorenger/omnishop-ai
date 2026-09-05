@@ -679,7 +679,7 @@ export function Billing({ role }: { role: string }) {
     if (co.redirect_url) { window.location.href = co.redirect_url; return; }  // VNPay/MoMo/Stripe
     setCheckout(co);  // VietQR (qr_image_url) or manual (instructions)
   };
-  const confirm = async () => { setBusy(true); try { await api.post(`/api/billing/checkout/${checkout.invoice_id}/confirm`); setCheckout(null); await load(); } finally { setBusy(false); } };
+  const reportTransfer = async () => { setBusy(true); try { await api.post(`/api/billing/checkout/${checkout.invoice_id}/submitted`); setCheckout(null); await load(); notify("Đã ghi nhận. Gói sẽ kích hoạt sau khi quản trị xác nhận khoản chuyển.", "ok"); } catch (e: any) { notify(e.message, "err"); } finally { setBusy(false); } };
   return (
     <div className="space-y-4">
       <Card>
@@ -728,26 +728,27 @@ export function Billing({ role }: { role: string }) {
         <CardTitle>Hoá đơn</CardTitle>
         {invoices.length === 0 ? <Empty>Chưa có hoá đơn nào.</Empty> :
           <Table head={["Ngày", "Gói", "Số tiền", "Trạng thái"]}>
-            {invoices.map((iv) => <tr key={iv.id}><Td className="font-normal">{new Date(iv.created_at).toLocaleDateString("vi-VN")}</Td><Td className="font-semibold">{iv.plan}</Td><Td>${iv.amount}</Td><Td><Badge kind={iv.status}>{iv.status === "paid" ? "Đã thanh toán" : iv.status === "pending" ? "Chờ thanh toán" : "Đã huỷ"}</Badge></Td></tr>)}
+            {invoices.map((iv) => <tr key={iv.id}><Td className="font-normal">{new Date(iv.created_at).toLocaleDateString("vi-VN")}</Td><Td className="font-semibold">{iv.plan}</Td><Td>${iv.amount}</Td><Td><Badge kind={iv.status === "submitted" ? "pending" : iv.status}>{iv.status === "paid" ? "Đã thanh toán" : iv.status === "submitted" ? "Chờ xác nhận" : iv.status === "pending" ? "Chờ thanh toán" : "Đã huỷ"}</Badge></Td></tr>)}
           </Table>}
       </Card>
-      <Modal open={!!checkout} onClose={() => setCheckout(null)} title={checkout?.qr_image_url ? "Quét mã để thanh toán" : "Xác nhận thanh toán"}
+      <Modal open={!!checkout} onClose={() => setCheckout(null)} title={checkout?.qr_image_url ? "Quét mã để thanh toán" : "Chuyển khoản thanh toán"}
         sub={checkout ? `Nâng cấp lên gói ${checkout.plan} — $${checkout.amount}/tháng.` : ""}
-        footer={<><Button variant="sec" onClick={() => setCheckout(null)}>Huỷ</Button><Button loading={busy} onClick={confirm}>{checkout?.qr_image_url ? "Tôi đã chuyển khoản" : "Xác nhận & kích hoạt"}</Button></>}>
+        footer={<><Button variant="sec" onClick={() => setCheckout(null)}>Huỷ</Button>{!checkout?.error && <Button loading={busy} onClick={reportTransfer}>Tôi đã chuyển khoản</Button>}</>}>
         {checkout?.error ? (
           <Msg type="err">{checkout.error}</Msg>
         ) : checkout?.qr_image_url ? (
           <div className="flex flex-col items-center text-center">
             <div className="bg-white rounded-xl p-3"><img src={checkout.qr_image_url} alt="VietQR" className="w-52 h-52 object-contain" /></div>
             <p className="text-[13px] text-muted font-normal mt-3">Mở app ngân hàng, quét mã VietQR và giữ nguyên nội dung chuyển khoản
-              {checkout.transfer_note ? <> <b className="text-fg">{checkout.transfer_note}</b></> : null}. Gói sẽ kích hoạt sau khi xác nhận.</p>
+              {checkout.transfer_note ? <> <b className="text-fg">{checkout.transfer_note}</b></> : null}.</p>
           </div>
         ) : (
           <div className="flex items-start gap-3 text-sm">
             <CheckCircle2 className="w-5 h-5 text-ok shrink-0 mt-0.5" />
-            <p className="text-muted font-normal">{checkout?.instructions || "Xác nhận để kích hoạt gói."}</p>
+            <p className="text-muted font-normal">{checkout?.instructions || "Chuyển khoản theo hướng dẫn rồi bấm “Tôi đã chuyển khoản”."}</p>
           </div>
         )}
+        <div className="mt-3 text-[12px] text-muted font-normal border-t border-line/60 pt-2.5">Sau khi bạn báo đã chuyển khoản, quản trị viên sẽ đối chiếu và kích hoạt gói. Bạn sẽ thấy trạng thái “Chờ xác nhận” ở mục Hoá đơn.</div>
       </Modal>
     </div>
   );
@@ -901,7 +902,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
 
   // sub-sections: monitoring (giám sát) vs configuration (cài đặt) split by purpose
   const TABS: [string, string][] = isAdmin
-    ? [["monitor", "Giám sát"], ["finance", "Tài chính"], ["config", "Cấu hình hệ thống"], ["plans", "Gói & định giá"], ["branding", "Thương hiệu"], ["staff", "Nhân sự & nhật ký"]]
+    ? [["monitor", "Giám sát"], ["finance", "Tài chính"], ["customers", "Khách hàng"], ["config", "Cấu hình hệ thống"], ["plans", "Gói & định giá"], ["branding", "Thương hiệu"], ["staff", "Nhân sự & nhật ký"]]
     : [["monitor", "Giám sát"], ["finance", "Tài chính"], ["audit", "Nhật ký"]];
   const cur = TABS.some((t) => t[0] === sub) ? sub : "monitor";
 
@@ -937,6 +938,7 @@ export function Admin({ role = "admin" }: { role?: string }) {
       </>}
 
       {cur === "finance" && <FinanceCard />}
+      {isAdmin && cur === "customers" && <TenantBillingCard />}
       {cur === "audit" && !isAdmin && <AuditCard />}
 
       {isAdmin && cur === "config" && <>
@@ -964,6 +966,66 @@ export function Admin({ role = "admin" }: { role?: string }) {
   );
 }
 
+function TenantBillingCard() {
+  const PAGE = 25;
+  const [rows, setRows] = useState<any[] | null>(null); const [total, setTotal] = useState(0); const [more, setMore] = useState(false);
+  const [q, setQ] = useState(""); const [plans, setPlans] = useState<any[]>([]); const [pend, setPend] = useState<any[]>([]);
+  const [err, setErr] = useState(""); const [loadingMore, setLoadingMore] = useState(false);
+  const loadPage = async (count = PAGE) => {
+    const d = await api.get(`/api/admin/billing/tenants?limit=${Math.max(count, PAGE)}&offset=0&q=${encodeURIComponent(q)}`);
+    setRows(d.items); setTotal(d.total); setMore(d.has_more);
+  };
+  const loadPending = () => api.get("/api/admin/billing/pending?limit=50").then((d) => setPend(d.items)).catch(() => {});
+  useEffect(() => { api.get("/api/plans").then(setPlans).catch(() => {}); }, []);
+  useEffect(() => { setRows(null); loadPage().catch((e) => setErr(e.message)); loadPending(); }, [q]);
+  const loadMore = async () => { if (!rows) return; setLoadingMore(true); try { const d = await api.get(`/api/admin/billing/tenants?limit=${PAGE}&offset=${rows.length}&q=${encodeURIComponent(q)}`); setRows([...rows, ...d.items]); setTotal(d.total); setMore(d.has_more); } finally { setLoadingMore(false); } };
+  const setPlan = async (org: any, code: string) => {
+    if (!code || code === org.plan) return;
+    if (!confirm(`Cấp gói "${code}" cho ${org.name}? Đây là cấp thủ công (không tính vào doanh thu).`)) return;
+    try { await api.put(`/api/admin/tenants/${org.id}/plan`, { plan_code: code }); notify("Đã cấp gói (admin_manual).", "ok"); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
+  };
+  const confirmInvoice = async (iv: any) => {
+    if (!confirm(`Xác nhận đã nhận tiền hoá đơn của ${iv.tenant} (gói ${iv.plan}, $${iv.amount})? Sẽ kích hoạt gói và tính vào doanh thu.`)) return;
+    try { await api.post(`/api/admin/invoices/${iv.id}/confirm`, {}); notify("Đã xác nhận thanh toán.", "ok"); loadPending(); loadPage(rows?.length); } catch (e: any) { notify(e.message, "err"); }
+  };
+  if (err) return <Msg type="err">{err}</Msg>;
+  return (
+    <div className="space-y-4">
+      {pend.length > 0 && (
+        <Card>
+          <CardTitle sub="Khách hàng đã báo chuyển khoản (QR/thủ công) — đối chiếu ngân hàng rồi xác nhận để kích hoạt gói và ghi nhận doanh thu.">Chờ xác nhận thanh toán</CardTitle>
+          <Table head={["Khách hàng", "Gói", "Số tiền", "Kênh", "Trạng thái", ""]}>
+            {pend.map((iv) => <tr key={iv.id}>
+              <Td className="font-semibold">{iv.tenant}</Td><Td>{iv.plan}</Td><Td>${iv.amount}</Td>
+              <Td className="text-muted">{iv.provider}</Td>
+              <Td><Badge kind={iv.status === "submitted" ? "pending" : "default"}>{iv.status === "submitted" ? "Đã báo CK" : "Chờ CK"}</Badge></Td>
+              <Td className="text-right"><Button size="sm" onClick={() => confirmInvoice(iv)}>Xác nhận</Button></Td>
+            </tr>)}
+          </Table>
+        </Card>
+      )}
+      <Card>
+        <CardTitle sub="Quản lý gói của từng khách hàng. Cấp gói ở đây là cấp thủ công (admin_manual) và không tính vào doanh thu/lợi nhuận."
+          right={<Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm khách hàng" className="w-48" />}>Khách hàng &amp; Gói</CardTitle>
+        {!rows ? <Spinner /> : rows.length === 0 ? <Empty>Không có khách hàng.</Empty> :
+          <Table head={["Khách hàng", "Gói hiện tại", "Doanh thu tháng", "Chờ xác nhận", "Cấp gói thủ công"]}>
+            {rows.map((t) => <tr key={t.id}>
+              <Td className="font-semibold">{t.name}</Td>
+              <Td><Badge kind={t.plan_provider === "admin_manual" ? "default" : "active"}>{t.plan}{t.plan_provider === "admin_manual" ? " · cấp tay" : ""}</Badge></Td>
+              <Td>${t.revenue_month.toFixed(2)}</Td>
+              <Td>{t.pending > 0 ? <span className="text-warn font-semibold">{t.pending}</span> : <span className="text-muted">—</span>}</Td>
+              <Td><Select className="w-auto h-9 py-0 leading-none text-[12px]" value="" onChange={(e) => setPlan(t, e.target.value)}>
+                <option value="">— Chọn gói —</option>
+                {plans.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+              </Select></Td>
+            </tr>)}
+          </Table>}
+        {rows && rows.length > 0 && <LoadMore show={more} loading={loadingMore} onClick={loadMore} shown={rows.length} total={total} />}
+      </Card>
+    </div>
+  );
+}
+
 function FinanceCard() {
   const [f, setF] = useState<any>(null); const [err, setErr] = useState("");
   useEffect(() => { api.get("/api/admin/finance").then(setF).catch((e) => setErr(e.message)); }, []);
@@ -982,7 +1044,7 @@ function FinanceCard() {
           <Kpi n={f.margin_month == null ? "—" : `${f.margin_month}%`} l="Biên lợi nhuận" info="Lợi nhuận / doanh thu. '—' khi chưa có doanh thu." />
         </div>
         <div className="text-[12.5px] text-muted font-normal mt-3">
-          Chờ thu: <b className="text-fg">${fmt(Math.round(f.pending))}</b> · Đã thu luỹ kế: <b className="text-fg">${fmt(Math.round(f.revenue_all))}</b> · Chi phí luỹ kế: <b className="text-fg">${f.cost_all.toFixed(2)}</b>
+          Chờ thu: <b className="text-fg">${fmt(Math.round(f.pending))}</b> · Đã thu luỹ kế: <b className="text-fg">${fmt(Math.round(f.revenue_all))}</b> · Chi phí luỹ kế: <b className="text-fg">${f.cost_all.toFixed(2)}</b>{f.comped_month ? <> · Gói cấp tay (không tính DT): <b className="text-fg">${fmt(Math.round(f.comped_month))}</b></> : null}
         </div>
       </Card>
       <Card>

@@ -100,6 +100,39 @@ def test_admin_runtime_settings_move_to_db(client):
 
 
 @requires_db
+def test_admin_grants_plan_comped_not_revenue(client, tenant):
+    """Admin granting a plan is admin_manual: it activates the plan but does NOT
+    add to revenue (it's comped)."""
+    h = _admin(client)
+    org = tenant["org_id"]
+    before = client.get("/api/admin/finance", headers=h).json()["revenue_month"]
+    r = client.put(f"/api/admin/tenants/{org}/plan", headers=h, json={"plan_code": "growth"}).json()
+    assert r.get("type") == "admin_manual"
+    assert client.get("/api/subscription", headers=tenant["headers"]).json()["entitlements"]["_plan"] == "growth"
+    after = client.get("/api/admin/finance", headers=h).json()
+    assert after["revenue_month"] == before          # comped grant is not revenue
+    assert after["comped_month"] >= 0
+    # the tenant shows in the paginated management list
+    tl = client.get(f"/api/admin/billing/tenants?q=Test", headers=h).json()
+    assert "items" in tl and tl["total"] >= 1
+
+
+@requires_db
+def test_admin_confirms_reported_transfer(client, tenant):
+    """A tenant reports a bank transfer (submitted); an admin confirms it, which
+    activates the plan."""
+    h_admin = _admin(client)
+    h = tenant["headers"]
+    co = client.post("/api/billing/checkout", json={"plan_code": "growth"}, headers=h).json()
+    inv = co["invoice_id"]
+    client.post(f"/api/billing/checkout/{inv}/submitted", headers=h)
+    pend = client.get("/api/admin/billing/pending", headers=h_admin).json()["items"]
+    assert any(p["id"] == inv for p in pend)
+    assert client.post(f"/api/admin/invoices/{inv}/confirm", headers=h_admin).json()["ok"] is True
+    assert client.get("/api/subscription", headers=h).json()["entitlements"]["_plan"] == "growth"
+
+
+@requires_db
 def test_admin_email_settings_and_secret_kept(client):
     """Email provider is set from the UI; the secret is write-only (kept on
     re-save when omitted)."""
