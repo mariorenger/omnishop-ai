@@ -4,13 +4,15 @@ from app.providers.payment import (MoMoPaymentProvider, VietQRPaymentProvider,
                                     VNPayPaymentProvider)
 
 
-def test_vietqr_quicklink_url():
+def test_vietqr_quicklink_url_converts_usd_to_vnd():
+    # plan price is USD; VietQR charges VND -> amount is converted by usd_vnd
     p = VietQRPaymentProvider({"bank_bin": "970436", "account_no": "0123456789",
-                               "account_name": "OMNISHOP JSC"})
-    co = p.create_checkout(invoice_id="abcd1234", amount=199000, currency="VND", plan_code="growth")
+                               "account_name": "OMNISHOP JSC", "usd_vnd": 25000})
+    co = p.create_checkout(invoice_id="abcd1234", amount=2, currency="USD", plan_code="growth")
     url = co["qr_image_url"]
     assert url.startswith("https://img.vietqr.io/image/970436-0123456789-")
-    assert "amount=199000" in url
+    assert "amount=50000" in url                # 2 USD * 25000 = 50.000 đ
+    assert co["amount_vnd"] == 50000
 
 
 def test_vietqr_missing_account_errors():

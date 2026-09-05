@@ -703,7 +703,8 @@ export function Billing({ role }: { role: string }) {
             <div className="flex items-start justify-between gap-2"><span className="font-bold text-[15px]">{p.name}</span><Badge kind={e.llm_mode === "managed" ? "ai" : "default"}>{modeLabel(e.llm_mode, e.billing_mode)}</Badge></div>
             <div className="mt-2 mb-1">{e.billing_mode === "payg"
               ? <span className="text-2xl font-extrabold">${e.payg_per_1k}<span className="text-xs text-muted font-semibold">/1k token</span></span>
-              : <span className="text-2xl font-extrabold">${p.price_month}<span className="text-xs text-muted font-semibold">/tháng</span></span>}</div>
+              : <span className="text-2xl font-extrabold">${p.price_month}<span className="text-xs text-muted font-semibold">/tháng</span></span>}
+              {e.billing_mode !== "payg" && p.price_month > 0 && sub.usd_vnd ? <div className="text-[12px] text-muted font-normal mt-0.5">≈ {fmt(Math.round(p.price_month * sub.usd_vnd))} đ/tháng</div> : null}</div>
             <ul className="text-[13px] text-muted mt-3 space-y-1.5 font-normal">
               {e.llm_mode === "managed"
                 ? <li className="text-fg">{e.billing_mode === "payg" ? "Trả theo token thực dùng" : `${fmt(e.ai_tokens_month)} token AI/tháng`}</li>
@@ -732,7 +733,7 @@ export function Billing({ role }: { role: string }) {
           </Table>}
       </Card>
       <Modal open={!!checkout} onClose={() => setCheckout(null)} title={checkout?.qr_image_url ? "Quét mã để thanh toán" : "Chuyển khoản thanh toán"}
-        sub={checkout ? `Nâng cấp lên gói ${checkout.plan} — $${checkout.amount}/tháng.` : ""}
+        sub={checkout ? `Nâng cấp gói ${checkout.plan}: ${checkout.amount_vnd ? fmt(checkout.amount_vnd) + " đ" : "$" + checkout.amount}/tháng.` : ""}
         footer={<><Button variant="sec" onClick={() => setCheckout(null)}>Huỷ</Button>{!checkout?.error && <Button loading={busy} onClick={reportTransfer}>Tôi đã chuyển khoản</Button>}</>}>
         {checkout?.error ? (
           <Msg type="err">{checkout.error}</Msg>
@@ -1288,7 +1289,7 @@ function PaymentCard() {
   const [cfg, setCfg] = useState<any>(null); const [providers, setProviders] = useState<any[]>([]);
   const [provider, setProvider] = useState("manual"); const [apiKey, setApiKey] = useState("");
   const [f, setF] = useState<any>({ publishable_key: "", webhook_secret: "", success_url: "", cancel_url: "", currency: "USD",
-    bank_bin: "", account_no: "", account_name: "", template: "compact2",
+    bank_bin: "", account_no: "", account_name: "", template: "compact2", usd_vnd: "25000",
     tmn_code: "", pay_url: "", return_url: "", partner_code: "", access_key: "", redirect_url: "", ipn_url: "", endpoint: "" });
   const [ok, setOk] = useState(""); const [err, setErr] = useState(""); const [hookUrl, setHookUrl] = useState(""); const [txns, setTxns] = useState<any[]>([]);
   const set = (k: string, v: string) => setF((s: any) => ({ ...s, [k]: v }));
@@ -1320,6 +1321,10 @@ function PaymentCard() {
         </>
       )}
       {provider === "manual" && <p className="text-[13px] text-muted mt-2 font-normal">Chế độ thủ công: khách xác nhận trong ứng dụng (phù hợp demo hoặc chuyển khoản).</p>}
+      {["sepay", "vietqr", "vnpay", "momo"].includes(provider) && (
+        <div className="mt-3"><Field label="Tỷ giá USD → VND" info="Giá gói lưu bằng USD; các cổng Việt Nam thu bằng VND nên được quy đổi theo tỷ giá này. Ví dụ 25000 nghĩa là 1 USD = 25.000đ.">
+          <Input type="number" value={f.usd_vnd} onChange={(e) => set("usd_vnd", e.target.value)} placeholder="25000" className="max-w-[220px]" /></Field></div>
+      )}
       {provider === "sepay" && (
         <>
           <div className="grid md:grid-cols-2 gap-3 mt-3">

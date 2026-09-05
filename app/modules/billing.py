@@ -106,7 +106,10 @@ def list_plans():
 def get_subscription(ctx: OrgContext = Depends(get_org_context)):
     ent = resolve_entitlements(ctx.org_id)
     quota = check_ai_quota(ctx.org_id)
-    return {"entitlements": ent, "quota": quota, "renewal": _renewal(ctx.org_id, ent)}
+    from ..providers.payment import DEFAULT_USD_VND
+    from ..providers.registry import resolve_payment_config
+    rate = float((resolve_payment_config().get("extra") or {}).get("usd_vnd") or DEFAULT_USD_VND)
+    return {"entitlements": ent, "quota": quota, "renewal": _renewal(ctx.org_id, ent), "usd_vnd": rate}
 
 
 def _renewal(org_id: str, ent: dict) -> dict:

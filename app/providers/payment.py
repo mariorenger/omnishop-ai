@@ -27,10 +27,19 @@ from typing import Optional
 from .registry import resolve_payment_config
 
 
+DEFAULT_USD_VND = 25000   # fallback USD->VND rate; admin can override per gateway
+
+
 def invoice_code(invoice_id) -> str:
     """Short transfer memo embedded in the bank content so an incoming transfer
     can be matched back to its invoice (used by VietQR + the SePay webhook)."""
     return "OMNI" + str(invoice_id).replace("-", "")[:8].upper()
+
+
+def _to_vnd(amount_usd, extra: dict) -> int:
+    """Convert a USD plan price to VND for the Vietnamese gateways."""
+    rate = float((extra or {}).get("usd_vnd") or DEFAULT_USD_VND)
+    return int(round(float(amount_usd) * rate))
 
 
 class ManualPaymentProvider:
@@ -94,7 +103,7 @@ class VietQRPaymentProvider:
         if not (bank and account):
             return {"provider": self.name, "invoice_id": invoice_id,
                     "error": "VietQR chưa cấu hình số tài khoản / ngân hàng."}
-        amt = int(round(float(amount)))
+        amt = _to_vnd(amount, self.extra)
         info = invoice_code(invoice_id)
         qs = urllib.parse.urlencode({"amount": amt, "addInfo": info, "accountName": name})
         qr_image_url = f"https://img.vietqr.io/image/{bank}-{account}-{template}.png?{qs}"
@@ -120,7 +129,7 @@ class SePayPaymentProvider:
         if not (bank and account):
             return {"provider": self.name, "invoice_id": invoice_id,
                     "error": "SePay chưa cấu hình số tài khoản / ngân hàng."}
-        amt = int(round(float(amount)))
+        amt = _to_vnd(amount, self.extra)
         info = invoice_code(invoice_id)
         qs = urllib.parse.urlencode({"acc": account, "bank": bank, "amount": amt, "des": info})
         qr_image_url = f"https://qr.sepay.vn/img?{qs}"
@@ -151,7 +160,7 @@ class VNPayPaymentProvider:
         return_url = self.extra.get("return_url") or "http://localhost:8000/api/billing/return/vnpay"
         params = {
             "vnp_Version": "2.1.0", "vnp_Command": "pay", "vnp_TmnCode": tmn,
-            "vnp_Amount": int(round(float(amount) * 100)), "vnp_CurrCode": "VND",
+            "vnp_Amount": _to_vnd(amount, self.extra) * 100, "vnp_CurrCode": "VND",
             "vnp_TxnRef": str(invoice_id), "vnp_OrderInfo": f"OmniShop {plan_code}",
             "vnp_OrderType": "other", "vnp_Locale": "vn", "vnp_ReturnUrl": return_url,
             "vnp_IpAddr": "127.0.0.1", "vnp_CreateDate": time.strftime("%Y%m%d%H%M%S"),
@@ -186,7 +195,7 @@ class MoMoPaymentProvider:
         endpoint = self.extra.get("endpoint") or "https://test-payment.momo.vn/v2/gateway/api/create"
         redirect_url = self.extra.get("redirect_url") or "http://localhost:3000/?paid=1"
         ipn_url = self.extra.get("ipn_url") or "http://localhost:8000/api/billing/ipn/momo"
-        amt = str(int(round(float(amount))))
+        amt = str(_to_vnd(amount, self.extra))
         request_id = f"{invoice_id}-{int(time.time())}"
         order_id = str(invoice_id)
         order_info = f"OmniShop {plan_code}"
