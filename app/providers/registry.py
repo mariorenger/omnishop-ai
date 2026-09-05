@@ -143,6 +143,72 @@ def resolve_ocr_config(org_id: Optional[str]) -> dict:
     return _load("ocr:platform") or _env_ocr()
 
 
+# ---- operational config (admin-editable, env fallback) --------------------
+# These used to be pure env vars. They now live in provider_config so the
+# platform admin can change them in the UI without a redeploy; env stays only
+# as the first-boot fallback.
+
+def resolve_email_config() -> dict:
+    """Transactional email settings for the whole platform."""
+    c = _load("notify:email")
+    if c:
+        ex = c.get("extra") or {}
+        return {"provider": c["provider"] or "console",
+                "from": ex.get("from") or config.EMAIL_FROM,
+                "secret": c.get("api_key", ""),   # resend key OR smtp password
+                "smtp_host": ex.get("smtp_host", ""),
+                "smtp_port": int(ex.get("smtp_port") or config.SMTP_PORT),
+                "smtp_user": ex.get("smtp_user", "")}
+    return {"provider": config.EMAIL_PROVIDER, "from": config.EMAIL_FROM,
+            "secret": config.RESEND_API_KEY if config.EMAIL_PROVIDER == "resend" else config.SMTP_PASS,
+            "smtp_host": config.SMTP_HOST, "smtp_port": config.SMTP_PORT, "smtp_user": config.SMTP_USER}
+
+
+def resolve_meta_app() -> dict:
+    """Shared Facebook App credentials (used by OAuth + webhook verify/signature)."""
+    c = _load("channel:meta") or {}
+    ex = c.get("extra") or {}
+    return {"app_id": c.get("model") or config.META_APP_ID,
+            "app_secret": c.get("api_key") or config.META_APP_SECRET,
+            "verify_token": ex.get("verify_token") or config.META_VERIFY_TOKEN}
+
+
+import time as _time  # noqa: E402
+_runtime_cache: dict = {"val": None, "ts": 0.0}
+
+
+def _runtime() -> dict:
+    now = _time.time()
+    if _runtime_cache["val"] is None or now - _runtime_cache["ts"] > 30:
+        c = _load("platform:runtime")
+        _runtime_cache["val"] = (c or {}).get("extra") or {}
+        _runtime_cache["ts"] = now
+    return _runtime_cache["val"]
+
+
+def public_base() -> str:
+    """Public HTTPS base URL for OAuth redirects + channel webhooks."""
+    return (_runtime().get("public_base") or config.OAUTH_REDIRECT_BASE or "").rstrip("/")
+
+
+def stale_seconds() -> int:
+    v = _runtime().get("stale_seconds")
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return config.CHANNEL_STALE_SECONDS
+
+
+def set_runtime(*, public_base: Optional[str] = None, stale_seconds: Optional[int] = None) -> None:
+    cur = dict(_runtime())
+    if public_base is not None:
+        cur["public_base"] = public_base.strip().rstrip("/")
+    if stale_seconds is not None:
+        cur["stale_seconds"] = int(stale_seconds)
+    write_config("platform:runtime", provider="runtime", extra=cur)
+    _runtime_cache["val"] = None    # invalidate immediately
+
+
 # ---- builders (cached by signature) ---------------------------------------
 
 _llm_cache: dict = {}

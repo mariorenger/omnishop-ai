@@ -81,3 +81,40 @@ def test_admin_edits_cost_rates(client):
         client.put("/api/admin/settings/cost", headers=h,
                    json={"cost_input_per_m": orig["input"], "cost_output_per_m": orig["output"],
                          "cost_embedding_per_m": orig["embedding"]})
+
+
+@requires_db
+def test_admin_runtime_settings_move_to_db(client):
+    """Public domain + stale window are editable in the admin API and take effect
+    immediately (env is only the fallback)."""
+    from app.providers import registry
+    h = _admin(client)
+    d = client.put("/api/admin/settings/runtime", headers=h,
+                   json={"public_base": "https://demo.omnishop.vn/", "stale_seconds": 123}).json()
+    assert d["public_base"] == "https://demo.omnishop.vn" and d["stale_seconds"] == 123
+    assert registry.public_base() == "https://demo.omnishop.vn" and registry.stale_seconds() == 123
+    # tenants (unauthenticated here) cannot read it
+    assert client.get("/api/admin/settings/runtime").status_code in (401, 403)
+    registry.delete_config("platform:runtime")
+    registry._runtime_cache["val"] = None
+
+
+@requires_db
+def test_admin_email_settings_and_secret_kept(client):
+    """Email provider is set from the UI; the secret is write-only (kept on
+    re-save when omitted)."""
+    from app.providers import registry
+    h = _admin(client)
+    client.put("/api/admin/settings/email", headers=h,
+               json={"provider": "resend", "from_addr": "OmniShop <no-reply@demo.vn>", "secret": "re_testkey"})
+    g = client.get("/api/admin/settings/email", headers=h).json()
+    assert g["provider"] == "resend" and g["has_secret"] is True and g["from"].startswith("OmniShop")
+    # re-saving without the secret keeps the stored one
+    client.put("/api/admin/settings/email", headers=h,
+               json={"provider": "resend", "from_addr": "OmniShop <no-reply@demo.vn>"})
+    assert registry.resolve_email_config()["secret"] == "re_testkey"
+    # console test send always succeeds (no external call)
+    r = client.post("/api/admin/settings/email/test", headers=h,
+                    json={"provider": "console", "to": "someone@example.com"}).json()
+    assert r["ok"] is True
+    registry.delete_config("notify:email")

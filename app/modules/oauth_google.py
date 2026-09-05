@@ -39,13 +39,13 @@ def _creds() -> dict:
 
 
 def _redirect_uri() -> str:
-    return config.OAUTH_REDIRECT_BASE.rstrip("/") + "/api/auth/google/callback"
+    return registry.public_base() + "/api/auth/google/callback"
 
 
 def _web_base() -> str:
     """Where to send the user after Google login: the public domain
     (OAUTH_REDIRECT_BASE) if configured, else a CORS origin, else localhost."""
-    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    base = registry.public_base()
     if base and "localhost" not in base and "127.0.0.1" not in base:
         return base
     for o in (config.CORS_ORIGINS or []):

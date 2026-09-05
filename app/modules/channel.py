@@ -22,6 +22,7 @@ from .. import audit
 from ..config import config
 from ..db import no_tenant, tenant_tx
 from ..errors import bad_request, not_found
+from ..providers import registry
 from ..providers.channels import meta, telegram, whatsapp, zalo
 from ..security import decrypt_secret, encrypt_secret
 from ..tenancy import OrgContext, get_org_context, require_role
@@ -203,7 +204,7 @@ def _assert_shop(conn, shop_id: str):
 def _webhook_url(kind: str) -> str:
     """The public webhook URL a tenant must paste into the platform's console
     (empty for kinds that need none / auto-register)."""
-    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    base = registry.public_base()
     if not base:
         return ""
     if kind == "zalo":
@@ -279,7 +280,7 @@ def create_channel(body: ChannelBody, ctx: OrgContext = Depends(require_role("ad
             note = info
             # auto-register the Telegram webhook — needs a PUBLIC HTTPS base so
             # Telegram can reach us (localhost/http can't receive messages).
-            base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+            base = registry.public_base()
             good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
             if ok and good_base:
                 hook = f"{base}/api/channels/webhook/telegram/{public_key}"
@@ -362,7 +363,7 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
             except Exception:  # noqa: BLE001
                 creds = {}
         cfg = dict(r["config"] or {})
-        base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+        base = registry.public_base()
         good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
         if kind in ("messenger", "instagram"):
             tok = creds.get("page_access_token", "")
@@ -388,7 +389,7 @@ def verify_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
                 # messages. Re-register it here (the domain may have been set after
                 # connecting) and report Telegram's own view of the webhook.
                 if ok:
-                    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+                    base = registry.public_base()
                     good_base = base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base
                     if good_base and r["public_key"]:
                         hook = f"{base}/api/channels/webhook/telegram/{r['public_key']}"
@@ -477,7 +478,7 @@ def delete_channel(channel_id: str, ctx: OrgContext = Depends(require_role("admi
 @router.get("/channels/webhook/meta")
 def meta_webhook_verify(request: Request):
     q = request.query_params
-    if q.get("hub.mode") == "subscribe" and q.get("hub.verify_token") == config.META_VERIFY_TOKEN:
+    if q.get("hub.mode") == "subscribe" and q.get("hub.verify_token") == registry.resolve_meta_app()["verify_token"]:
         return PlainTextResponse(q.get("hub.challenge", ""))
     return PlainTextResponse("forbidden", status_code=403)
 
@@ -485,8 +486,9 @@ def meta_webhook_verify(request: Request):
 @router.post("/channels/webhook/meta")
 async def meta_webhook(request: Request):
     body = await request.body()
-    if config.META_APP_SECRET and not meta.verify_signature(
-        config.META_APP_SECRET, body, request.headers.get("x-hub-signature-256", "")
+    app_secret = registry.resolve_meta_app()["app_secret"]
+    if app_secret and not meta.verify_signature(
+        app_secret, body, request.headers.get("x-hub-signature-256", "")
     ):
         return PlainTextResponse("bad signature", status_code=403)
     payload = json.loads(body or b"{}")
@@ -604,7 +606,7 @@ def flag_channel_problem(org_id: str, channel_id: str, reason: str) -> None:
         conn.execute("UPDATE channel SET status='degraded' WHERE id=%s", (channel_id,))
     audit.record("channel.degraded", organization_id=org_id, target=channel_id, detail={"reason": reason[:300]})
     label = KIND_SPECS.get(row["kind"], {}).get("label", row["kind"])
-    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    base = registry.public_base()
     _email_channels(
         org_id,
         f"[OmniShop AI] Kênh {row['name']} đang gặp sự cố",

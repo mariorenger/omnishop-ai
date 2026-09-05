@@ -34,9 +34,7 @@ SCOPES = "pages_show_list,pages_messaging,pages_manage_metadata"
 
 
 def _meta_app() -> dict:
-    cfg = registry._load("channel:meta") or {}
-    return {"app_id": cfg.get("model") or config.META_APP_ID,
-            "app_secret": cfg.get("api_key") or config.META_APP_SECRET}
+    return registry.resolve_meta_app()
 
 
 def _sign_state(payload: dict) -> str:
@@ -63,7 +61,7 @@ def start(shop_id: str, ctx: OrgContext = Depends(require_role("admin"))):
     app = _meta_app()
     if not app["app_id"]:
         raise bad_request("Chưa cấu hình Facebook App. Vào Quản trị hệ thống để nhập App ID/Secret.")
-    redirect_uri = config.OAUTH_REDIRECT_BASE.rstrip("/") + "/api/channels/oauth/meta/callback"
+    redirect_uri = registry.public_base() + "/api/channels/oauth/meta/callback"
     state = _sign_state({"org": ctx.org_id, "shop": shop_id, "exp": int(time.time()) + 600})
     url = (f"https://www.facebook.com/v21.0/dialog/oauth?client_id={app['app_id']}"
            f"&redirect_uri={redirect_uri}&state={state}&scope={SCOPES}&response_type=code")
@@ -76,7 +74,7 @@ def callback(code: str = "", state: str = ""):
     if not data:
         return HTMLResponse("<h3>Liên kết không hợp lệ hoặc đã hết hạn.</h3>", status_code=400)
     app = _meta_app()
-    redirect_uri = config.OAUTH_REDIRECT_BASE.rstrip("/") + "/api/channels/oauth/meta/callback"
+    redirect_uri = registry.public_base() + "/api/channels/oauth/meta/callback"
     try:
         tok = httpx.get(f"{GRAPH}/oauth/access_token", params={
             "client_id": app["app_id"], "client_secret": app["app_secret"],
@@ -111,5 +109,5 @@ def callback(code: str = "", state: str = ""):
                  json.dumps({"page_id": pg["id"]}), bot_id),
             )
             connected += 1
-    dest = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    dest = registry.public_base()
     return RedirectResponse(f"{dest}/?connected={connected}", status_code=302)

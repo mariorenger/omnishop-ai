@@ -83,8 +83,8 @@ def _is_stale(event_ts) -> bool:
     """True if an inbound message is older than the configured window. Guards
     against replaying a whole backlog the platform queued while a channel was
     disconnected (which would burn tokens on old messages)."""
-    from ..config import Config
-    window = Config.CHANNEL_STALE_SECONDS
+    from ..providers import registry
+    window = registry.stale_seconds()
     if not window or not event_ts:
         return False
     try:

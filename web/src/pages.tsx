@@ -950,9 +950,11 @@ export function Admin({ role = "admin" }: { role?: string }) {
           <LlmForm initial={s.llm} providers={s.llm_providers} endpoints={{ save: "/api/admin/settings/llm", test: "/api/admin/settings/llm/test", models: "/api/admin/settings/llm/models" }} /></Card>
         <Card><CardTitle sub="Dùng chung toàn nền tảng. Đổi model yêu cầu lập chỉ mục lại; số chiều cố định 384.">Mô hình embedding</CardTitle>
           <LlmForm initial={s.embedding} providers={embProviders} endpoints={{ save: "/api/admin/settings/embedding", test: "/api/admin/settings/embedding/test", models: "/api/admin/settings/embedding/models" }} /></Card>
+        <RuntimeCard />
         <PaymentCard />
         <MetaAppCard />
         <GoogleCard />
+        <EmailCard />
       </>}
 
       {isAdmin && cur === "plans" && <><PlansCard /><CostCard /></>}
@@ -1065,6 +1067,62 @@ function GoogleCard() {
       </div>
       <div className="mt-3"><CopyField label="Authorized redirect URI (dán vào Google Cloud Console)" value={c?.redirect_uri}
         info="Google Cloud → APIs & Services → Credentials → OAuth client → Authorized redirect URIs. Phải khớp chính xác." /></div>
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
+  );
+}
+
+function RuntimeCard() {
+  const [c, setC] = useState<any>(null); const [base, setBase] = useState(""); const [stale, setStale] = useState("600");
+  const [ok, setOk] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { api.get("/api/admin/settings/runtime").then((d) => { setC(d); setBase(d.public_base || ""); setStale(String(d.stale_seconds ?? 600)); }).catch((e) => setErr(e.message)); }, []);
+  const save = async () => { setOk(""); setErr(""); try { const d = await api.put("/api/admin/settings/runtime", { public_base: base.trim(), stale_seconds: Number(stale) || 0 }); setC({ ...c, ...d }); setOk("Đã lưu cấu hình vận hành."); } catch (e: any) { setErr(e.message); } };
+  const badBase = base && !base.startsWith("https://");
+  return (
+    <Card>
+      <CardTitle sub="Tên miền công khai để nhận webhook và chuyển hướng đăng nhập. Đặt đúng domain HTTPS thật thì các kênh mới nhận được tin và đăng nhập Google/Facebook mới quay về đúng chỗ.">Vận hành</CardTitle>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="Tên miền công khai (Public URL)" info="Ví dụ: https://chat.cuahang.vn — không có dấu / ở cuối."><Input value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://ten-mien-cua-ban" /></Field>
+        <Field label="Bỏ qua tin cũ hơn (giây)" info="Tin đến cũ hơn ngưỡng này sẽ được lưu nhưng không trả lời tự động, tránh tốn token khi kênh vừa kết nối lại. 0 = tắt."><Input type="number" value={stale} onChange={(e) => setStale(e.target.value)} /></Field>
+      </div>
+      {badBase ? <div className="mt-2 text-[12px] text-warn font-normal">Nên dùng địa chỉ bắt đầu bằng https:// — webhook của các nền tảng yêu cầu HTTPS công khai.</div> : null}
+      <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
+      <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
+    </Card>
+  );
+}
+
+function EmailCard() {
+  const [c, setC] = useState<any>(null); const [provider, setProvider] = useState("console"); const [from, setFrom] = useState("");
+  const [secret, setSecret] = useState(""); const [host, setHost] = useState(""); const [port, setPort] = useState("587"); const [user, setUser] = useState("");
+  const [to, setTo] = useState(""); const [ok, setOk] = useState(""); const [err, setErr] = useState(""); const [testing, setTesting] = useState(false);
+  useEffect(() => { api.get("/api/admin/settings/email").then((d) => { setC(d); setProvider(d.provider || "console"); setFrom(d.from || ""); setHost(d.smtp_host || ""); setPort(String(d.smtp_port || 587)); setUser(d.smtp_user || ""); }).catch((e) => setErr(e.message)); }, []);
+  const body = () => ({ provider, from_addr: from, secret: secret || null, smtp_host: host, smtp_port: Number(port) || 587, smtp_user: user });
+  const save = async () => { setOk(""); setErr(""); try { await api.put("/api/admin/settings/email", body()); setOk("Đã lưu cấu hình email."); setSecret(""); } catch (e: any) { setErr(e.message); } };
+  const test = async () => { setOk(""); setErr(""); setTesting(true); try { const r = await api.post("/api/admin/settings/email/test", { ...body(), to }); if (r.ok) setOk(`Đã gửi email thử tới ${to || "email của bạn"}.`); else setErr("Gửi thất bại: " + (r.error || "")); } catch (e: any) { setErr(e.message); } finally { setTesting(false); } };
+  const secretLabel = provider === "resend" ? "Resend API Key" : provider === "smtp" ? "Mật khẩu SMTP" : "Khoá bí mật";
+  return (
+    <Card>
+      <CardTitle sub="Dùng để gửi email cảnh báo khi kênh gặp sự cố và các thông báo khác. Console chỉ ghi log; chọn SMTP hoặc Resend để gửi thật.">Email thông báo</CardTitle>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="Nhà cung cấp"><Select value={provider} onChange={(e) => setProvider(e.target.value)}>{(c?.providers || []).map((p: any) => <option key={p.id} value={p.id}>{p.label}</option>)}</Select></Field>
+        <Field label="Địa chỉ người gửi (From)" info="Ví dụ: OmniShop <no-reply@cuahang.vn>"><Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Tên cửa hàng <no-reply@domain>" /></Field>
+      </div>
+      {provider !== "console" && (
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          {provider === "smtp" && <>
+            <Field label="SMTP Host"><Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.gmail.com" /></Field>
+            <Field label="SMTP Port"><Input type="number" value={port} onChange={(e) => setPort(e.target.value)} /></Field>
+            <Field label="SMTP User"><Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="tài khoản đăng nhập SMTP" /></Field>
+          </>}
+          <Field label={secretLabel} info="Mã hoá khi lưu."><Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={c && c.has_secret ? "•••• (giữ nguyên)" : ""} /></Field>
+        </div>
+      )}
+      <div className="mt-3 flex items-end gap-2 flex-wrap">
+        <Field label="Gửi thử tới"><Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="email nhận thử (mặc định email của bạn)" /></Field>
+        <Button variant="ghost" size="sm" loading={testing} onClick={test}>Gửi email thử</Button>
+      </div>
       <div className="mt-4"><Button variant="sec" onClick={save}>Lưu</Button></div>
       <Msg type="ok">{ok}</Msg><Msg type="err">{err}</Msg>
     </Card>

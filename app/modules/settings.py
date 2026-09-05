@@ -254,7 +254,7 @@ class MetaAppBody(BaseModel):
 def admin_get_meta(_: CurrentUser = Depends(require_platform_admin)):
     from ..config import config
     v = registry.public_view("channel:meta")
-    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    base = registry.public_base()
     return {"app_id": (v or {}).get("model", ""), "has_secret": bool(v and v.get("has_key")),
             "verify_token": ((v or {}).get("extra") or {}).get("verify_token", "omnishop-verify"),
             "redirect_uri": f"{base}/api/channels/oauth/meta/callback",
@@ -381,7 +381,7 @@ class GoogleBody(BaseModel):
 def admin_get_google(_: CurrentUser = Depends(require_platform_admin)):
     from ..config import config
     v = registry.public_view("auth:google") or {}
-    base = config.OAUTH_REDIRECT_BASE.rstrip("/")
+    base = registry.public_base()
     return {"client_id": v.get("model", ""), "has_secret": v.get("has_key", False),
             "redirect_uri": f"{base}/api/auth/google/callback"}
 
@@ -392,3 +392,76 @@ def admin_set_google(body: GoogleBody, admin: CurrentUser = Depends(require_plat
                           api_key=body.client_secret, extra={})
     audit.record("admin.google.update", actor_user_id=admin.id, detail={"client_id": body.client_id})
     return {"ok": True}
+
+
+# ============================ admin: email (alerts + transactional) ==========
+
+EMAIL_PROVIDERS = [
+    {"id": "console", "label": "Console (chỉ ghi log — không gửi thật)"},
+    {"id": "smtp", "label": "SMTP (máy chủ email của bạn)"},
+    {"id": "resend", "label": "Resend (API)"},
+]
+
+
+class EmailBody(BaseModel):
+    provider: str = "console"
+    from_addr: str = ""
+    secret: Optional[str] = None     # resend API key OR smtp password; None=keep, ""=clear
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    to: str = ""                     # only used by the test endpoint
+
+
+@router.get("/admin/settings/email")
+def admin_get_email(_: CurrentUser = Depends(require_platform_admin)):
+    v = registry.public_view("notify:email")
+    cfg = registry.resolve_email_config()
+    ex = (v or {}).get("extra") or {}
+    return {"provider": (v or {}).get("provider") or cfg["provider"],
+            "from": ex.get("from") or cfg["from"],
+            "has_secret": v.get("has_key", False) if v else bool(cfg["secret"]),
+            "smtp_host": ex.get("smtp_host", cfg["smtp_host"]),
+            "smtp_port": ex.get("smtp_port") or cfg["smtp_port"],
+            "smtp_user": ex.get("smtp_user", cfg["smtp_user"]),
+            "providers": EMAIL_PROVIDERS}
+
+
+@router.put("/admin/settings/email")
+def admin_set_email(body: EmailBody, admin: CurrentUser = Depends(require_platform_admin)):
+    registry.write_config("notify:email", provider=body.provider, api_key=body.secret,
+                          extra={"from": body.from_addr, "smtp_host": body.smtp_host,
+                                 "smtp_port": body.smtp_port, "smtp_user": body.smtp_user})
+    audit.record("admin.email.update", actor_user_id=admin.id, detail={"provider": body.provider})
+    return {"ok": True}
+
+
+@router.post("/admin/settings/email/test")
+def admin_test_email(body: EmailBody, admin: CurrentUser = Depends(require_platform_admin)):
+    from ..providers import email
+    secret = body.secret if body.secret is not None else (registry._load("notify:email") or {}).get("api_key", "")
+    cfg = {"provider": body.provider, "from": body.from_addr or None, "secret": secret,
+           "smtp_host": body.smtp_host, "smtp_port": body.smtp_port, "smtp_user": body.smtp_user}
+    return email.send_test(cfg, body.to or admin.email)
+
+
+# ============================ admin: runtime (domain + guard) ================
+
+class RuntimeBody(BaseModel):
+    public_base: Optional[str] = None
+    stale_seconds: Optional[int] = None
+
+
+@router.get("/admin/settings/runtime")
+def admin_get_runtime(_: CurrentUser = Depends(require_platform_admin)):
+    from ..config import config
+    return {"public_base": registry.public_base(), "stale_seconds": registry.stale_seconds(),
+            "env_public_base": config.OAUTH_REDIRECT_BASE}
+
+
+@router.put("/admin/settings/runtime")
+def admin_set_runtime(body: RuntimeBody, admin: CurrentUser = Depends(require_platform_admin)):
+    registry.set_runtime(public_base=body.public_base, stale_seconds=body.stale_seconds)
+    audit.record("admin.runtime.update", actor_user_id=admin.id,
+                 detail={"public_base": body.public_base, "stale_seconds": body.stale_seconds})
+    return {"public_base": registry.public_base(), "stale_seconds": registry.stale_seconds()}
