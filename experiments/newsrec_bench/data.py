@@ -100,6 +100,10 @@ class MindData:
             hist_mask[b] = m
             hist_title[b], hist_cat[b] = self._gather(h)
             cands = [pos] + list(negs)
+            if len(cands) < C:                      # defensive: pad ragged rows
+                cands = cands + [cands[-1]] * (C - len(cands))
+            elif len(cands) > C:
+                cands = cands[:C]
             cand_idx[b] = cands
             cand_title[b], cand_cat[b] = self._gather(cands)
             user_idx[b] = user
@@ -390,8 +394,10 @@ class MindData:
             if not pos or len(neg) < 1:
                 continue
             for p in pos:
-                sampled = list(rng.choice(neg, size=min(n_neg, len(neg)),
-                                          replace=len(neg) < n_neg))
+                # always exactly n_neg negatives (sample with replacement when the
+                # impression has fewer than n_neg non-clicked items) -> uniform
+                # candidate count across rows, otherwise collate broadcasting breaks
+                sampled = list(rng.choice(neg, size=n_neg, replace=len(neg) < n_neg))
                 train.append((user, hist, p, sampled))
                 edges.append((user, p))
 
