@@ -298,6 +298,7 @@ class MindData:
         min_word_freq: int = 3,
         llm_dim: int = 64,
         llm_embeddings: dict[str, np.ndarray] | None = None,
+        dev_ratio: float = 0.1,
         seed: int = 0,
     ) -> "MindData":
         """Parse real MIND ``news.tsv`` / ``behaviors.tsv``.
@@ -320,7 +321,8 @@ class MindData:
             return rows
 
         news_rows = read_news(os.path.join(train_dir, "news.tsv"))
-        news_rows.update(read_news(os.path.join(dev_dir, "news.tsv")))
+        if dev_dir and dev_dir != train_dir and os.path.exists(os.path.join(dev_dir, "news.tsv")):
+            news_rows.update(read_news(os.path.join(dev_dir, "news.tsv")))
 
         # vocab + category maps
         from collections import Counter
@@ -384,7 +386,19 @@ class MindData:
             return out
 
         train_beh = read_behaviors(os.path.join(train_dir, "behaviors.tsv"))
-        dev = read_behaviors(os.path.join(dev_dir, "behaviors.tsv"))
+        _same = (dev_dir is None) or (os.path.abspath(dev_dir) == os.path.abspath(train_dir))
+        if (not _same) and os.path.exists(os.path.join(dev_dir, "behaviors.tsv")):
+            dev = read_behaviors(os.path.join(dev_dir, "behaviors.tsv"))
+        else:
+            # No separate dev (some Kaggle mirrors ship only MINDsmall_train):
+            # hold out `dev_ratio` of the train impressions as the evaluation set.
+            perm = rng.permutation(len(train_beh))
+            n_dev = max(1, int(len(train_beh) * dev_ratio))
+            held = set(int(i) for i in perm[:n_dev])
+            dev = [train_beh[i] for i in range(len(train_beh)) if i in held]
+            train_beh = [train_beh[i] for i in range(len(train_beh)) if i not in held]
+            print(f"  (không có dev riêng -> tách {dev_ratio:.0%} train làm dev: "
+                  f"{len(train_beh)} train / {len(dev)} dev impressions)")
 
         train, edges = [], []
         for user, hist, cands, labs in train_beh:
