@@ -123,6 +123,9 @@ def main():
     ap.add_argument("--source", choices=["synthetic", "mind"], default="synthetic")
     ap.add_argument("--mind-train", default=None)
     ap.add_argument("--mind-dev", default=None)
+    ap.add_argument("--news-emb", default=None,
+                    help="path to news_emb.npz (from llm_embed.py) for real LLM/BGE "
+                         "embeddings; wired into from_mind so llmenc/supermodel are strong")
     ap.add_argument("--models", nargs="+", default=["core"],
                     help="model names, or the shortcuts: core / all / base / improved")
     ap.add_argument("--news", choices=["learned", "pretrained"], default="learned",
@@ -159,7 +162,13 @@ def main():
     if args.source == "mind":
         assert args.mind_train and args.mind_dev, "provide --mind-train and --mind-dev"
         print(f"Loading real MIND from {args.mind_train} / {args.mind_dev} ...")
-        data = MindData.from_mind(args.mind_train, args.mind_dev, seed=args.seed)
+        emb = None
+        if args.news_emb:
+            z = np.load(args.news_emb, allow_pickle=True)
+            emb = {str(i): v for i, v in zip(z["ids"], z["vecs"])}
+            print(f"  loaded {len(emb)} precomputed news embeddings from {args.news_emb}")
+        data = MindData.from_mind(args.mind_train, args.mind_dev,
+                                  llm_embeddings=emb, seed=args.seed)
     else:
         print("Generating synthetic MIND-shaped dataset (controlled demo) ...")
         data = MindData.synthetic(
