@@ -268,7 +268,10 @@ class HybridOpt(nn.Module):
         self.news_id = nn.Embedding(d.n_news, D)
         nn.init.normal_(self.user_id.weight, std=0.1)
         nn.init.normal_(self.news_id.weight, std=0.1)
-        self.log_lambda = nn.Parameter(torch.zeros(()))       # fusion weight
+        # start the collaborative term near zero (exp(-4)≈0.018): on sparse real
+        # data the id/collab embeddings are undertrained noise early on, so let the
+        # model grow this weight only if collaborative signal actually helps
+        self.log_lambda = nn.Parameter(torch.full((), -4.0))  # fusion weight
         self.drop = nn.Dropout(drop)
         self.scale = D ** 0.5
 
@@ -635,7 +638,7 @@ class GraphRec(_ContentTwoTower):
         super().__init__(d, cfg)
         self.user_pool = AdditiveAttention(cfg.dim)
         self.graph = GraphProp(d, cfg)
-        self.gate = nn.Parameter(torch.zeros(()))
+        self.gate = nn.Parameter(torch.full((), -4.0))  # collab starts ~0, grows if useful
 
     def score(self, b: Batch):
         hist, cand = self._encode(b)
@@ -690,7 +693,7 @@ class SuperRec(_ContentTwoTower):
         self.hist_diff = DiffAttention(cfg.dim, cfg.heads, cfg.dropout)
         self.cand_proj = nn.Linear(cfg.dim, cfg.dim, bias=False)
         self.graph = GraphProp(d, cfg)
-        self.gate = nn.Parameter(torch.zeros(()))
+        self.gate = nn.Parameter(torch.full((), -4.0))  # collab starts ~0, grows if useful
         self.user_pool = AdditiveAttention(cfg.dim)
         self.drop = nn.Dropout(cfg.dropout)
         self.tau, self.cl_weight = cfg.cl_tau, cfg.cl_weight
