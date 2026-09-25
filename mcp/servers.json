@@ -1,0 +1,28 @@
+{
+  "gateways": [
+    {
+      "name": "omnishop",
+      "url": "http://omnishop-mcp:9100/mcp",
+      "transport": "STREAMABLEHTTP",
+      "description": "OmniShop AI — shops, catalog, RAG search, conversation inbox",
+      "health": "http://omnishop-mcp:9100/health"
+    },
+    {
+      "name": "fast_time",
+      "url": "http://fast-time:9080/mcp",
+      "transport": "STREAMABLEHTTP",
+      "description": "IBM demo MCP server (time tools) — shows multi-server federation",
+      "health": "http://fast-time:9080/health"
+    }
+  ],
+  "virtual_server": {
+    "id": "0a15b6c4e1d34f2c9e7a6b3d5f8c2e10",
+    "name": "OmniShop Assistant",
+    "description": "Virtual MCP server federating OmniShop tools with the time server"
+  },
+  "smoke_test": [
+    {"tool": "get_system_time", "arguments": {"timezone": "Asia/Ho_Chi_Minh"}},
+    {"tool": "list_shops"},
+    {"tool": "search_catalog", "arguments": {"query": "áo thun", "top_k": 2}}
+  ]
+}

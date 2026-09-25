@@ -1,0 +1,180 @@
+# OmniShop AI + IBM ContextForge (MCP Gateway) — full MCP flow.
+#
+#   MCP client (Claude, Cursor, Inspector…)
+#        │  Streamable HTTP + Bearer JWT
+#        ▼
+#   mcpgateway :4444  ── virtual server "OmniShop Assistant"
+#        ├──► omnishop-mcp :9100 ──► api :8000 (OmniShop, RLS per tenant)
+#        └──► fast-time    :9080   (IBM demo server — multi-server federation)
+#   cf-postgres (gateway catalog) · cf-redis (gateway cache/sessions)
+#
+# Run together with the main stack (the MCP server calls the OmniShop `api`):
+#   docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.mcp.yml logs -f mcp-register
+# Details: mcp/README.md. Secrets: copy mcp/.env.example → .env.mcp and change them.
+
+x-cf-image: &cf-image ghcr.io/ibm/mcp-context-forge:${CONTEXTFORGE_VERSION:-latest}
+
+x-cf-secrets: &cf-secrets
+  JWT_SECRET_KEY: ${CF_JWT_SECRET_KEY:-dev-only-contextforge-jwt-secret-change-me-32b}
+  AUTH_ENCRYPTION_SECRET: ${CF_AUTH_ENCRYPTION_SECRET:-dev-only-contextforge-encryption-change-me-32b}
+  PLATFORM_ADMIN_EMAIL: ${CF_ADMIN_EMAIL:-admin@example.com}
+  PLATFORM_ADMIN_PASSWORD: ${CF_ADMIN_PASSWORD:-changeme-Admin123!}
+  DEFAULT_USER_PASSWORD: ${CF_DEFAULT_USER_PASSWORD:-changeme-User123!}
+  DATABASE_URL: postgresql+psycopg://mcp:${CF_POSTGRES_PASSWORD:-mcp}@cf-postgres:5432/mcp
+
+services:
+  # ---------------------------------------------------------------- gateway infra
+  cf-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mcp
+      POSTGRES_PASSWORD: ${CF_POSTGRES_PASSWORD:-mcp}
+      POSTGRES_DB: mcp
+    volumes: [cf-pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp -d mcp"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  cf-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot schema bootstrap + platform admin, so the gateway starts on a ready DB.
+  cf-migration:
+    image: *cf-image
+    environment:
+      <<: *cf-secrets
+      AUTH_REQUIRED: "true"
+      LOG_LEVEL: INFO
+    command: ["python", "-m", "mcpgateway.bootstrap_db"]
+    depends_on:
+      cf-postgres: {condition: service_healthy}
+    restart: "no"
+
+  # ---------------------------------------------------------------- the gateway
+  mcpgateway:
+    image: *cf-image
+    depends_on:
+      cf-migration: {condition: service_completed_successfully}
+      cf-redis: {condition: service_healthy}
+    environment:
+      <<: *cf-secrets
+      HOST: 0.0.0.0
+      PORT: "4444"
+      APP_DOMAIN: ${CF_PUBLIC_URL:-http://localhost:4444}
+      TRANSPORT_TYPE: streamablehttp
+      MCPGATEWAY_SKIP_MIGRATIONS: "true"
+      CACHE_TYPE: redis
+      REDIS_URL: redis://cf-redis:6379/0
+      GUNICORN_WORKERS: ${CF_WORKERS:-2}
+      # auth: JWT for API + MCP clients, email login for the Admin UI
+      AUTH_REQUIRED: "true"
+      MCP_CLIENT_AUTH_ENABLED: "true"
+      MCP_REQUIRE_AUTH: "true"
+      JWT_ALGORITHM: HS256
+      JWT_AUDIENCE: mcpgateway-api
+      JWT_ISSUER: mcpgateway
+      EMAIL_AUTH_ENABLED: "true"
+      PASSWORD_CHANGE_ENFORCEMENT_ENABLED: ${CF_FORCE_PASSWORD_CHANGE:-false}
+      SECURE_COOKIES: ${CF_SECURE_COOKIES:-false}
+      ENVIRONMENT: ${CF_ENVIRONMENT:-development}
+      # Admin UI + REST admin API
+      MCPGATEWAY_UI_ENABLED: "true"
+      MCPGATEWAY_ADMIN_API_ENABLED: "true"
+      MCPGATEWAY_CATALOG_ENABLED: "true"
+      # upstream MCP servers live on the private compose network
+      SSRF_ALLOW_LOCALHOST: "true"
+      SSRF_ALLOW_PRIVATE_NETWORKS: "true"
+      HEALTH_CHECK_INTERVAL: "60"
+      PLUGINS_ENABLED: "false"
+      LOG_LEVEL: ${CF_LOG_LEVEL:-INFO}
+    ports: ["${CF_PORT:-4444}:4444"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,json,sys; r=urllib.request.urlopen('http://localhost:4444/health',timeout=5); sys.exit(0 if json.load(r).get('status')=='healthy' else 1)"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- upstream MCP servers
+  omnishop-mcp:
+    build: ./mcp/omnishop-mcp
+    depends_on:
+      api: {condition: service_started}
+    environment:
+      OMNISHOP_API_URL: http://api:8000
+      OMNISHOP_EMAIL: ${OMNISHOP_MCP_EMAIL:-demo@omnishop.local}
+      OMNISHOP_PASSWORD: ${OMNISHOP_MCP_PASSWORD:-demo12345}
+      OMNISHOP_ORG_ID: ${OMNISHOP_MCP_ORG_ID:-}
+      OMNISHOP_MCP_ALLOW_WRITE: ${OMNISHOP_MCP_ALLOW_WRITE:-false}
+    # internal only; uncomment to hit it directly (e.g. MCP Inspector without the gateway)
+    # ports: ["9100:9100"]
+    restart: unless-stopped
+
+  fast-time:
+    image: ghcr.io/ibm/cfex-mcp-fast-time-server@sha256:110e1826f5d763e5afadba770b731dac93e0819c1bbadb68671b0124260603cf
+    environment:
+      BIND_ADDRESS: 0.0.0.0:9080
+      RUST_LOG: info
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- one-shot bootstrap
+  # Demo tenant for the MCP server to sign in as (idempotent). Drop it in production
+  # and point OMNISHOP_MCP_EMAIL/PASSWORD at a real merchant account instead.
+  omnishop-seed:
+    build: .
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://omni_app:omni_app@db:5432/omnishop
+      PG_DSN_ADMIN: postgresql://omni:omni@db:5432/omnishop
+      REDIS_URL: redis://cache:6379/0
+    depends_on:
+      api: {condition: service_started}
+    # the API runs migrations on startup; seed once it answers /api/health
+    command:
+      - sh
+      - -c
+      - |
+        python -c "
+        import time, urllib.request
+        for i in range(90):
+            try: urllib.request.urlopen('http://api:8000/api/health', timeout=3); break
+            except Exception: time.sleep(2)
+        else: raise SystemExit('api not ready')
+        " && python -m scripts.seed
+    restart: "no"
+
+  # Registers the upstream servers, builds the virtual server, runs an end-to-end
+  # smoke test and writes the client token/config to ./mcp/out/.
+  mcp-register:
+    image: *cf-image
+    depends_on:
+      mcpgateway: {condition: service_healthy}
+      omnishop-mcp: {condition: service_started}
+      fast-time: {condition: service_started}
+      omnishop-seed: {condition: service_completed_successfully}
+    environment:
+      <<: *cf-secrets
+      GATEWAY_URL: http://mcpgateway:4444
+      PUBLIC_GATEWAY_URL: ${CF_PUBLIC_URL:-http://localhost:4444}
+      SERVERS_CONFIG: /config/servers.json
+      OUT_DIR: /out
+    volumes:
+      - ./mcp/register.py:/config/register.py:ro
+      - ./mcp/servers.json:/config/servers.json:ro
+      - ./mcp/out:/out
+    user: "0:0"   # write the token into the bind-mounted ./mcp/out
+    entrypoint: ["python3", "/config/register.py"]
+    restart: "no"
+
+volumes:
+  cf-pgdata:

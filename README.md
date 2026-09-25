@@ -78,6 +78,7 @@ Plus Jakarta Sans tự host). Mọi nhà cung cấp đứng sau interface có th
 | RAG & xử lý tài liệu | [docs/rag-and-ingestion.md](docs/rag-and-ingestion.md) |
 | Tích hợp thanh toán & kênh | [docs/integrations.md](docs/integrations.md) |
 | Đăng nhập & phân quyền | [docs/auth-and-roles.md](docs/auth-and-roles.md) |
+| MCP qua IBM ContextForge | [mcp/README.md](mcp/README.md) |
 | Cấu hình & mô hình bán lại | [docs/operations/config-and-reseller.md](docs/operations/config-and-reseller.md) |
 | Tự phản biện & giới hạn | [docs/self-review.md](docs/self-review.md) |
 | Kiến trúc / ADR / cost / risk | [docs/](docs/) |
