@@ -8,8 +8,9 @@
 
 ```bash
 pip install scikit-learn                       # baseline
-pip install torch transformers                 # nếu chạy encoder
-python benchmark.py --model <hf_id_hoặc_thư_mục_local>
+pip install laya torch transformers            # Laya
+python benchmark.py --laya                      # Laya zero-shot, checkpoint multilingual
+python benchmark.py --model <hf_id_hoặc_thư_mục_local>   # encoder bất kỳ + LR
 ```
 
 ## Kết quả (2026-09-26, CPU)
@@ -18,6 +19,14 @@ python benchmark.py --model <hf_id_hoặc_thư_mục_local>
 |---|---|---|---|
 | Keyword (`orchestrator.classify`) | 3 (product/order/knowledge) | 0.488 | 0.491 |
 | TF-IDF char+word + LR | 8 | 0.698 | 0.693 |
-| Encoder (Laya) + LR | 8 | chưa chạy: sandbox bị chặn huggingface.co | — |
+| Laya zero-shot (`convaiinnovations/laya`, multilingual) | 8 | chưa chạy: sandbox bị chặn huggingface.co | — |
 
 Bộ dữ liệu rất nhỏ, chỉ để kiểm tra nhanh; cần vài trăm tin nhắn thật mỗi nhãn để có kết luận.
+
+## Ghi chú về Laya
+
+- Model: [convaiinnovations/laya](https://huggingface.co/convaiinnovations/laya), Apache-2.0; checkpoint
+  `multilingual` (mmBERT-base, 322M) cho tiếng Việt. Gói pip `laya` không kèm trọng số, phải tải từ HuggingFace.
+- Theo README của chính Laya: bản gốc zero-shot gần mức ngẫu nhiên trên bộ typed-decisions (0.35),
+  intent MASSIVE ở ngôn ngữ ngoài tiếng Anh đạt 0.451; độ chính xác chủ yếu đến từ fine-tune
+  (notebook fine-tune chạy trên Kaggle 2x T4).

@@ -3,11 +3,13 @@
 So sánh 3 cách trên cùng train.csv / test.csv:
   1. keyword   — classify() hiện tại trong app/modules/orchestrator.py (luật từ khoá)
   2. tfidf     — TF-IDF n-gram ký tự + LogisticRegression (baseline không cần model)
-  3. encoder   — encoder HuggingFace bất kỳ (vd. Laya) -> embedding -> LogisticRegression
+  3. encoder   — encoder HuggingFace bất kỳ -> embedding -> LogisticRegression
+  4. laya      — Laya zero-shot (câu hỏi `choice`, không train), checkpoint multilingual
 
 Chạy:
   python benchmark.py                          # keyword + tfidf
   python benchmark.py --model <hf_id_or_path>  # thêm encoder (cần: pip install torch transformers)
+  python benchmark.py --laya                   # thêm Laya (cần: pip install laya torch transformers)
 """
 from __future__ import annotations
 import argparse
@@ -86,6 +88,31 @@ def run_encoder(model_id, Xtr, ytr, Xte, prefix=""):
     return list(clf.predict(Ete)), ms
 
 
+# mô tả từng nhãn cho câu hỏi `choice` của Laya
+LAYA_CRITERIA = {
+    "tu_van": "Khách hỏi thông tin sản phẩm: giá, size, màu, chất liệu, còn hàng, khuyến mãi",
+    "chot_don": "Khách đồng ý mua, chốt đơn, gửi địa chỉ/số điện thoại để lên đơn",
+    "dang_giao": "Khách hỏi tình trạng giao hàng, đơn đang ở đâu, bao giờ nhận được",
+    "huy_don": "Khách muốn hủy đơn hoặc không lấy hàng nữa",
+    "doi_tra": "Khách muốn đổi size/mẫu, trả hàng, hoàn tiền, hỏi chính sách đổi trả",
+    "khieu_nai": "Khách phàn nàn, bực tức, chê chất lượng hàng hoặc dịch vụ",
+    "thanh_toan": "Khách hỏi hoặc báo về thanh toán, chuyển khoản, số tài khoản, trả góp",
+    "khac": "Chào hỏi, cảm ơn, xác nhận ngắn, hoặc câu hỏi chung về shop",
+}
+
+
+def run_laya(Xte, model_id, subfolder):
+    import laya
+    agent = laya.load(model_id, subfolder=subfolder or None)
+    q = {"intent": {"type": "choice",
+                    "instructions": "Tin nhắn của khách hàng gửi shop thuộc loại nào?",
+                    "criteria": LAYA_CRITERIA}}
+    t0 = time.perf_counter()
+    res = agent.predict_batch([{"body": t} for t in Xte], q, batch_size=16)
+    ms = (time.perf_counter() - t0) * 1000 / len(Xte)
+    return [r["answers"]["intent"]["choice"] for r in res], ms
+
+
 def report(title, X, gold, pred):
     print(f"\n=== {title} ===")
     print(f"accuracy={accuracy_score(gold, pred):.3f}  macro-F1={f1_score(gold, pred, average='macro'):.3f}")
@@ -101,6 +128,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", help="HF model id hoặc thư mục local của encoder (vd. Laya)")
     ap.add_argument("--prefix", default="", help="tiền tố query nếu model yêu cầu, vd. 'query: '")
+    ap.add_argument("--laya", action="store_true", help="chạy thêm Laya zero-shot")
+    ap.add_argument("--laya-model", default="convaiinnovations/laya")
+    ap.add_argument("--laya-subfolder", default="multilingual", help="'' = checkpoint tiếng Anh ở gốc repo")
     args = ap.parse_args()
 
     Xtr, ytr = load("train.csv")
@@ -115,6 +145,10 @@ def main():
     if args.model:
         pred, ms = run_encoder(args.model, Xtr, ytr, Xte, args.prefix)
         report(f"3. encoder {args.model} + LogisticRegression (8 nhãn, {ms:.1f} ms/câu CPU)", Xte, yte, pred)
+
+    if args.laya:
+        pred, ms = run_laya(Xte, args.laya_model, args.laya_subfolder)
+        report(f"4. Laya zero-shot {args.laya_model}/{args.laya_subfolder} (8 nhãn, {ms:.1f} ms/câu)", Xte, yte, pred)
 
 
 if __name__ == "__main__":
