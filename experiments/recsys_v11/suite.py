@@ -20,6 +20,7 @@ Hypotheses (see README):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pickle
@@ -129,8 +130,14 @@ class Suite:
     def generator(self):
         import llm_gen
         if "gen" not in self.store:
-            dtype = torch.float16 if self.device == "cuda" else torch.float32
-            self.store["gen"] = llm_gen.Generator(self.args.gen_model, self.device, dtype, os.path.join(self.work, "gen_cache.jsonl"))
+            path = os.path.join(self.work, "gen_cache.jsonl")
+            half = self.device == "cuda" and not self.args.gen_fp32
+            g = llm_gen.Generator(self.args.gen_model, self.device, torch.float16 if half else torch.float32, path)
+            if half and not g.self_test():                                    # fp16 overflow: fall back to fp32 (slower, the planner shrinks the subsets)
+                log("  generator: fp16 output is broken (overflow?) -> reloading in fp32")
+                g.free()
+                g = llm_gen.Generator(self.args.gen_model, self.device, torch.float32, path + ".fp32")
+            self.store["gen"] = g
         return self.store["gen"]
 
     def doc_encoder(self):
@@ -192,9 +199,13 @@ class Suite:
         return path
 
     # ---- resume
+    SIG_IGNORED = {"stages", "budget_hours", "min_stage_s", "no_resume", "work", "cache_dir", "device", "mind_train", "mind_dev"}
+
     def signature(self):
-        a = self.args
-        return {"encoder": a.encoder, "max_len": a.max_len, "doc_prefix": a.doc_prefix, "n_news": int(self.data.n_news),
+        """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
+        into a full run); the stage list, budget, device and paths do not matter."""
+        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED}
+        return {"args": hashlib.sha1(json.dumps(a, sort_keys=True, default=str).encode()).hexdigest(), "n_news": int(self.data.n_news),
                 "n_val": len(self.data.validation), "n_test": len(self.data.test)}
 
     def save_state(self, done):
@@ -489,7 +500,33 @@ def save_arrays(S):
     return path
 
 
-def leaderboard(suites, tags, ref, path=None, top=None):
+def plot_forest(rows, path, top=32):
+    """Forest plot of the paired Δ nDCG@10 (95% CI) of the best rows vs the reference; returns the path (None if matplotlib is missing)."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    rows = rows[:top]
+    fig, ax = plt.subplots(figsize=(9, 0.3 * len(rows) + 1.6))
+    for i, x in enumerate(rows):
+        d = x["d"]
+        col = "#1f77b4" if d[1] > 0 else ("#c0392b" if d[2] < 0 else "#7f8c8d")
+        ax.plot([d[1], d[2]], [-i, -i], lw=2.2, color=col)
+        ax.plot([d[0]], [-i], "o", ms=4, color=col)
+    ax.axvline(0, color="k", lw=0.8)
+    ax.set_yticks([-i for i in range(len(rows))])
+    ax.set_yticklabels([f"{x['run']}:{x['name']}  [{x['family']}]" + (f" n={x['n']:,}" if x["n"] < 70000 else "") for x in rows], fontsize=7)
+    ax.set_xlabel("Δ nDCG@10 vs reference (paired 95% CI)")
+    ax.set_title("blue: CI above 0   red: CI below 0   grey: not distinguishable", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def leaderboard(suites, tags, ref, path=None, top=None, plot=None):
     """One table over several runs (e.g. BGE-small and Qwen3-Embedding), each row compared on the common impressions with a single
     global reference ``ref = (tag, row name)`` -- by default the BGE-small frozen embedding (the V10-comparable control)."""
     by_tag = dict(zip(tags, suites))
@@ -497,8 +534,8 @@ def leaderboard(suites, tags, ref, path=None, top=None):
     rows = []
     for tag, S in by_tag.items():
         for r in S.records:
-            if r["family"] == "control" and r["name"] not in ("frozen",):
-                continue
+            if (r["family"] == "control" and r["name"] != "frozen") or r["family"] == "H10-user-model":
+                continue                                              # learned user models have their own control (um_frozen)
             t = S.cache[r["name"]]["test"]
             d = R.compare(t, ref_res, "ndcg@10")
             if np.isnan(d[0]):
@@ -513,8 +550,11 @@ def leaderboard(suites, tags, ref, path=None, top=None):
     md = "\n".join(lines)
     if path:
         with open(path, "w", encoding="utf-8") as f:
-            f.write(f"# Leaderboard over runs {tags} (paired on common impressions; rows evaluated on subsets use the same impressions in the reference)\n\n{md}\n")
+            f.write(f"# Leaderboard over runs {tags}: zero-shot representation / re-ranking variants vs one global reference, paired on the common impressions "
+                    f"(rows evaluated on subsets use the same impressions in the reference). Learned user-model rows (H10) are excluded: see each run's results.md (control um_frozen).\n\n{md}\n")
     log("\n================ LEADERBOARD (all runs, one global reference) ================\n" + md)
+    if plot:
+        log(f"forest plot -> {plot_forest(rows, plot)}")
     return rows
 
 
@@ -573,12 +613,12 @@ def build_parser():
     ap.add_argument("--lsa-dim", type=int, default=256)
     # LLM user tower
     ap.add_argument("--llm-user-modes", default="causal,bidir,soft")
-    ap.add_argument("--llm-user-steps", type=int, default=1000)
+    ap.add_argument("--llm-user-steps", type=int, default=800)
     ap.add_argument("--llm-user-bs", type=int, default=16)
     ap.add_argument("--llm-user-lr", type=float, default=1e-4)
     ap.add_argument("--llm-user-r", type=int, default=16)
-    ap.add_argument("--llm-val-n", type=int, default=6000)
-    ap.add_argument("--llm-test-n", type=int, default=20000)
+    ap.add_argument("--llm-val-n", type=int, default=5000)
+    ap.add_argument("--llm-test-n", type=int, default=15000)
     ap.add_argument("--llm-enc-bs", type=int, default=64)
     ap.add_argument("--ut-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
     # learned user model
@@ -588,20 +628,21 @@ def build_parser():
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
     # generation-based stages
     ap.add_argument("--gen-model", default="Qwen/Qwen3-1.7B")
-    ap.add_argument("--gen-bs", type=int, default=32)
+    ap.add_argument("--gen-fp32", type=int, default=0, help="load the generator in fp32 (use if fp16 produces garbage)")
+    ap.add_argument("--gen-bs", type=int, default=48)
     ap.add_argument("--gen-new-tokens", type=int, default=56)
     ap.add_argument("--gen-hist-k", type=int, default=5)
-    ap.add_argument("--gen-val-n", type=int, default=600)
-    ap.add_argument("--gen-test-n", type=int, default=1500)
-    ap.add_argument("--augment-minutes", type=float, default=40.0)
+    ap.add_argument("--gen-val-n", type=int, default=800)
+    ap.add_argument("--gen-test-n", type=int, default=2500)
+    ap.add_argument("--augment-minutes", type=float, default=35.0)
     ap.add_argument("--kar-alphas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
     ap.add_argument("--kar-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
     ap.add_argument("--gr-max-comm", type=int, default=300)
     ap.add_argument("--gr-titles", type=int, default=8)
     ap.add_argument("--rerank-k", type=int, default=10)
     ap.add_argument("--rerank-hist", type=int, default=8)
-    ap.add_argument("--rerank-val-n", type=int, default=500)
-    ap.add_argument("--rerank-test-n", type=int, default=1500)
+    ap.add_argument("--rerank-val-n", type=int, default=600)
+    ap.add_argument("--rerank-test-n", type=int, default=2000)
     ap.add_argument("--rerank-minutes", type=float, default=35.0)
     ap.add_argument("--rerank-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
     return ap
@@ -609,7 +650,11 @@ def build_parser():
 
 def guard_embeddings(vecs, meta, reference, tol=0.99):
     """Catch a wrong pooling / EOS / prefix convention up front by comparing 64 vectors with a reference implementation."""
-    ref = np.asarray(reference(meta["text"][:64]), np.float32)
+    ref = reference(meta["text"][:64])
+    if ref is None:
+        log("E0 guard: reference encoder unavailable - pooling/EOS/prefix NOT cross-checked")
+        return
+    ref = np.asarray(ref, np.float32)
     cos = (vecs[:64] * ref).sum(1) / (np.linalg.norm(vecs[:64], axis=1) * np.linalg.norm(ref, axis=1) + 1e-8)
     log(f"E0 guard: HFEncoder vs reference embeddings, min cos={cos.min():.4f} mean={cos.mean():.4f}")
     if cos.min() < tol:

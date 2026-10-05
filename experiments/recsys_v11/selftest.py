@@ -22,6 +22,7 @@ import io
 import json
 import os
 import random
+import shutil
 import sys
 import tempfile
 import time
@@ -306,7 +307,7 @@ def main():
     # ---------------- run A (encoder-type model): first half, then the rest in a second call that must RESUME
     out = os.path.join(tmp, "outA")
     part1 = "controls,pooling,graph,head,histquery,sid"
-    suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", part1, *RUN_A[:-1]])
+    suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", part1, "--sweep-encoders", dec_dir, *RUN_A[:-1]])
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         S = suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", f"{part1},encoder,usermodel,sweep", "--sweep-encoders", dec_dir,
@@ -316,6 +317,14 @@ def main():
     assert "resuming: stages already finished" in text and "stage 'pooling' already finished" in text, "second call did not resume"
     assert text.count("== H8 pooling") == 0 and text.count("== H7 Semantic IDs") == 0, "finished stages were re-run"
     ok("(7) resume: second call skipped the finished stages and reused kv/records (best_head view feeds the user model)")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):                                                   # a different configuration must NOT resume
+        suite.main([*mind, "--work", out + "_cfg", "--encoder", enc_dir, "--stages", "controls", "--sweep-encoders", dec_dir, *RUN_A[:-1]])
+        shutil.copy(os.path.join(out + "_cfg", "state.pkl"), os.path.join(out + "_cfg2.pkl"))
+        suite.main([*mind, "--work", out + "_cfg", "--encoder", enc_dir, "--stages", "controls,pooling", "--sweep-encoders", dec_dir,
+                    *[("1234" if a == "3000" else a) for a in RUN_A[:-1]]])
+    assert "belongs to a different configuration" in buf.getvalue(), "state from another configuration was reused"
+    ok("(7a) resume refuses a state saved with different result-relevant arguments (QUICK can never leak into a full run)")
 
     names = {r["name"] for r in S.records}
     expected = {"frozen", "random_vec", "frozen_hf", "pool_recency", "pool_maxsim", "pool_topk", "pool_lse", "entity_rag", "knn_rag",

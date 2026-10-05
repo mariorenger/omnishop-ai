@@ -148,6 +148,17 @@ class Generator:
                 log(f"      [{desc}] {s + len(ix)}/{len(todo)} judged ({time.time() - t0:.0f}s)")
         return out
 
+    def self_test(self):
+        """Is the model usable in this dtype?  fp16 overflow shows up as non-finite logits or garbage text."""
+        try:
+            text = self.generate(["Name one common topic of news articles, in one short sentence."], max_new_tokens=16, bs=1)[0] or ""
+            lo = self.yes_no(["Is the sky blue? Answer Yes or No."], bs=1)
+            letters = sum(ch.isalpha() for ch in text)
+            return bool(letters >= 3 and np.isfinite(lo).all())
+        except Exception as e:
+            log(f"      [generator] self-test raised {repr(e)[:100]}")
+            return False
+
     def free(self):
         del self.model
         if self.device == "cuda":

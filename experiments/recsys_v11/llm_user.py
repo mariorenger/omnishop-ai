@@ -5,13 +5,16 @@ trained, contrastively, to be close to the embedding of the article the reader c
 tower, in-batch + impression hard negatives).  Compared with H1 (the same model, zero-shot) this isolates what
 *learning to read a history* adds.
 
-Attention-mask study (arXiv 2602.10622, "How Do Decoder-Only LLMs Perceive Users?"): a decoder-only LLM reads the
-history causally, so early headlines never see later ones.  Three variants are trained with the same recipe:
+Attention-mask study (arXiv 2602.10622, "How Do Decoder-Only LLMs Perceive Users?", Ant Group, 2/2026): a decoder-only LLM
+reads the history causally, so early headlines never see later ones.  Three variants are trained with the same recipe:
 
   causal  the model's native mask                                     (last-token pooling)
   bidir   full bidirectional attention                                (LLM2Vec-style; 4D mask built here)
   soft    future positions are down-weighted by an additive ``log(lambda)`` bias, lambda ramped 0 -> 1 during
-          the first half of training (causal -> bidirectional curriculum); evaluated at lambda = 1.
+          the first half of training (linear causal -> bidirectional scheduler); evaluated at lambda = 1.
+
+``soft`` is only the *scheduler* ingredient of that paper.  Its Gradient-Guided Soft Masking (a gradient-based
+pre-warmup computed from a frozen left-tower encoder) and its hybrid mask are NOT implemented here.
 
 Pooling is the last token in all three, so the mask is the only thing that differs.  Whether the loaded model
 honours a custom 4D mask is checked at run time (``probe_masks``); a variant whose probe fails is skipped.

@@ -208,6 +208,9 @@ def stage_llm_user(S, args):
 
         info = train_user_tower(tw, qfn, S.data.train_core, E_doc, kind="lora", steps=args.llm_user_steps, bs=args.llm_user_bs,
                                 lr=args.llm_user_lr, r=args.llm_user_r, eval_fn=eval_fn, deadline=S.deadline(0.3), log=log)
+        info["truncated"] = bool(info["steps"] < args.llm_user_steps)
+        if info["truncated"]:
+            log(f"      WARNING: '{mode}' trained {info['steps']}/{args.llm_user_steps} steps (wall-clock budget) - not comparable with the other masks")
         Qv = info.pop("payload") if info.get("payload") is not None else encode_split(tw, "val")
         Qt = encode_split(tw, "test")
         info.pop("losses", None)
@@ -332,6 +335,9 @@ def stage_graphrag_llm(S, args):
         return E
     S.select("community_llm_ctx", fam, [{"beta": b} for b in args.betas],
              lambda c, sp: R.mean_pool_scorer(S.tensor(ctx_view(c, sp))), "frozen")
+    del enc
+    if S.device == "cuda":
+        torch.cuda.empty_cache()
 
 
 def _gen_subsets(S, args, gen, items_of, per_impr, req, kind, minutes, frac_val=0.3):
@@ -404,6 +410,9 @@ def stage_augment(S, args):
              "frozen", es=es)
     S.select("kar_item+user", fam, [{"alpha": best_alpha, "w": w} for w in args.kar_ws],
              lambda c, sp: fuse([(mp_b, 1.0), (prof_sc(Eb, sp), c["w"])]), "frozen", es=es)
+    del enc_d, enc_q
+    if S.device == "cuda":
+        torch.cuda.empty_cache()
 
 
 def stage_rerank(S, args):

@@ -202,6 +202,10 @@ class HFEncoder:
         cfg = LoraConfig(r=r, lora_alpha=2 * r, lora_dropout=dropout, target_modules=targets,
                          use_dora=(mode == "dora"), bias="none")
         self.model = get_peft_model(self.model, cfg)
+        try:                                                  # activations of 192 texts x 256 tokens do not fit a 16 GB card otherwise
+            self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        except Exception:
+            pass
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
 
@@ -211,6 +215,33 @@ def check_equivalence(enc, st_encode, texts, tol=0.99):
     a, b = enc.encode(texts), st_encode(texts)
     cos = (a * b).sum(1) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1) + 1e-8)
     return float(cos.min()), float(cos.mean()), bool(cos.min() >= tol)
+
+
+def fit_encoder_batch(enc, texts, pairs, bs, hardneg, params, log=print):
+    """Dry-run one forward+backward on the pairs with the longest texts; halve the batch while the GPU is out of memory."""
+    A, P, N = pairs
+    L = np.array([len(texts[a]) + len(texts[p]) for a, p in zip(A, P)])
+    while bs >= 4:
+        ix = np.argsort(-L)[:bs]
+        ids = np.concatenate([A[ix], P[ix]] + ([N[ix].ravel()] if hardneg else []))
+        uniq = np.unique(ids)
+        try:
+            enc.model.train()
+            z = enc.embed([texts[i] for i in uniq])
+            z.pow(2).mean().backward()
+            for p in params:
+                p.grad = None
+            return bs
+        except RuntimeError as e:
+            if "out of memory" not in str(e).lower():
+                raise
+            for p in params:
+                p.grad = None
+            if enc.device == "cuda":
+                torch.cuda.empty_cache()
+            bs //= 2
+            log(f"      [encoder] out of memory on the longest pairs -> batch size {bs}")
+    raise RuntimeError("cannot fit a batch of 4 pairs on the device")
 
 
 def train_encoder(enc, texts, pairs, E0, mode="lora", mrl=False, hardneg=True, epochs=1, bs=32,
@@ -229,6 +260,7 @@ def train_encoder(enc, texts, pairs, E0, mode="lora", mrl=False, hardneg=True, e
     opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
     scaler = torch.amp.GradScaler("cuda", enabled=enc.amp)
     A, P, N = pairs
+    bs = fit_encoder_batch(enc, texts, pairs, bs, hardneg, params, log)
     dims = mrl_dims(E0.shape[1]) if mrl else None
     best_score, best_ep, best_state = (val_fn(E0) if val_fn else -math.inf), 0, None
     step, t0 = 0, time.time()
