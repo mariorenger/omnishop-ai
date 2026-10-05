@@ -77,6 +77,24 @@ def _cfg(spec, args, text):
     return cfg
 
 
+def _fit_with_oom_fallback(S, cfg, trainset, val_fn, seed, deadline, text, **kw):
+    """Train; on a CUDA out-of-memory error rebuild the network and retry with half / quarter the batch size (reported in the row)."""
+    last = None
+    for bs in dict.fromkeys([cfg.bs, max(cfg.bs // 2, 8), max(cfg.bs // 4, 8)]):
+        net = None
+        try:
+            net = RM.build_net(cfg, S.device, seed, text, S.data)
+            net, info = RM.train_ref(net, trainset, val_fn, replace(cfg, bs=bs), seed=seed, device=S.device, deadline=deadline, log=log, **kw)
+            info["bs_used"] = bs
+            return net, info
+        except torch.cuda.OutOfMemoryError as e:
+            last = e
+            log(f"    out of memory at batch size {bs}: retrying with a smaller batch")
+            del net
+            torch.cuda.empty_cache()
+    raise last
+
+
 def stage_refit(S, args, spec, res, cfg, name):
     """Returns False when it could not run.  Refit on train_core + validation for the epoch count that ``nrms_ref`` selected on validation, then test once.  The validation columns
     of the row repeat the epoch-selection run (the refit model has seen those days), so only the test columns are meaningful."""
@@ -89,15 +107,13 @@ def stage_refit(S, args, spec, res, cfg, name):
     epochs = int(base["best_epochs"][0])
     trainset = RD.TrainSet(res["core"] + res["val_imps"])
     t0 = time.time()
-    net = RM.build_net(cfg, S.device, 0, res["text"], S.data)
-    net, info = RM.train_ref(net, trainset, None, cfg, seed=0, device=S.device, deadline=S.deadline(0.45, cap_s=args.ref_model_minutes * 60),
-                             log=log, fixed_epochs=epochs)
+    net, info = _fit_with_oom_fallback(S, cfg, trainset, None, 0, S.deadline(0.45, cap_s=args.ref_model_minutes * 60), res["text"], fixed_epochs=epochs)
     sc = RM.make_scorer(net)
     test = S.run(sc, "test")
     log(f"    refit on {trainset.n_samples:,} samples for {info['epochs']} of {epochs} epochs ({time.time() - t0:.0f}s)")
     S.record(name, spec["family"], {**cfg.__dict__, "refit_epochs": epochs, "refit_on": "train_core+validation"}, S.cache[base_name]["val"], test, "frozen",
              {"params": info["params"], "train_s": info["train_s"], "init": base.get("init"), "refit_of": base_name, "val_columns": "epoch-selection run (not held out)",
-              "partial": info["epochs"] < epochs})
+              "partial": info["epochs"] < epochs, "bs_used": info["bs_used"]})
 
 
 def stage_ref(S, args, which):
@@ -123,10 +139,8 @@ def stage_ref(S, args, which):
     vals, tests, pv, pt, infos = [], [], [], [], []
     for sd in range(spec.get("seed0", 0), spec.get("seed0", 0) + args.ref_seeds):
         t0 = time.time()
-        net = RM.build_net(cfg, S.device, sd, text, S.data)
         val_fn = lambda n: S.run(RM.make_scorer(n), "val")["mean"]["ndcg@10"]
-        net, info = RM.train_ref(net, trainset, val_fn, cfg, seed=sd, device=S.device,
-                                 deadline=S.deadline(0.45 / args.ref_seeds, cap_s=args.ref_model_minutes * 60 / args.ref_seeds), log=log)
+        net, info = _fit_with_oom_fallback(S, cfg, trainset, val_fn, sd, S.deadline(0.45 / args.ref_seeds, cap_s=args.ref_model_minutes * 60 / args.ref_seeds), text)
         sc = RM.make_scorer(net)
         vals.append(S.run(sc, "val"))
         tests.append(S.run(sc, "test"))
@@ -143,7 +157,7 @@ def stage_ref(S, args, which):
     extra = {"seeds": args.ref_seeds, "epochs": [i["epochs"] for i in infos], "best_epochs": [i["best_epoch"] for i in infos],
              "params": infos[0]["params"], "train_s": sum(i["train_s"] for i in infos), "init": text.glove_label if cfg.init == "glove" else cfg.init,
              "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests],
-             "partial": any(h["partial"] for i in infos for h in i["history"])}
+             "partial": any(h["partial"] for i in infos for h in i["history"]), "bs_used": infos[0]["bs_used"]}
     if args.ref_seeds > 1:
         extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"]))
     row = S.record(name, spec["family"], {**{k: v for k, v in cfg.__dict__.items()}}, avg_results(vals), avg_results(tests), "frozen", extra)

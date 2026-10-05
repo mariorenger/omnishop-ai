@@ -40,6 +40,7 @@ import refdata as RD
 import refmodels as RM
 import rep_eval as R
 import sid as SID
+import stages_ref as SR
 import suite
 import usermodel as UM
 
@@ -671,6 +672,37 @@ def test_ref_models(data, meta, text, ts):
        f"empty history ties; NRMS/Fastformer/NAML learn the planted signal (val nDCG@10 untrained -> trained: {out})")
 
 
+
+def test_ref_oom(data, text, ts):
+    """(17c) a CUDA out-of-memory error during baseline training is retried with half / quarter the batch size and reported in the row."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+    cfg = replace(RM.preset("nrms"), emb_dim=16, heads=2, head_dim=8, init="random", max_epochs=1, min_epochs=1, bs=64)
+    es = R.EvalSet(data.validation[:100])
+    tried, orig = [], RM.train_ref
+
+    def fake(net, trainset, val_fn, c, **kw):
+        tried.append(c.bs)
+        if c.bs > 16:
+            raise torch.cuda.OutOfMemoryError("simulated")
+        return orig(net, trainset, val_fn, c, **kw)
+    RM.train_ref = fake
+    try:
+        net, info = SR._fit_with_oom_fallback(SimpleNamespace(device="cpu", data=data), cfg, ts, lambda n: R.evaluate(RM.make_scorer(n), es)["mean"]["ndcg@10"],
+                                              0, None, text)
+        assert tried == [64, 32, 16] and info["bs_used"] == 16, (tried, info["bs_used"])
+        tried.clear()
+        RM.train_ref = lambda *a, **k: (_ for _ in ()).throw(torch.cuda.OutOfMemoryError("always"))
+        try:
+            SR._fit_with_oom_fallback(SimpleNamespace(device="cpu", data=data), cfg, ts, None, 0, None, text)
+            raise AssertionError("an unrecoverable OOM must surface")
+        except torch.cuda.OutOfMemoryError:
+            pass
+    finally:
+        RM.train_ref = orig
+    ok("(17c) baseline OOM fallback: 64 -> 32 -> 16 recorded in the row; an unrecoverable OOM still raises")
+
+
 def test_um_readers(data, E):
     """(18) Fastformer / NRMS / additive readers over frozen article vectors: finite, order-aware only where they should be, empty history ties."""
     pack = UM.pack_train(data.train_core[:600])
@@ -728,6 +760,7 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     assert os.path.getsize(os.path.join(outR, "ladder.md")) > 0 and "ladder0_v10recipe" in open(os.path.join(outR, "ladder.md")).read()
     assert all(r["family"].replace("+pop", "") not in suite.REFERENCE_FAMILIES for r in SR_.reps + SR_.reps_pop), "baselines must not compete as 'directions'"
     row = SR_.row("nrms_ref")
+    assert row["bs_used"] == 64 and SR_.row("nrms_ref_refit")["bs_used"] == 64
     assert row["family"] == "ref-baseline" and row["ref"] == "frozen" and "d_ndcg@10" in row and row["init"].startswith("file:") and row["params"] > 0
     rf = SR_.row("nrms_ref_refit")
     assert rf["cfg"]["refit_epochs"] == SR_.row("nrms_ref")["best_epochs"][0] and rf["refit_of"] == "nrms_ref" and rf["ndcg@10"] != SR_.row("nrms_ref")["ndcg@10"]
@@ -891,6 +924,7 @@ def main():
     test_v10_equivalence(S.data, S.E0)
     text_ref, ts_ref = test_ref_data(tmp, f"{tmp}/train", S.data, S.meta)
     test_ref_models(S.data, S.meta, text_ref, ts_ref)
+    test_ref_oom(S.data, text_ref, ts_ref)
     test_um_readers(S.data, S.E0)
     test_ref_stages(tmp, mind, enc_dir, os.path.join(out, "cache"), S)
 

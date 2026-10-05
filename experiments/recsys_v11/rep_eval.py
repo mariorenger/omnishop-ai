@@ -17,7 +17,6 @@ import math
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 import metrics as ref_metrics  # vendored V10 metrics.py (tie handling reference)
 
