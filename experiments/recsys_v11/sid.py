@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import math
+import time
 
 import numpy as np
 import torch
@@ -182,7 +183,7 @@ def make_training_arrays(rows, n_max):
 
 
 def train_sid_gpt(codes, K, rows, n_max=30, epochs=3, bs=128, lr=1e-3, hist_w=0.5, seed=0, device="cpu",
-                  val_fn=None, d=256, layers=4, heads=4, max_steps=None, log=print):
+                  val_fn=None, d=256, layers=4, heads=4, max_steps=None, deadline=None, log=print):
     """Next-code-token language modelling over reading sequences (history items weighted ``hist_w``, the
     clicked target 1.0).  Validation (``val_fn(model) -> float``, higher is better) picks the epoch."""
     torch.manual_seed(seed)
@@ -227,13 +228,13 @@ def train_sid_gpt(codes, K, rows, n_max=30, epochs=3, bs=128, lr=1e-3, hist_w=0.
             tot += loss.item(); nb += 1; step += 1
             if step % 200 == 0:
                 log(f"        sid-gpt step {step}/{total} loss={tot / nb:.4f}")
-            if max_steps and step >= max_steps:
+            if (max_steps and step >= max_steps) or (deadline is not None and time.time() > deadline):
                 break
         score = val_fn(model) if val_fn else float(ep)
         log(f"      [sid-gpt] epoch {ep} loss={tot / max(nb, 1):.4f} val={score:.4f}")
         if score > best_score:
             best_score, best_ep, best_state = score, ep, copy.deepcopy(model.state_dict())
-        if max_steps and step >= max_steps:
+        if (max_steps and step >= max_steps) or (deadline is not None and time.time() > deadline):
             break
     if best_state is not None:
         model.load_state_dict(best_state)

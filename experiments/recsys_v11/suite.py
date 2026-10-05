@@ -1,23 +1,28 @@
-"""V11 decision suite: which LLM-embedding direction is worth a thesis on news recommendation?
+"""V11 decision suite: which LLM-era direction is worth a thesis on news recommendation?
 
-Every variant is scored zero-shot (user = mean of clicked-history vectors) so the table
-measures *representation quality*, on the exact V10 protocol (chronological validation,
-MINDsmall_dev as the one-shot test).  Hyper-parameters are picked on validation, the test
-set is touched once per selected configuration, and every comparison to the control comes
-with a paired 95% CI plus a cold-article slice (clicked articles the training rows never saw).
+Every variant is evaluated on the exact V10 protocol (chronological validation split, MINDsmall_dev as the one-shot
+test).  Hyper-parameters are picked on validation, the test split is touched once per selected configuration, and every
+comparison carries a paired 95% CI plus a cold-article slice (clicked articles the training rows never saw).
 
-Hypotheses
-  H1 history-as-text, instruction-aware query beats the mean of item vectors      (LLM-as-user-encoder)
-  H2 co-click contrastive adaptation of the embedding (head / LoRA / DoRA,
-     +Matryoshka, +impression hard negatives) beats the frozen embedding          (LLM2Rec-style)
-  H3 entity / kNN retrieval-augmented article representations help fresh articles  (RAG)
-  H4 GraphRAG-style community context and similar-user retrieval help             (GraphRAG-lite)
+Hypotheses (see README):
+  H1  history-as-text, instruction-aware query                         (LLM as user encoder, zero-shot)
+  H2  co-click contrastive adaptation: heads, LoRA/DoRA, MRL, hard neg  (LLM2Rec-style)
+  H3  entity / kNN retrieval-augmented article representations          (RAG)
+  H4  GraphRAG-lite (Louvain communities, similar-user retrieval)  +  H4b with LLM-written community summaries
+  H5  LoRA-tuned LLM user tower, causal / bidirectional / soft attention mask
+  H6  LLM-augmented articles and readers (KAR-style expansions, profiles)
+  H7  Semantic IDs: RQ-KMeans profile + TIGER-style generative slate ranker
+  H8  pooling rule: recency / late interaction
+  H9  zero-shot LLM judge re-ranking the top-k
+  H10 learned candidate-aware user model on top of each representation (downstream consistency check)
+  +   encoder sweep (TF-IDF/LSA, BGE small/base/large, Qwen3-Embedding)
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import pickle
 import time
 import traceback
 
@@ -25,95 +30,160 @@ import numpy as np
 import torch
 
 import adapt
+import common
 import rep_eval as R
 import semgraph as G
+import stages_ext as X
+from common import HistQueries, avg_results, fuse, log, query_prefix  # noqa: F401  (re-exported for callers)
 from data import MindData
 
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
-TASK = "Given the headlines a reader recently clicked, retrieve the news article they would most likely read next"
+DEFAULT_STAGES = "controls,pooling,graph,head,histquery,sid,encoder,usermodel,sweep"
+TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"}      # not "techniques over the frozen embedding"
 
 
-def log(*a):
-    print(*a, flush=True)
-
-
-# ------------------------------------------------------------------ helpers
-def query_prefix(name, fmt="auto", instruct=True):
-    low = name.lower()
-    if fmt == "auto":
-        fmt = "qwen3" if "qwen3" in low else "bge" if "bge" in low else "e5" if "e5" in low else "plain"
-    if fmt == "qwen3":
-        return f"Instruct: {TASK}\nQuery:" if instruct else ""
-    if fmt == "bge":
-        return "Represent this sentence for searching relevant passages: " if instruct else ""
-    if fmt == "e5":
-        return "query: "
-    return ""
-
-
-def avg_results(rs):
-    """Average several seeds of the same variant (per-impression arrays and slice values)."""
-    if len(rs) == 1:
-        return rs[0]
-    out = dict(rs[0])
-    out["arr"] = {k: np.nanmean([r["arr"][k] for r in rs], axis=0) for k in R.METRICS}
-    out["pos_auc"] = np.mean([r["pos_auc"] for r in rs], axis=0)
-    m = {"auc": float(np.nanmean(out["arr"]["auc"])), **{k: float(np.mean(out["arr"][k])) for k in R.METRICS[1:]}}
-    if "cold" in out:
-        c = out["cold"]
-        m["cold_auc"] = float(out["pos_auc"][c].mean()) if c.any() else float("nan")
-        m["warm_auc"] = float(out["pos_auc"][~c].mean()) if (~c).any() else float("nan")
-    out["mean"] = m
+def _slim(r):
+    """Keep what paired comparisons need, in compact dtypes (a full run caches ~100 variants)."""
+    out = {"arr": {k: np.asarray(v, np.float32) for k, v in r["arr"].items()}, "ids": np.asarray(r["ids"], np.int64),
+           "pos_news": np.asarray(r["pos_news"], np.int32), "pos_auc": np.asarray(r["pos_auc"], np.float32),
+           "pos_row": np.asarray(r["pos_row"], np.int32), "mean": dict(r["mean"])}
+    for k in ("cold", "cold_frac"):
+        if k in r:
+            out[k] = r[k]
     return out
 
 
 class Suite:
-    def __init__(self, data, meta, E0, device, work, seen_tr, seen_va):
+    def __init__(self, data, meta, E0, device, work, seen_tr, seen_va, args=None):
         self.data, self.meta, self.E0, self.device, self.work = data, meta, E0, device, work
-        self.seen_tr, self.seen_va = seen_tr, seen_va
+        self.seen_tr, self.seen_va, self.args = seen_tr, seen_va, args
+        self.titles = [""] + meta["titles"]
         self.es = {"val": R.EvalSet(data.validation, device=device), "test": R.EvalSet(data.test, device=device)}
         self.records, self.cache = [], {}
+        self.store, self.kv = {}, {}                      # in-memory artefacts / JSON-able facts that survive a resume
+        self.cache_dir = (getattr(args, "cache_dir", None) or os.path.join(work, "cache"))
+        self.stage, self._perm, self._sub = "", {}, {}
 
+    # ---- plumbing
     def tensor(self, E):
         return torch.from_numpy(np.ascontiguousarray(E, dtype=np.float32)).to(self.device)
 
-    def run(self, scorer, split):
-        return R.evaluate(scorer, self.es[split], self.seen_tr)
+    def run(self, scorer, split, es=None):
+        return R.evaluate(scorer, (es or self.es)[split], self.seen_tr)
 
     def val_ndcg(self, E):
         return self.run(R.mean_pool_scorer(self.tensor(E)), "val")["mean"]["ndcg@10"]
 
+    def time_left(self):
+        return common.time_left()
+
+    def deadline(self, frac=1.0, cap_s=None):
+        """Absolute time by which a long loop should stop: ``frac`` of the remaining budget (None = unlimited)."""
+        left = common.time_left()
+        if left == float("inf"):
+            return None if cap_s is None else time.time() + cap_s
+        t = left * frac
+        return time.time() + max(min(t, cap_s) if cap_s is not None else t, 0.0)
+
+    def perm(self, split):
+        if split not in self._perm:
+            self._perm[split] = np.random.default_rng(0).permutation(len(self.es[split].rows))
+        return self._perm[split]
+
+    def subset(self, split, n):
+        """Nested random subset of a split -> ``(original row ids, EvalSet)``; ``n <= 0`` or ``>= N`` means the full split."""
+        N = len(self.es[split].rows)
+        if n is None or n <= 0 or n >= N:
+            return np.arange(N), self.es[split]
+        if (split, n) not in self._sub:
+            ids = np.sort(self.perm(split)[:n])
+            self._sub[(split, n)] = (ids, common.subset_evalset(self.data.validation if split == "val" else self.data.test, ids, self.device))
+        return self._sub[(split, n)]
+
+    def row(self, name):
+        for r in reversed(self.records):
+            if r["name"] == name:
+                return r
+        raise KeyError(name)
+
+    # ---- shared heavy objects, built lazily so a resumed run can skip the stage that first needed them
+    def memo(self):
+        if "memo" not in self.store:
+            A = G.entity_matrix(self.meta["ents"], self.data.n_news)
+            mem = {"val": self.seen_tr, "test": self.seen_tr | self.seen_va}
+            self.store["entity_A"] = A
+            self.store["memo"] = {sp: G.Memory(self.E0, A, mem[sp], self.device) for sp in ("val", "test")}
+        return self.store["memo"]
+
+    def communities(self):
+        if "comm" not in self.store:
+            out = {}
+            for sp, m in self.memo().items():
+                t0 = time.time()
+                out[sp] = m.communities(k=10, resolution=self.args.louvain_res, seed=0)
+                log(f"  communities[{sp}]: {out[sp][1].shape[0]} via {out[sp][2]} ({time.time() - t0:.0f}s)")
+            self.store["comm"] = out
+        return self.store["comm"]
+
+    def generator(self):
+        import llm_gen
+        if "gen" not in self.store:
+            dtype = torch.float16 if self.device == "cuda" else torch.float32
+            self.store["gen"] = llm_gen.Generator(self.args.gen_model, self.device, dtype, os.path.join(self.work, "gen_cache.jsonl"))
+        return self.store["gen"]
+
+    def doc_encoder(self):
+        return adapt.HFEncoder(self.args.encoder, max_len=self.args.max_len, device=self.device, prefix=self.args.doc_prefix)
+
+    def query_encoder(self):
+        return adapt.HFEncoder(self.args.encoder, max_len=self.args.q_max_len, device=self.device,
+                               prefix=query_prefix(self.args.encoder, self.args.query_format, True))
+
+    def close(self):
+        g = self.store.pop("gen", None)
+        if g is not None:
+            g.free()
+
+    # ---- results
     def record(self, name, family, cfg, val, test, ref_name, extra=None):
-        """Store a row; Δ vs the reference is computed on the test split with paired CIs."""
-        ref = self.cache[ref_name]["test"] if ref_name in self.cache else None
-        row = {"name": name, "family": family, "cfg": cfg, "ref": ref_name,
+        """Store a row; Δ vs the reference is computed on the test split with paired CIs (common impressions only)."""
+        ref = self.cache.get(ref_name)
+        row = {"name": name, "family": family, "stage": self.stage, "cfg": cfg, "ref": ref_name,
+               "n_val": int(len(val["ids"])), "n_test": int(len(test["ids"])),
                "val_ndcg@10": val["mean"]["ndcg@10"], "val_auc": val["mean"]["auc"], **test["mean"],
                "cold_frac": test.get("cold_frac"), **(extra or {})}
         if ref is not None and name != ref_name:
-            row["d_ndcg@10"] = R.compare(test, ref, "ndcg@10")
-            row["d_auc"] = R.compare(test, ref, "auc")
-            row["d_cold_auc"] = R.compare_slice(test, ref, "cold")
-            row["d_warm_auc"] = R.compare_slice(test, ref, "warm")
+            rv, rt = ref["val"], ref["test"]
+            row["val_delta"] = R.compare(val, rv, "ndcg@10")[0]
+            row["d_ndcg@10"] = R.compare(test, rt, "ndcg@10")
+            row["d_auc"] = R.compare(test, rt, "auc")
+            row["d_cold_auc"] = R.compare_slice(test, rt, "cold")
+            row["d_warm_auc"] = R.compare_slice(test, rt, "warm")
             row["verdict"] = R.verdict(row["d_ndcg@10"][1], row["d_ndcg@10"][2])
+            _, ib = R._align(test, rt)
+            row["ref_ndcg@10_same"] = float(np.mean(rt["arr"]["ndcg@10"][ib]))
+            row["ref_auc_same"] = float(np.nanmean(rt["arr"]["auc"][ib]))
         self.records.append(row)
-        self.cache[name] = {"val": val, "test": test}
+        self.cache[name] = {"val": _slim(val), "test": _slim(test)}
         d = row.get("d_ndcg@10")
         log(f"  {name:34s} val nDCG@10={row['val_ndcg@10']:.4f} | test AUC={row['auc']:.4f} nDCG@10={row['ndcg@10']:.4f}"
+            + (f" (n={row['n_test']:,})" if row["n_test"] != len(self.es["test"].rows) else "")
             + (f" | Δ={d[0]:+.4f} [{d[1]:+.4f},{d[2]:+.4f}] {row['verdict']}" if d else "")
             + (f" | cold AUC={row.get('cold_auc', float('nan')):.4f}" if "cold_auc" in row else ""))
         return row
 
-    # ---- generic grid: choose the config on validation, report it on test once
-    def select(self, name, family, configs, make, ref_name, extra=None):
+    def select(self, name, family, configs, make, ref_name, extra=None, es=None):
+        """Generic grid: choose the config on validation, report it on test once."""
         best = None
         for cfg in configs:
-            v = self.run(make(cfg, "val"), "val")
-            log(f"    {name} {cfg}: val nDCG@10={v['mean']['ndcg@10']:.4f}")
+            v = self.run(make(cfg, "val"), "val", es=es)
+            if len(configs) > 1:
+                log(f"    {name} {cfg}: val nDCG@10={v['mean']['ndcg@10']:.4f}")
             if best is None or v["mean"]["ndcg@10"] > best[0]["mean"]["ndcg@10"]:
                 best = (v, cfg)
         v, cfg = best
-        t = self.run(make(cfg, "test"), "test")
+        t = self.run(make(cfg, "test"), "test", es=es)
         return self.record(name, family, cfg, v, t, ref_name, extra)
 
     def export(self, name, E, model_name):
@@ -121,8 +191,36 @@ class Suite:
         np.savez(path, ids=np.array(self.meta["ids"]), vecs=np.asarray(E[1:], np.float32), model_name=np.array(model_name))
         return path
 
+    # ---- resume
+    def signature(self):
+        a = self.args
+        return {"encoder": a.encoder, "max_len": a.max_len, "doc_prefix": a.doc_prefix, "n_news": int(self.data.n_news),
+                "n_val": len(self.data.validation), "n_test": len(self.data.test)}
 
-# ------------------------------------------------------------------- stages
+    def save_state(self, done):
+        path = os.path.join(self.work, "state.pkl")
+        with open(path + ".tmp", "wb") as f:
+            pickle.dump({"sig": self.signature(), "records": self.records, "cache": self.cache, "done": sorted(done), "kv": self.kv}, f, protocol=4)
+        os.replace(path + ".tmp", path)
+
+    def load_state(self):
+        path = os.path.join(self.work, "state.pkl")
+        if not os.path.exists(path):
+            return set()
+        try:
+            with open(path, "rb") as f:
+                st = pickle.load(f)
+        except Exception as e:                                            # a truncated file must not block a fresh run
+            log(f"state.pkl unreadable ({repr(e)[:80]}) - starting fresh")
+            return set()
+        if st["sig"] != self.signature():
+            log("state.pkl belongs to a different configuration - starting fresh")
+            return set()
+        self.records, self.cache, self.kv = st["records"], st["cache"], st["kv"]
+        return set(st["done"])
+
+
+# ------------------------------------------------------------------- original stages
 def stage_controls(S, args):
     log("\n== controls ==")
     E = S.tensor(S.E0)
@@ -135,15 +233,20 @@ def stage_controls(S, args):
             f"{'MATCH' if ok else 'MISMATCH - check input text / truncation / embedding file'}")
     if t.get("cold_frac") is not None:
         log(f"  clicked articles that are cold (unseen in training rows): {t['cold_frac']:.1%}")
+    Er = np.random.default_rng(0).standard_normal(S.E0.shape).astype(np.float32)
+    Er[0] = 0
+    Er[1:] /= np.linalg.norm(Er[1:], axis=1, keepdims=True)
+    Et = S.tensor(Er)
+    S.record("random_vec", "control", {"note": "random unit vectors: only 'already read' identity information"},
+             S.run(R.mean_pool_scorer(Et), "val"), S.run(R.mean_pool_scorer(Et), "test"), "frozen")
 
 
 def stage_graph(S, args):
     log("\n== H3/H4 retrieval-augmented representations (content-only, causal memory) ==")
-    A = G.entity_matrix(S.meta["ents"], S.data.n_news)
+    memo = S.memo()
+    A = S.store["entity_A"]
     n_with = int((np.asarray(A.sum(1)).ravel() > 0).sum())
     log(f"  entity coverage: {n_with:,}/{S.data.n_news - 1:,} articles carry Wikidata entities")
-    mem = {"val": S.seen_tr, "test": S.seen_tr | S.seen_va}
-    memo = {sp: G.Memory(S.E0, A, mem[sp], S.device) for sp in ("val", "test")}
     if n_with:
         S.select("entity_rag", "H3-RAG", [{"beta": b} for b in args.betas],
                  lambda c, sp: R.mean_pool_scorer(S.tensor(memo[sp].entity_view(c["beta"])[0])), "frozen")
@@ -162,12 +265,7 @@ def stage_graph(S, args):
         return E
     S.select("knn_rag", "H3-RAG", [{"k": k, "beta": b} for k in args.knn_k for b in args.betas],
              lambda c, sp: R.mean_pool_scorer(S.tensor(knn_view(c, sp))), "frozen")
-
-    comm = {}
-    for sp in ("val", "test"):
-        t0 = time.time()
-        comm[sp] = memo[sp].communities(k=10, resolution=args.louvain_res, seed=0)
-        log(f"  communities[{sp}]: {comm[sp][1].shape[0]} via {comm[sp][2]} ({time.time() - t0:.0f}s)")
+    comm = S.communities()
     S.select("community_graphrag", "H4-GraphRAG", [{"lam": l} for l in args.lams],
              lambda c, sp: G.community_scorer(S.E0, comm[sp][0], comm[sp][1], c["lam"], S.device), "frozen")
     um = G.UserMemory(S.data, S.E0, S.device)
@@ -213,11 +311,12 @@ def stage_head(S, args):
             name = f"head_{kind}{tag}"
             fn = lambda sd, kind=kind, mrl=mrl, hn=hn: adapt.train_head(
                 S.E0, pairs, kind, mrl, hn, epochs=args.epochs_head, seed=sd, device=S.device,
-                val_fn=S.val_ndcg, log=lambda *a: None)
+                val_fn=S.val_ndcg, deadline=S.deadline(0.2), log=lambda *a: None)
             E = _seed_runs(S, name, "H2-adapt", {"kind": kind, "mrl": mrl, "hardneg": hn}, fn, "frozen", args.seeds, trunc)
             r = S.records[-1]
             if best is None or r["val_ndcg@10"] > best[0]:
                 best = (r["val_ndcg@10"], name, E)
+    S.kv["best_head"] = best[1]
     log(f"  best head on validation: {best[1]}  -> exported {S.export(best[1], best[2], args.encoder)}")
 
 
@@ -236,12 +335,15 @@ def stage_encoder(S, args):
              S.run(R.mean_pool_scorer(Et), "test"), "frozen_hf")
     del enc0
     for mode, mrl in (("lora", True), ("dora", True), ("lora", False)):
+        if S.time_left() < 1800:
+            log(f"  {mode}: skipped (wall-clock budget)")
+            continue
         name = f"{mode}{'+mrl' if mrl else ''}+hn"
         enc = adapt.HFEncoder(args.encoder, max_len=args.max_len, device=S.device, prefix=args.doc_prefix)
         t0 = time.time()
         E, info = adapt.train_encoder(enc, texts, pairs, Ef, mode=mode, mrl=mrl, hardneg=True,
                                       epochs=args.epochs_enc, bs=args.bs_enc, r=args.lora_r, val_ids=val_ids,
-                                      val_fn=S.val_ndcg, max_steps=args.enc_steps, log=log)
+                                      val_fn=S.val_ndcg, max_steps=args.enc_steps, deadline=S.deadline(0.15), log=log)
         Et = S.tensor(E)
         S.record(name, "H2-adapt", {"mode": mode, "mrl": mrl, "r": args.lora_r}, S.run(R.mean_pool_scorer(Et), "val"),
                  S.run(R.mean_pool_scorer(Et), "test"), "frozen_hf",
@@ -254,36 +356,40 @@ def stage_encoder(S, args):
 
 def stage_histquery(S, args):
     log("\n== H1 history-as-text, instruction-aware query ==")
-    titles = [""] + S.meta["titles"]
     K = args.hist_k
-    keys, rowq = {}, {"val": [], "test": []}
-    for sp, rows in (("val", S.data.validation), ("test", S.data.test)):
-        for r in rows:
-            h = tuple(r[2][-K:])
-            rowq[sp].append(keys.setdefault(h, len(keys)) if h else -1)
-    uniq = sorted(keys, key=keys.get)
-    log(f"  {len(uniq):,} unique histories (last {K} headlines) to encode")
+    hq = HistQueries(S.data, S.titles, K)
+    n_val, n_test = (args.llm_val_n, args.llm_test_n) if args.hq_subset else (0, 0)
+    sets = {sp: S.subset(sp, n) for sp, n in (("val", n_val), ("test", n_test))}
+    es = {sp: sets[sp][1] for sp in sets}
+    need = np.union1d(hq.needed("val", sets["val"][0]), hq.needed("test", sets["test"][0]))
+    log(f"  {len(need):,} unique histories (last {K} headlines) to encode; evaluated on "
+        f"{len(sets['val'][0]):,} validation / {len(sets['test'][0]):,} test impressions")
     Et = S.tensor(S.E0)
-    for instruct in (True, False):
+    mp = R.mean_pool_scorer(Et)
+    for instruct in ((True, False) if args.hq_plain else (True,)):
+        if S.time_left() < 900:
+            log("  skipped (wall-clock budget)")
+            break
         pre = query_prefix(args.encoder, args.query_format, instruct)
         enc = adapt.HFEncoder(args.encoder, max_len=args.q_max_len, device=S.device, prefix=pre)
-        Q = np.zeros((len(uniq) + 1, S.E0.shape[1]), np.float32)
+        Q = hq.alloc(S.E0.shape[1])
         t0 = time.time()
-        Q[:-1] = enc.encode(["; ".join(titles[i] for i in h) for h in uniq], bs=args.enc_bs)
+        Q[need] = enc.encode(hq.texts(need), bs=args.enc_bs)
         log(f"  encoded queries ({'instruct' if instruct else 'plain'}) in {time.time() - t0:.0f}s, prefix={pre[:40]!r}")
-        Qt = S.tensor(Q)
-        rq = {sp: torch.tensor(np.where(np.array(rowq[sp]) < 0, len(uniq), rowq[sp]), device=S.device) for sp in rowq}
-        mp = R.mean_pool_scorer(Et)
-
-        def mk(c, sp, rq=rq, Qt=Qt, mp=mp):
-            def f(b):
-                s = torch.einsum("bd,bcd->bc", Qt[rq[sp][torch.as_tensor(b["rows"], device=S.device)]], Et[b["cand"]])
-                return s + c["w"] * mp(b) if c["w"] else s
-            return f
+        qs = lambda sp: hq.scorer(Q, Et, sp, S.device, ids=sets[sp][0])
         tag = "instr" if instruct else "plain"
-        S.select(f"histq_{tag}", "H1-text-user", [{"w": 0.0}], mk, "frozen")
-        S.select(f"histq_{tag}+meanpool", "H1-text-user", [{"w": w} for w in (0.5, 1.0, 2.0)], mk, "frozen")
+        S.select(f"histq_{tag}", "H1-text-user", [{"w": 0.0}], lambda c, sp: qs(sp), "frozen", es=es)
+        S.select(f"histq_{tag}+meanpool", "H1-text-user", [{"w": w} for w in (0.5, 1.0, 2.0)],
+                 lambda c, sp: fuse([(qs(sp), 1.0), (mp, c["w"])]), "frozen", es=es)
         del enc
+        if S.device == "cuda":
+            torch.cuda.empty_cache()
+
+
+STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "graph": stage_graph, "head": stage_head,
+          "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
+          "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
+          "augment": X.stage_augment, "rerank": X.stage_rerank}
 
 
 # --------------------------------------------------------------------- output
@@ -292,59 +398,68 @@ def fmt_ci(t, digits=4):
 
 
 def write_table(S, work):
-    cols = ["variant", "family", "val nDCG@10", "test AUC", "MRR", "nDCG@5", "nDCG@10", "Δ nDCG@10 [95% CI]",
-            "cold AUC", "Δ cold AUC [95% CI]", "warm AUC", "verdict"]
+    cols = ["variant", "family", "n test", "val nDCG@10", "test AUC", "MRR", "nDCG@5", "nDCG@10", "ref", "ref nDCG@10",
+            "Δ nDCG@10 [95% CI]", "cold AUC", "Δ cold AUC [95% CI]", "warm AUC", "verdict"]
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for r in S.records:
+        ref_nd = r.get("ref_ndcg@10_same", r["ndcg@10"] if r["name"] == r["ref"] else float("nan"))
         lines.append("| " + " | ".join([
-            r["name"], r["family"], f"{r['val_ndcg@10']:.4f}", f"{r['auc']:.4f}", f"{r['mrr']:.4f}",
-            f"{r['ndcg@5']:.4f}", f"{r['ndcg@10']:.4f}", fmt_ci(r.get("d_ndcg@10")),
+            r["name"], r["family"], f"{r['n_test']:,}", f"{r['val_ndcg@10']:.4f}", f"{r['auc']:.4f}", f"{r['mrr']:.4f}",
+            f"{r['ndcg@5']:.4f}", f"{r['ndcg@10']:.4f}", r["ref"], f"{ref_nd:.4f}", fmt_ci(r.get("d_ndcg@10")),
             f"{r.get('cold_auc', float('nan')):.4f}", fmt_ci(r.get("d_cold_auc")),
             f"{r.get('warm_auc', float('nan')):.4f}", r.get("verdict", "control")]) + " |")
     md = "\n".join(lines)
     with open(os.path.join(work, "results.md"), "w", encoding="utf-8") as f:
-        f.write("# V11 decision suite (zero-shot representation quality, MINDsmall_dev test)\n\n" + md + "\n")
+        f.write("# V11 decision suite (MINDsmall_dev test; Δ and 'ref nDCG@10' are computed on the same impressions as the row)\n\n" + md + "\n")
     with open(os.path.join(work, "results.json"), "w", encoding="utf-8") as f:
         json.dump(S.records, f, indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
     return md
 
 
+def _val_key(r):
+    return r.get("val_delta", r["val_ndcg@10"])
+
+
 def summarize(S):
-    """One representative per direction, chosen on VALIDATION (never on test), then compared with the
-    control.  The verdict is also Bonferroni-adjusted for the number of directions being compared,
-    because picking 'the best of 4 directions' is a multiple-comparison decision."""
+    """One representative per family, chosen on VALIDATION (never on test), then compared with its control.  The verdict is also
+    Bonferroni-adjusted for the number of families, because picking 'the best of m directions' is a multiple-comparison decision."""
     from statistics import NormalDist
     log("\n================ DECISION SUMMARY ================")
     by_h = {}
     for r in S.records:
         if r["family"] != "control" and "verdict" in r:
             by_h.setdefault(r["family"], []).append(r)
+    if not by_h:
+        return []
     z_adj = NormalDist().inv_cdf(1 - 0.05 / (2 * max(len(by_h), 1)))
+    reps = []
     for fam, rs in by_h.items():
-        best = max(rs, key=lambda r: r["val_ndcg@10"])             # selection on validation only
+        best = max(rs, key=_val_key)                                # selection on validation only
         d, c = best["d_ndcg@10"], best.get("d_cold_auc")
         se = (d[2] - d[1]) / (2 * 1.96)
         adj = R.verdict(d[0] - z_adj * se, d[0] + z_adj * se)
-        log(f"{fam:16s} rep={best['name']:26s} (best of {len(rs)} by val) Δ nDCG@10 {fmt_ci(d)} -> {best['verdict']}"
-            f" | Bonferroni(m={len(by_h)}): {adj}"
-            + (f" | Δ cold AUC {fmt_ci(c)}" if c and not np.isnan(c[0]) else ""))
+        reps.append(best)
+        log(f"{fam:18s} rep={best['name']:24s} (best of {len(rs):2d} by val, n={best['n_test']:,}, vs {best['ref']}) Δ nDCG@10 {fmt_ci(d)} -> {best['verdict']}"
+            f" | Bonferroni(m={len(by_h)}): {adj}" + (f" | Δ cold AUC {fmt_ci(c)}" if c and not np.isnan(c[0]) else ""))
     log("Rule: pursue a direction only if its Bonferroni-adjusted verdict is BETTER; prefer the ones that also win on the "
         "cold slice (where LLM embeddings should matter) and whose gain is practically meaningful (>~0.005 nDCG@10).\n"
-        "Unadjusted 'BETTER' on one of ~20 rows can be chance: with all effects null, about 1 in 20 rows would still pass.")
-    return [max(rs, key=lambda r: r["val_ndcg@10"]) for rs in by_h.values()]
+        "Unadjusted 'BETTER' on one of many rows can be chance: with all effects null, about 1 in 20 rows would still pass.")
+    return sorted(reps, key=_val_key, reverse=True)
 
 
-def head_to_head(S, reps):
-    """Direction-vs-direction comparison on the test split (paired over impressions), Bonferroni over the pairs.
-    The control comparison above says whether a direction helps at all; this says which direction is better."""
+def head_to_head(S, reps, top=5):
+    """Direction-vs-direction comparison on the test split (paired over common impressions), Bonferroni over the pairs.
+    Restricted to the ``top`` technique families ranked on VALIDATION (user-model / sweep rows have other controls)."""
     from itertools import combinations
     from statistics import NormalDist
+    reps = [r for r in reps if r["family"] not in TECHNIQUE_FAMILIES_EXCLUDED][:top]
     pairs = list(combinations(reps, 2))
     out = []
     if not pairs:
         return out
     z_adj = NormalDist().inv_cdf(1 - 0.05 / (2 * len(pairs)))
-    log(f"\n-- HEAD-TO-HEAD between directions (test, paired). CI shown is unadjusted 95%; the verdict is Bonferroni-adjusted over {len(pairs)} pairs --")
+    log(f"\n-- HEAD-TO-HEAD between the top-{len(reps)} directions by validation (test, paired on common impressions). "
+        f"CI shown is unadjusted 95%; the verdict is Bonferroni-adjusted over {len(pairs)} pairs --")
     for a, b in pairs:
         ra, rb = S.cache[a["name"]]["test"], S.cache[b["name"]]["test"]
         d, c = R.compare(ra, rb, "ndcg@10"), R.compare_slice(ra, rb, "cold")
@@ -364,29 +479,65 @@ def save_arrays(S):
         for k in R.METRICS:
             out[f"{name}__{k}"] = t["arr"][k].astype(np.float32)
         out[f"{name}__pos_auc"] = t["pos_auc"].astype(np.float32)
-    first = next(iter(S.cache.values()))["test"]
-    out["pos_news"], out["pos_row"], out["cold"] = first["pos_news"], first["pos_row"], first["cold"]
+        out[f"{name}__ids"] = t["ids"].astype(np.int32)                  # positions of the evaluated impressions (subsets differ)
+    full = next((c["test"] for c in S.cache.values() if len(c["test"]["ids"]) == len(S.data.test)), None)
+    if full is None:
+        return None
+    out["pos_news"], out["pos_row"], out["cold"] = full["pos_news"], full["pos_row"], full["cold"]
     path = os.path.join(S.work, "test_arrays.npz")
     np.savez_compressed(path, **out)
     return path
 
 
+def leaderboard(suites, tags, ref, path=None, top=None):
+    """One table over several runs (e.g. BGE-small and Qwen3-Embedding), each row compared on the common impressions with a single
+    global reference ``ref = (tag, row name)`` -- by default the BGE-small frozen embedding (the V10-comparable control)."""
+    by_tag = dict(zip(tags, suites))
+    ref_res = by_tag[ref[0]].cache[ref[1]]["test"]
+    rows = []
+    for tag, S in by_tag.items():
+        for r in S.records:
+            if r["family"] == "control" and r["name"] not in ("frozen",):
+                continue
+            t = S.cache[r["name"]]["test"]
+            d = R.compare(t, ref_res, "ndcg@10")
+            if np.isnan(d[0]):
+                continue
+            rows.append({"run": tag, "name": r["name"], "family": r["family"], "n": r["n_test"], "d": d,
+                         "dc": R.compare_slice(t, ref_res, "cold"), "val": _val_key(r), "auc": r["auc"], "ndcg": r["ndcg@10"]})
+    rows.sort(key=lambda x: -x["d"][0])
+    rows = rows[:top] if top else rows
+    lines = [f"| rank | run | variant | family | n | Δ nDCG@10 vs {ref[0]}:{ref[1]} [95% CI] | Δ cold AUC [95% CI] | verdict |", "|---|---|---|---|---|---|---|---|"]
+    for i, x in enumerate(rows, 1):
+        lines.append(f"| {i} | {x['run']} | {x['name']} | {x['family']} | {x['n']:,} | {fmt_ci(x['d'])} | {fmt_ci(x['dc'])} | {R.verdict(x['d'][1], x['d'][2])} |")
+    md = "\n".join(lines)
+    if path:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"# Leaderboard over runs {tags} (paired on common impressions; rows evaluated on subsets use the same impressions in the reference)\n\n{md}\n")
+    log("\n================ LEADERBOARD (all runs, one global reference) ================\n" + md)
+    return rows
+
+
 # ------------------------------------------------------------------------ main
-def main(argv=None):
+def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mind-train", required=True)
     ap.add_argument("--mind-dev", required=True)
     ap.add_argument("--work", default="v11_out")
+    ap.add_argument("--cache-dir", default=None, help="where frozen article embeddings are cached (share it between runs)")
     ap.add_argument("--encoder", default="BAAI/bge-small-en-v1.5")
     ap.add_argument("--news-emb", default=None, help="npz from V10 llm_embed.py (exact V10 control)")
     ap.add_argument("--doc-prefix", default="")
     ap.add_argument("--query-format", default="auto")
     ap.add_argument("--max-len", type=int, default=256)
     ap.add_argument("--q-max-len", type=int, default=384)
-    ap.add_argument("--stages", default="controls,graph,head,encoder,histquery")
+    ap.add_argument("--stages", default=DEFAULT_STAGES)
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--repro", default=None, help='published V10 control "auc,ndcg10" (bge_zeroshot: 0.6241,0.3909)')
+    ap.add_argument("--budget-hours", type=float, default=0.0, help="shared wall-clock budget; long loops stop gracefully (0 = unlimited)")
+    ap.add_argument("--min-stage-s", type=float, default=300.0, help="do not start a stage with less than this left")
+    ap.add_argument("--no-resume", action="store_true")
     ap.add_argument("--pairs", type=int, default=200_000)
     ap.add_argument("--pairs-enc", type=int, default=100_000)
     ap.add_argument("--epochs-head", type=int, default=3)
@@ -395,58 +546,129 @@ def main(argv=None):
     ap.add_argument("--enc-steps", type=int, default=1500)
     ap.add_argument("--enc-bs", type=int, default=128)
     ap.add_argument("--lora-r", type=int, default=16)
-    ap.add_argument("--hist-k", type=int, default=15)
+    ap.add_argument("--hist-k", type=int, default=10)
+    ap.add_argument("--hq-plain", type=int, default=1, help="also run the history query without the instruction")
+    ap.add_argument("--hq-subset", type=int, default=0, help="evaluate H1 on the same nested subsets as H5")
     ap.add_argument("--louvain-res", type=float, default=1.0)
     ap.add_argument("--betas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
     ap.add_argument("--knn-k", type=int, nargs="+", default=[5, 20])
     ap.add_argument("--lams", type=float, nargs="+", default=[0.25, 0.5, 1.0, 2.0])
     ap.add_argument("--gammas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
-    args = ap.parse_args(argv)
+    ap.add_argument("--pool-lams", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.2])
+    # semantic ids
+    ap.add_argument("--sid-k", type=int, default=256)
+    ap.add_argument("--sid-levels", type=int, default=3)
+    ap.add_argument("--sid-epochs", type=int, default=3)
+    ap.add_argument("--sid-bs", type=int, default=128)
+    ap.add_argument("--sid-lr", type=float, default=1e-3)
+    ap.add_argument("--sid-nmax", type=int, default=30)
+    ap.add_argument("--sid-d", type=int, default=256)
+    ap.add_argument("--sid-layers", type=int, default=4)
+    ap.add_argument("--sid-heads", type=int, default=4)
+    ap.add_argument("--sid-steps", type=int, default=0)
+    ap.add_argument("--sid-val-n", type=int, default=3000)
+    ap.add_argument("--sid-ws", type=float, nargs="+", default=[0.25, 0.5, 1.0, 2.0])
+    # encoder sweep
+    ap.add_argument("--sweep-encoders", default="BAAI/bge-base-en-v1.5,BAAI/bge-large-en-v1.5,Qwen/Qwen3-Embedding-0.6B")
+    ap.add_argument("--lsa-dim", type=int, default=256)
+    # LLM user tower
+    ap.add_argument("--llm-user-modes", default="causal,bidir,soft")
+    ap.add_argument("--llm-user-steps", type=int, default=1000)
+    ap.add_argument("--llm-user-bs", type=int, default=16)
+    ap.add_argument("--llm-user-lr", type=float, default=1e-4)
+    ap.add_argument("--llm-user-r", type=int, default=16)
+    ap.add_argument("--llm-val-n", type=int, default=6000)
+    ap.add_argument("--llm-test-n", type=int, default=20000)
+    ap.add_argument("--llm-enc-bs", type=int, default=64)
+    ap.add_argument("--ut-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
+    # learned user model
+    ap.add_argument("--um-views", default="frozen,head,encoder,entity_rag,knn_rag")
+    ap.add_argument("--um-seeds", type=int, default=2)
+    ap.add_argument("--um-epochs", type=int, default=12)
+    ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
+    # generation-based stages
+    ap.add_argument("--gen-model", default="Qwen/Qwen3-1.7B")
+    ap.add_argument("--gen-bs", type=int, default=32)
+    ap.add_argument("--gen-new-tokens", type=int, default=56)
+    ap.add_argument("--gen-hist-k", type=int, default=5)
+    ap.add_argument("--gen-val-n", type=int, default=600)
+    ap.add_argument("--gen-test-n", type=int, default=1500)
+    ap.add_argument("--augment-minutes", type=float, default=40.0)
+    ap.add_argument("--kar-alphas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
+    ap.add_argument("--kar-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
+    ap.add_argument("--gr-max-comm", type=int, default=300)
+    ap.add_argument("--gr-titles", type=int, default=8)
+    ap.add_argument("--rerank-k", type=int, default=10)
+    ap.add_argument("--rerank-hist", type=int, default=8)
+    ap.add_argument("--rerank-val-n", type=int, default=500)
+    ap.add_argument("--rerank-test-n", type=int, default=1500)
+    ap.add_argument("--rerank-minutes", type=float, default=35.0)
+    ap.add_argument("--rerank-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
+    return ap
 
+
+def guard_embeddings(vecs, meta, reference, tol=0.99):
+    """Catch a wrong pooling / EOS / prefix convention up front by comparing 64 vectors with a reference implementation."""
+    ref = np.asarray(reference(meta["text"][:64]), np.float32)
+    cos = (vecs[:64] * ref).sum(1) / (np.linalg.norm(vecs[:64], axis=1) * np.linalg.norm(ref, axis=1) + 1e-8)
+    log(f"E0 guard: HFEncoder vs reference embeddings, min cos={cos.min():.4f} mean={cos.mean():.4f}")
+    if cos.min() < tol:
+        raise RuntimeError("HFEncoder disagrees with the reference encoder (pooling/EOS/prefix) - fix before running")
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    common.CLOCK.start(args.budget_hours)
     os.makedirs(args.work, exist_ok=True)
     device = "cuda" if args.device == "auto" and torch.cuda.is_available() else ("cpu" if args.device == "auto" else args.device)
-    log(f"device={device} encoder={args.encoder} stages={args.stages}")
+    log(f"device={device} encoder={args.encoder} stages={args.stages} budget={'unlimited' if not args.budget_hours else f'{args.budget_hours:.1f}h'}")
     meta = G.load_news_meta(args.mind_train, args.mind_dev)
+    cache_dir = args.cache_dir or os.path.join(args.work, "cache")
     if args.news_emb:
         z = np.load(args.news_emb, allow_pickle=True)
         emb = {str(i): v for i, v in zip(z["ids"], z["vecs"])}
         log(f"E0 <- {args.news_emb} ({len(emb):,} vectors)")
     else:
-        cache = os.path.join(args.work, "news_emb_E0.npz")
-        if os.path.exists(cache) and str(np.load(cache)["model_name"]) == f"{args.encoder}|{args.max_len}|{args.doc_prefix}":
-            z = np.load(cache, allow_pickle=True)
-            vecs = z["vecs"]
-        else:
-            enc = adapt.HFEncoder(args.encoder, max_len=args.max_len, device=device, prefix=args.doc_prefix)
-            t0 = time.time()
-            vecs = enc.encode(meta["text"], bs=args.enc_bs)
-            if EQUIV_REFERENCE is not None:  # catches a wrong pooling / EOS / prefix convention up front
-                ref = np.asarray(EQUIV_REFERENCE(meta["text"][:64]), np.float32)
-                cos = (vecs[:64] * ref).sum(1) / (np.linalg.norm(vecs[:64], axis=1) * np.linalg.norm(ref, axis=1) + 1e-8)
-                log(f"E0 guard: HFEncoder vs reference embeddings, min cos={cos.min():.4f} mean={cos.mean():.4f}")
-                if cos.min() < 0.99:
-                    raise RuntimeError("HFEncoder disagrees with the reference encoder (pooling/EOS/prefix) - fix before running")
-            np.savez(cache, ids=np.array(meta["ids"]), vecs=vecs, model_name=np.array(f"{args.encoder}|{args.max_len}|{args.doc_prefix}"))
-            log(f"E0 encoded with {args.encoder} in {time.time() - t0:.0f}s")
-            del enc
+        t0 = time.time()
+        vecs, secs = X.embed_news(meta, args.encoder, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
+        if EQUIV_REFERENCE is not None:
+            guard_embeddings(vecs, meta, EQUIV_REFERENCE)
+        log(f"E0 {'loaded from cache' if not secs else f'encoded with {args.encoder} in {secs:.0f}s'} ({vecs.shape[0]:,} x {vecs.shape[1]})")
         emb = dict(zip(meta["ids"], vecs))
     data = MindData.from_mind(args.mind_train, args.mind_dev, llm_embeddings=emb)
     assert data.n_news - 1 == len(meta["ids"]), "article order mismatch between loader and metadata"
     seen_tr, seen_va = G.observed_masks(data)
-    S = Suite(data, meta, data.llm_emb, device, args.work, seen_tr, seen_va)
-    stages = {"controls": stage_controls, "graph": stage_graph, "head": stage_head,
-              "encoder": stage_encoder, "histquery": stage_histquery}
+    S = Suite(data, meta, data.llm_emb, device, args.work, seen_tr, seen_va, args)
+    done = set() if args.no_resume else S.load_state()
+    if done:
+        log(f"resuming: stages already finished -> {sorted(done)} ({len(S.records)} rows restored)")
     wanted = [s for s in args.stages.split(",") if s]
     if "controls" not in wanted:
         wanted.insert(0, "controls")
+    unknown = [s for s in wanted if s not in STAGES]
+    if unknown:
+        raise SystemExit(f"unknown stages {unknown}; choose from {sorted(STAGES)}")
     for s in wanted:
+        if s in done:
+            log(f"-- stage '{s}' already finished (resume), skipped")
+            continue
+        if s != "controls" and common.out_of_time(args.min_stage_s):               # controls are the reference: always run
+            log(f"-- stage '{s}' SKIPPED: wall-clock budget exhausted ({common.CLOCK.elapsed() / 3600:.1f}h used)")
+            continue
+        S.records = [r for r in S.records if r.get("stage") != s]                  # a retried stage must not duplicate its rows
         t_stage = time.time()
+        S.stage = s
         try:
-            stages[s](S, args)
-            log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s")
+            STAGES[s](S, args)
+            done.add(s)
+            log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s (total {common.CLOCK.elapsed() / 3600:.2f}h)")
         except Exception:  # one failing stage must not discard the others
             log(f"\n!! stage '{s}' failed:\n{traceback.format_exc()}")
+        if device == "cuda":
+            torch.cuda.empty_cache()
         write_table(S, args.work)
+        S.save_state(done)
+    S.close()
     md = write_table(S, args.work)
     log("\n" + md)
     S.reps = summarize(S)

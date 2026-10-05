@@ -28,6 +28,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from common import load_hf
+
 
 # ------------------------------------------------------------------- pairs
 def build_pairs(data, k_anchor=3, max_pairs=200_000, seed=0):
@@ -100,7 +102,7 @@ HEADS = {"lin": ResLinear, "mlp": ResMLP}
 
 
 def train_head(E0, pairs, kind="lin", mrl=False, hardneg=False, epochs=3, bs=1024, lr=1e-3,
-               tau=0.05, seed=0, device="cpu", val_fn=None, log=print):
+               tau=0.05, seed=0, device="cpu", val_fn=None, deadline=None, log=print):
     """Train a residual head on precomputed vectors.  ``val_fn(E) -> float`` (higher is
     better) selects the epoch; epoch 0 (= frozen control) competes, so the returned
     embedding is never worse than frozen on validation."""
@@ -113,6 +115,8 @@ def train_head(E0, pairs, kind="lin", mrl=False, hardneg=False, epochs=3, bs=102
     dims = mrl_dims(E.shape[1]) if mrl else None
     best = (val_fn(E0) if val_fn else -math.inf, E0.copy(), 0)
     for ep in range(1, epochs + 1):
+        if deadline is not None and time.time() > deadline and ep > 1:
+            break
         perm = rng.permutation(len(A))
         head.train()
         tot, nb = 0.0, 0
@@ -149,15 +153,16 @@ class HFEncoder:
     """Plain Hugging Face encoder with explicit pooling (so LoRA/DoRA training and
     inference share one code path and no ST-version drift)."""
 
-    def __init__(self, name, pooling=None, max_len=128, device="cpu", trust_remote_code=False, prefix=""):
+    def __init__(self, name, pooling=None, max_len=128, device="cpu", trust_remote_code=False, prefix="",
+                 dtype=torch.float32):
         from transformers import AutoModel, AutoTokenizer
         self.name, self.max_len, self.device, self.prefix = name, max_len, device, prefix
         self.pooling = pooling or guess_pooling(name)
         self.tok = AutoTokenizer.from_pretrained(name, trust_remote_code=trust_remote_code)
         if self.pooling == "last":
             self.tok.padding_side = "left"
-        self.model = AutoModel.from_pretrained(name, trust_remote_code=trust_remote_code).to(device)
-        self.amp = device == "cuda"
+        self.model = load_hf(AutoModel, name, dtype, trust_remote_code).to(device)
+        self.amp = device == "cuda" and dtype == torch.float32        # fp32 master weights + fp16 autocast
 
     def _pool(self, out, attn):
         h = out.last_hidden_state
@@ -171,8 +176,11 @@ class HFEncoder:
     def embed(self, texts):
         batch = self.tok([self.prefix + t for t in texts], padding=True, truncation=True,
                          max_length=self.max_len, return_tensors="pt").to(self.device)
+        kw = {k: v for k, v in batch.items() if k in ("input_ids", "attention_mask", "token_type_ids")}
+        if self.pooling == "last":
+            kw["use_cache"] = False                                  # decoder-only embedders: no KV cache needed
         with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
-            out = self.model(**{k: v for k, v in batch.items() if k in ("input_ids", "attention_mask", "token_type_ids")})
+            out = self.model(**kw)
         return self._pool(out, batch["attention_mask"]).float()
 
     @torch.no_grad()
@@ -206,7 +214,7 @@ def check_equivalence(enc, st_encode, texts, tol=0.99):
 
 
 def train_encoder(enc, texts, pairs, E0, mode="lora", mrl=False, hardneg=True, epochs=1, bs=32,
-                  lr=2e-4, tau=0.05, seed=0, r=16, val_ids=None, val_fn=None, max_steps=None, log=print):
+                  lr=2e-4, tau=0.05, seed=0, r=16, val_ids=None, val_fn=None, max_steps=None, deadline=None, log=print):
     """Contrastive LoRA/DoRA training with the encoder in the loop.
 
     After every epoch only the articles needed for validation are re-encoded (``val_ids``);
@@ -249,6 +257,9 @@ def train_encoder(enc, texts, pairs, E0, mode="lora", mrl=False, hardneg=True, e
                 log(f"        step {step} loss={tot / nb:.4f} ({time.time() - t0:.0f}s)")
             if max_steps and step >= max_steps:
                 break
+            if deadline is not None and time.time() > deadline:
+                log(f"      [{mode}] deadline reached at step {step}")
+                break
         if val_fn is not None and val_ids is not None:
             Ea = E0.copy()
             Ea[val_ids] = enc.encode([texts[i] for i in val_ids])
@@ -259,7 +270,7 @@ def train_encoder(enc, texts, pairs, E0, mode="lora", mrl=False, hardneg=True, e
         if score > best_score:
             best_score, best_ep = score, ep
             best_state = {n: p.detach().clone() for n, p in named}
-        if max_steps and step >= max_steps:
+        if (max_steps and step >= max_steps) or (deadline is not None and time.time() > deadline):
             break
     info = {"best_epoch": best_ep, "val": float(best_score), "steps": step, "trainable": n_train}
     if best_ep == 0:

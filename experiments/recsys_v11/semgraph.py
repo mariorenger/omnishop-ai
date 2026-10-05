@@ -57,7 +57,7 @@ def load_news_meta(train_dir, dev_dir):
         return sorted(out)
 
     ents = [wikidata(by_id[i][3], by_id[i][4]) for i in ids]
-    return {"ids": ids, "titles": titles, "abstracts": abstracts,
+    return {"ids": ids, "titles": titles, "abstracts": abstracts, "cats": [by_id[i][0] for i in ids],
             "text": [(t + ". " + a).strip() for t, a in zip(titles, abstracts)], "ents": ents}
 
 
