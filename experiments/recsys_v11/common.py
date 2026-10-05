@@ -165,6 +165,11 @@ def fuse(parts):
     return f
 
 
+def pop_scorer(b):
+    """V10's online smoothed log-CTR of every candidate (counted only from strictly earlier impressions)."""
+    return b["pop"]
+
+
 class ScoreCache:
     """Raw per-candidate scores of an expensive scorer (SID language model, LLM tower, LLM judge), computed once
     per EvalSet so that fusion-weight grids are free."""

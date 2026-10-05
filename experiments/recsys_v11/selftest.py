@@ -216,6 +216,34 @@ print("RESULT", raised, a > 0, b > 0, c > 0)
     ok("(11) torchao 0.10 + recent peft: plain peft raises ImportError, our LoRA/DoRA encoder and LLM tower still attach")
 
 
+def test_popularity(S):
+    """(13) `frozen+pop` is V10's bge_zs_pop (z-score sum of BGE mean-pool and online popularity); every zero-shot variant has a `+pop` twin."""
+    E = S.E0
+    imps = []
+    for row in S.data.test:
+        h = list(row[2])[-50:]
+        u = E[h].mean(0) if h else np.zeros(E.shape[1], np.float32)
+        s1, s2 = (E[row[3]] @ u).astype(np.float64), np.asarray(row[5], np.float64)
+        z = lambda x: (x - x.mean()) / (np.sqrt(((x - x.mean()) ** 2).mean()) + 1e-6)
+        imps.append((np.array(row[4]), (z(s1) + z(s2)).astype(np.float32)))
+    ref = metrics.aggregate(imps)
+    got = S.cache["frozen+pop"]["test"]["mean"]
+    for k in ("auc", "mrr", "ndcg@5", "ndcg@10"):
+        assert abs(ref[k] - got[k]) < 1e-4, f"frozen+pop != V10-style bge_zs_pop for {k}: {got[k]} vs {ref[k]}"
+    imps = [(np.array(r[4]), np.asarray(r[5], np.float32)) for r in S.data.test]
+    ref = metrics.aggregate(imps)
+    got = S.cache["popularity"]["test"]["mean"]
+    assert all(abs(ref[k] - got[k]) < 1e-4 for k in ("auc", "mrr", "ndcg@5", "ndcg@10"))
+    twins = {r["name"] for r in S.records if r["family"].endswith("+pop")}
+    need = {"pool_recency+pop", "pool_maxsim+pop", "pool_topk+pop", "pool_lse+pop", "entity_rag+pop", "knn_rag+pop", "head_lin+pop",
+            "histq_instr+pop", "sid_profile+pop", "sid_profile+meanpool+pop", "sid_gpt+pop", "lora+mrl+hn+pop"}
+    assert not (need - twins), f"missing popularity twins: {sorted(need - twins)}"
+    assert all(S.row(n)["ref"] == "frozen+pop" for n in twins)
+    assert len(S.reps_pop) >= 3 and all(r["family"].endswith("+pop") for r in S.reps_pop)
+    ok(f"(13) popularity: frozen+pop == V10-style bge_zs_pop and popularity == raw pop (metrics.py); {len(twins)} '+pop' twins, "
+       f"{len(S.reps_pop)} families in the with-popularity summary")
+
+
 def test_identical_verdict(S):
     """(12) a variant that reproduces its reference exactly must read 'identical', not 'WORSE' because of float rounding."""
     mp = R.mean_pool_scorer(S.tensor(S.E0))
@@ -483,6 +511,7 @@ def main():
 
     test_cache_fuse_subset(S)
     test_identical_verdict(S)
+    test_popularity(S)
     test_v10_equivalence(S.data, S.E0)
 
     # (8) direction-vs-direction comparison and per-impression arrays
@@ -525,6 +554,9 @@ def main():
     assert os.path.getsize(gen_cache) > 0
     rows = suite.leaderboard([S, SB], ["A", "B"], ("A", "frozen"), os.path.join(tmp, "leaderboard.md"))
     assert len(rows) > 20 and os.path.getsize(os.path.join(tmp, "leaderboard.md")) > 0
+    rows_pop = suite.leaderboard([S, SB], ["A", "B"], ("A", "frozen+pop"), os.path.join(tmp, "leaderboard_pop.md"), pop=True)
+    assert len(rows_pop) > 15 and all(x["family"].endswith("+pop") or x["family"] == "control" for x in rows_pop)
+    assert all(x["family"] != "control" or x["name"] in ("popularity", "frozen+pop") for x in rows_pop)
     test_masks_and_tower(dec_dir, SB.data, SB.E0, SB.titles)
 
     # ---------------- wall-clock budget: a (practically) zero budget skips every optional stage but still writes outputs

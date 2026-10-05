@@ -54,16 +54,17 @@ class EvalSet:
         cand = np.zeros((B, C), np.int64)
         cm = np.zeros((B, C), bool)
         lab = np.zeros((B, C), np.float32)
+        pop = np.zeros((B, C), np.float32)
         user = np.zeros(B, np.int64)
         for k, r in enumerate(idx):
-            _, u, h, c, y, _ = self.rows[r]
+            _, u, h, c, y, pp = self.rows[r]
             h = list(h)[-H:]
             hist[k, :len(h)], hm[k, :len(h)] = h, True
-            cand[k, :len(c)], cm[k, :len(c)], lab[k, :len(c)] = c, True, y
+            cand[k, :len(c)], cm[k, :len(c)], lab[k, :len(c)], pop[k, :len(c)] = c, True, y, pp
             user[k] = u
         t = lambda x: torch.from_numpy(x).to(self.device)
         return {"rows": idx, "hist": t(hist), "hist_mask": t(hm), "cand": t(cand),
-                "cand_mask": t(cm), "labels": t(lab), "user": t(user)}
+                "cand_mask": t(cm), "labels": t(lab), "user": t(user), "pop": t(pop)}
 
 
 def batch_metrics(S, Y, M):

@@ -181,8 +181,17 @@ class Suite:
             + (f" | cold AUC={row.get('cold_auc', float('nan')):.4f}" if "cold_auc" in row else ""))
         return row
 
-    def select(self, name, family, configs, make, ref_name, extra=None, es=None):
-        """Generic grid: choose the config on validation, report it on test once."""
+    def pop_twin(self, name, family, cfg, make, es, extra=None):
+        """Same scorer + V10's online popularity (equal-weight z-score sum, exactly V10's ``bge_zs_pop`` recipe), reference ``frozen+pop``."""
+        sc = lambda sp: common.fuse([(make(cfg, sp), 1.0), (common.pop_scorer, 1.0)])
+        return self.record(f"{name}+pop", f"{family}+pop", {**cfg, "base": name}, self.run(sc("val"), "val", es=es),
+                           self.run(sc("test"), "test", es=es), "frozen+pop", extra)
+
+    def want_pop(self, ref_name):
+        return bool(getattr(self.args, "with_pop", 0)) and ref_name == "frozen" and "frozen+pop" in self.cache
+
+    def select(self, name, family, configs, make, ref_name, extra=None, es=None, pop=None):
+        """Generic grid: choose the config on validation, report it on test once (plus its popularity twin)."""
         best = None
         for cfg in configs:
             v = self.run(make(cfg, "val"), "val", es=es)
@@ -192,7 +201,10 @@ class Suite:
                 best = (v, cfg)
         v, cfg = best
         t = self.run(make(cfg, "test"), "test", es=es)
-        return self.record(name, family, cfg, v, t, ref_name, extra)
+        row = self.record(name, family, cfg, v, t, ref_name, extra)
+        if self.want_pop(ref_name) if pop is None else pop:
+            self.pop_twin(name, family, cfg, make, es, extra)
+        return row
 
     def export(self, name, E, model_name):
         path = os.path.join(self.work, f"emb_{name}.npz")
@@ -245,6 +257,16 @@ def stage_controls(S, args):
             f"{'MATCH' if ok else 'MISMATCH - check input text / truncation / embedding file'}")
     if t.get("cold_frac") is not None:
         log(f"  clicked articles that are cold (unseen in training rows): {t['cold_frac']:.1%}")
+    mp = R.mean_pool_scorer(E)
+    pv, pt = S.run(common.pop_scorer, "val"), S.run(common.pop_scorer, "test")
+    rp = S.record("popularity", "control", {"note": "V10 online smoothed log-CTR, content-free"}, pv, pt, "frozen")
+    fz = common.fuse([(mp, 1.0), (common.pop_scorer, 1.0)])
+    rf = S.record("frozen+pop", "control", {"note": "V10 bge_zs_pop: z(BGE mean-pool) + z(popularity)"}, S.run(fz, "val"), S.run(fz, "test"), "frozen")
+    if args.repro_pop:
+        a1, n1, a2, n2 = (float(x) for x in args.repro_pop.split(","))
+        ok = (abs(rp["auc"] - a1) < 0.003 and abs(rp["ndcg@10"] - n1) < 0.003 and abs(rf["auc"] - a2) < 0.003 and abs(rf["ndcg@10"] - n2) < 0.003)
+        log(f"  reproduction check vs V10 popularity (AUC {a1}, nDCG@10 {n1}) and bge_zs_pop (AUC {a2}, nDCG@10 {n2}): "
+            f"{'MATCH' if ok else 'MISMATCH - popularity plumbing differs from V10'}")
     Er = np.random.default_rng(0).standard_normal(S.E0.shape).astype(np.float32)
     Er[0] = 0
     Er[1:] /= np.linalg.norm(Er[1:], axis=1, keepdims=True)
@@ -303,6 +325,12 @@ def _seed_runs(S, name, family, cfg, train_fn, ref, seeds, trunc=None):
         Em = Em / (np.linalg.norm(Em, axis=1, keepdims=True) + 1e-8)
         extra[f"ndcg10@{m}d"] = S.run(R.mean_pool_scorer(S.tensor(Em)), "test")["mean"]["ndcg@10"]
     S.record(name, family, cfg, avg_results(vals), avg_results(tests), ref, extra)
+    if S.want_pop("frozen"):
+        pv, pt = [], []
+        for E in Es:
+            fz = common.fuse([(R.mean_pool_scorer(S.tensor(E)), 1.0), (common.pop_scorer, 1.0)])
+            pv.append(S.run(fz, "val")), pt.append(S.run(fz, "test"))
+        S.record(f"{name}+pop", f"{family}+pop", {**cfg, "base": name}, avg_results(pv), avg_results(pt), "frozen+pop", extra)
     return Es[0]
 
 
@@ -363,6 +391,9 @@ def stage_encoder(S, args):
                  {"trainable": info["trainable"], "steps": info["steps"], "train_s": time.time() - t0,
                   "truncated": bool(info["steps"] < min(args.enc_steps, args.epochs_enc * (len(pairs[0]) // args.bs_enc)))})
         S.export(name, E, args.encoder)
+        if S.want_pop("frozen"):
+            fz = common.fuse([(R.mean_pool_scorer(S.tensor(E)), 1.0), (common.pop_scorer, 1.0)])
+            S.record(f"{name}+pop", "H2-adapt+pop", {"mode": mode, "mrl": mrl, "r": args.lora_r, "base": name}, S.run(fz, "val"), S.run(fz, "test"), "frozen+pop")
         del enc
         if S.device == "cuda":
             torch.cuda.empty_cache()
@@ -434,14 +465,16 @@ def _val_key(r):
     return r.get("val_delta", r["val_ndcg@10"])
 
 
-def summarize(S):
+def summarize(S, pop=False):
     """One representative per family, chosen on VALIDATION (never on test), then compared with its control.  The verdict is also
-    Bonferroni-adjusted for the number of families, because picking 'the best of m directions' is a multiple-comparison decision."""
+    Bonferroni-adjusted for the number of families, because picking 'the best of m directions' is a multiple-comparison decision.
+    ``pop=False``: content-only variants vs ``frozen``;  ``pop=True``: the same variants fused with popularity vs ``frozen+pop`` (= V10 ``bge_zs_pop``)."""
     from statistics import NormalDist
-    log("\n================ DECISION SUMMARY ================")
+    log("\n================ DECISION SUMMARY WITH POPULARITY (control = frozen+pop = V10 bge_zs_pop) ================" if pop
+        else "\n================ DECISION SUMMARY (content only; control = frozen) ================")
     by_h = {}
     for r in S.records:
-        if r["family"] != "control" and "verdict" in r:
+        if r["family"] != "control" and "verdict" in r and r["family"].endswith("+pop") == pop:
             by_h.setdefault(r["family"], []).append(r)
     if not by_h:
         return []
@@ -530,7 +563,7 @@ def plot_forest(rows, path, top=32):
     return path
 
 
-def leaderboard(suites, tags, ref, path=None, top=None, plot=None):
+def leaderboard(suites, tags, ref, path=None, top=None, plot=None, pop=False):
     """One table over several runs (e.g. BGE-small and Qwen3-Embedding), each row compared on the common impressions with a single
     global reference ``ref = (tag, row name)`` -- by default the BGE-small frozen embedding (the V10-comparable control)."""
     by_tag = dict(zip(tags, suites))
@@ -538,8 +571,14 @@ def leaderboard(suites, tags, ref, path=None, top=None, plot=None):
     rows = []
     for tag, S in by_tag.items():
         for r in S.records:
-            if (r["family"] == "control" and r["name"] != "frozen") or r["family"] == "H10-user-model":
+            if r["family"] == "H10-user-model":
                 continue                                              # learned user models have their own control (um_frozen)
+            keep_controls = ("popularity", "frozen+pop") if pop else ("frozen",)
+            if r["family"] == "control":
+                if r["name"] not in keep_controls:
+                    continue
+            elif r["family"].endswith("+pop") != pop:
+                continue                                              # content-only and popularity-fused variants are ranked separately
             t = S.cache[r["name"]]["test"]
             d = R.compare(t, ref_res, "ndcg@10")
             if np.isnan(d[0]):
@@ -582,6 +621,8 @@ def build_parser():
     ap.add_argument("--budget-hours", type=float, default=0.0, help="shared wall-clock budget; long loops stop gracefully (0 = unlimited)")
     ap.add_argument("--min-stage-s", type=float, default=300.0, help="do not start a stage with less than this left")
     ap.add_argument("--no-resume", action="store_true")
+    ap.add_argument("--with-pop", type=int, default=1, help="also report every zero-shot variant fused with V10's online popularity (rows '+pop')")
+    ap.add_argument("--repro-pop", default=None, help='V10 "popularity_auc,popularity_ndcg10,bge_zs_pop_auc,bge_zs_pop_ndcg10" (0.6533,0.4026,0.6769,0.4330)')
     ap.add_argument("--pairs", type=int, default=200_000)
     ap.add_argument("--pairs-enc", type=int, default=100_000)
     ap.add_argument("--epochs-head", type=int, default=3)
@@ -731,8 +772,11 @@ def main(argv=None):
     log("\n" + md)
     S.reps = summarize(S)
     S.h2h = head_to_head(S, S.reps)
-    with open(os.path.join(args.work, "head_to_head.json"), "w", encoding="utf-8") as f:
-        json.dump(S.h2h, f, indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
+    S.reps_pop = summarize(S, pop=True)
+    S.h2h_pop = head_to_head(S, S.reps_pop)
+    for fn, obj in (("head_to_head.json", S.h2h), ("head_to_head_pop.json", S.h2h_pop)):
+        with open(os.path.join(args.work, fn), "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
     log(f"per-impression arrays -> {save_arrays(S)}")
     return S
 

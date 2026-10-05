@@ -1,11 +1,11 @@
-"""Build the self-contained Kaggle notebook ``v11_full_suite_v4.ipynb`` from the module files.
+"""Build the self-contained Kaggle notebook ``v11_full_suite_v5.ipynb`` from the module files.
 
 Bump NOTEBOOK when the content changes: Kaggle caches notebooks by file name."""
 import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOK = "v11_full_suite_v4.ipynb"
+NOTEBOOK = "v11_full_suite_v5.ipynb"
 MODULES = ["data.py", "metrics.py", "common.py", "rep_eval.py", "semgraph.py", "adapt.py", "pooling.py", "sid.py",
            "llm_user.py", "llm_gen.py", "usermodel.py", "stages_ext.py", "suite.py"]
 
@@ -57,7 +57,9 @@ chạy lại cell sẽ **resume** các stage đã xong).
 **Kết quả:** `results.md` của từng run, **DECISION SUMMARY** (đại diện từng hướng, chọn theo validation, Bonferroni), **HEAD-TO-HEAD**, **LEADERBOARD** chung + `forest.png`,
 `test_arrays.npz` (metric theo từng impression để phân tích ghép cặp tiếp mà không chạy lại).
 
-Dòng đầu của kết quả là **reproduction check**: `frozen` phải khớp V10 `bge_zeroshot` (AUC 0.6241, nDCG@10 0.3909). Nếu in `MISMATCH` thì dừng và sửa trước khi tin bất kỳ dòng nào."""),
+Mọi biến thể zero-shot đều có **bản sinh đôi `+pop`** (gộp z-score với popularity online của V10, công thức đúng của `bge_zs_pop`) để trả lời: *kỹ thuật này còn đóng góp gì khi đã có popularity?* — trong V10, `popularity` đơn thuần (nDCG@10 0.4026) đã vượt mọi model nơ-ron huấn luyện và `bge_zs_pop` (0.4330) là model tốt nhất.
+
+Dòng đầu của kết quả là **reproduction check**: `frozen` phải khớp V10 `bge_zeroshot` (AUC 0.6241, nDCG@10 0.3909). Nếu in `MISMATCH` thì dừng và sửa trước khi tin bất kỳ dòng nào. Tương tự, `popularity` phải khớp (AUC 0.6533, nDCG@10 0.4026) và `frozen+pop` khớp `bge_zs_pop` (0.6769 / 0.4330)."""),
          md("### 0. Phụ thuộc và GPU"),
          code('''%pip install -q "transformers>=4.51" peft sentence-transformers
 import subprocess
@@ -129,7 +131,7 @@ def reference_encoder(name, max_len):
     return ref
 
 COMMON = ["--mind-train", MIND_TRAIN, "--mind-dev", MIND_DEV, "--cache-dir", CACHE, "--device", DEVICE, "--budget-hours", str(BUDGET_H)]
-repro = ["--repro", "0.6241,0.3909", "--um-repro", "0.6494,0.3997"] if "bge-small-en-v1.5" in ENCODER_A else []
+repro = ["--repro", "0.6241,0.3909", "--um-repro", "0.6494,0.3997", "--repro-pop", "0.6533,0.4026,0.6769,0.4330"] if "bge-small-en-v1.5" in ENCODER_A else []
 
 A_BASE = ["--encoder", ENCODER_A, "--work", WORK + "/bge", "--max-len", "256", "--q-max-len", "384", "--hist-k", "10",
           "--sweep-encoders", SWEEP, *repro]
@@ -176,9 +178,10 @@ except Exception as e:
     print("!! RUN A (second part) FAILED:", repr(e)[:300], "-> the results of the first part are still in", WORK + "/bge")
 gc.collect(); torch.cuda.empty_cache()
 '''),
-    md("### 8. Leaderboard chung (một control toàn cục = BGE-small frozen, đúng V10) và forest plot"),
+    md("### 8. Leaderboard chung (control toàn cục = BGE-small frozen, đúng V10) và forest plot; bảng thứ hai là các biến thể gộp với popularity (control = `frozen+pop` = V10 `bge_zs_pop`)"),
     code('''runs, tags = [S] + ([SB] if SB is not None else []), ["bge-small"] + (["qwen3-0.6b"] if SB is not None else [])
 rows = suite.leaderboard(runs, tags, ("bge-small", "frozen"), WORK + "/leaderboard.md", plot=WORK + "/forest.png")
+rows_pop = suite.leaderboard(runs, tags, ("bge-small", "frozen+pop"), WORK + "/leaderboard_pop.md", plot=WORK + "/forest_pop.png", pop=True)
 '''),
     md("### 9. Kết quả đầy đủ"),
     code('''for sub in ("bge", "qwen3"):
@@ -199,6 +202,8 @@ print("files:", sorted(os.listdir(WORK)))
 | **H6/H9** thắng | "LLM-as-augmenter / LLM-as-reranker" (chi phí suy luận cao — nói rõ trong luận văn) |
 | **H2** thắng | "Collaborative-aware adaptation của embedding LLM" |
 | **H10** (`um_*`) không còn thắng | cải thiện biểu diễn bị user model học được "nuốt" — kết luận quan trọng cho luận văn |
+| Thắng ở bảng *content only* nhưng **không** thắng ở bảng *with popularity* | kỹ thuật chỉ bù chỗ popularity đã làm — hợp cho **cold-start** (bài chưa có CTR), không hợp cho xếp hạng chung |
+| Thắng cả hai bảng | đóng góp thật, không bị popularity "nuốt" |
 | Không hướng nào | **Kết quả âm có giá trị**: mean-pool của embedding đóng băng đã gần trần trên MIND-small ⇒ MIND-large / EB-NeRD |
 
 Lưu ý: dòng chạy trên **tập con** (cột `n test` nhỏ hơn 73k) so sánh với control **trên đúng các impression đó** (cột `ref nDCG@10`); con số tuyệt đối của chúng không so trực tiếp với dòng chạy toàn bộ."""),

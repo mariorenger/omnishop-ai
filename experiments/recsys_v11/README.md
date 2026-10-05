@@ -38,11 +38,12 @@ OneRec (RQ-Kmeans), LLMRank (ECIR'24), KAR (RecSys'24), arXiv 2506.05690. Các m
 * **Lát cắt tin mới/tin cũ**: *cold* = bài được click mà các dòng train không hề quan sát — nơi embedding LLM lẽ ra phải thắng.
 * **Kiểm tra tái lập**: `frozen` phải khớp V10 `bge_zeroshot` (AUC 0.6241, nDCG@10 0.3909) và `um_frozen` phải gần V10 `llmenc_ca` (0.6494 / 0.3997, dung sai 0.01 vì V10 chỉ 1 seed). (V10 embed bằng Sentence-Transformers với `max_seq_length` mặc định 512 của BGE; ở đây cắt 256 token — chênh lệch không đáng kể vì gần như mọi bài MIND < 256 token; nếu `MISMATCH` thì thử `--max-len 512`.) **Guard pooling**: `HFEncoder` được so với Sentence-Transformers trên 64 bài trước khi chạy (bắt lỗi pooling/EOS/prefix, quan trọng với Qwen3 dùng last-token pooling).
 * **Leaderboard chung** (một control toàn cục = BGE-small frozen) + `forest.png`; hàng H10 bị loại khỏi leaderboard vì có control riêng (`um_frozen`).
+* **Hai khung so sánh**: *content only* (control `frozen`) và *with popularity* (mọi biến thể zero-shot có bản sinh đôi `+pop`, control `frozen+pop` = V10 `bge_zs_pop`; kèm `leaderboard_pop.md`, `forest_pop.png`, `head_to_head_pop.json`). Lý do: trong bảng V10, `popularity` thuần (nDCG@10 0.4026) đã vượt mọi model nơ-ron huấn luyện (NAML 0.3953, llmenc_ca 0.3997, NRMS 0.3685, Fastformer 0.3642) và `bge_zs_pop` (0.4330) là model tốt nhất — nên một kỹ thuật LLM chỉ thật sự có giá trị nếu còn đóng góp *khi đã có popularity* (hoặc nếu nhắm cold-start, nơi popularity chưa có). `controls` kiểm tra `popularity` và `frozen+pop` khớp V10 (`--repro-pop`).
 * **Ngân sách đồng hồ chung** (`--budget-hours`): vòng lặp dài nhận `deadline` và dừng êm, stage nào không còn thời gian bị bỏ qua, kết quả được ghi sau *từng* stage; gọi lại sẽ **resume** (`state.pkl`, chỉ khi dữ liệu *và mọi tham số ảnh hưởng kết quả* giống hệt — QUICK không bao giờ lẫn vào bản đầy đủ). Dòng bị cắt giữa chừng được gắn cờ (`truncated`, `queries_missing`) để không so sánh nhầm.
 
 ## 3. Chạy
 
-**Kaggle:** upload `v11_full_suite_v4.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
+**Kaggle:** upload `v11_full_suite_v5.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
 Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; phần BGE đã đo thật ≈ 13 phút trên Kaggle, phần Qwen3/LLM chưa đo (ước ~30–60 phút vì phải encode 65k bài bằng Qwen3, chạy Louvain và tải model); mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template). Chỉ thử BGE: `V11_RUN_B=0`.
 
 | Biến môi trường | Mặc định | Ý nghĩa |
@@ -106,14 +107,14 @@ tốc độ sinh văn bản của Qwen3-1.7B; thời gian Louvain trên ~50k bà
 ## 7. Hạn chế cần nói trong luận văn
 
 Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed** (chênh lệch nhỏ hơn ~0.005 nDCG@10 giữa các mask có thể là nhiễu huấn luyện). Dòng chạy tập con (H5/H6/H9) có CI rộng hơn: chỉ phát hiện được hiệu ứng lớn.
-`soft` ≠ Gradient-Guided Soft Masking. Giám khảo LLM 1.7B pointwise zero-shot khá yếu so với các hệ rerank mạnh. Entity graph dựa trên chú thích Wikidata của MIND. Popularity/CTR online **cố ý không** dùng.
+`soft` ≠ Gradient-Guided Soft Masking. Giám khảo LLM 1.7B pointwise zero-shot khá yếu so với các hệ rerank mạnh. Entity graph dựa trên chú thích Wikidata của MIND. Popularity (CTR online của V10) **không** nằm trong các hàng gốc; nó chỉ xuất hiện ở các hàng sinh đôi `+pop` (cùng cấu hình, gộp z-score 1:1 như `bge_zs_pop`, không tinh chỉnh trọng số; hàng `rerank_*` không có bản `+pop`).
 Đo ở mức biểu diễn zero-shot cho phần lớn họ; H10 là cầu nối sang user model học được nhưng vẫn chỉ là một kiến trúc (V10 `llmenc_ca`).
 
 ## 8. Bản đồ file
 
 `data.py`/`metrics.py` (V10, nguyên văn) · `common.py` (đồng hồ ngân sách, fusion, `ScoreCache`, `HistQueries`) · `rep_eval.py` (evaluator vector hoá, CI ghép cặp, so sánh qua tập con) ·
 `semgraph.py` (RAG/GraphRAG-lite) · `adapt.py` (head, LoRA/DoRA, MRL) · `pooling.py` (H8) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10) ·
-`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v11_full_suite_v4.ipynb`.
+`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v11_full_suite_v5.ipynb`.
 
 ## 9. Tài liệu
 
