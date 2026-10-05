@@ -129,7 +129,7 @@ def evaluate(score_fn, evalset, seen=None):
         pnews.append(b["cand"].cpu().numpy()[pm])
         pauc.append(m["pos_auc"].cpu().numpy()[pm])
         prow.append(np.repeat(r, pm.sum(1)))
-    out = {"arr": arr,
+    out = {"arr": arr, "ids": np.asarray(getattr(evalset, "ids", np.arange(evalset.n))),
            "pos_news": np.concatenate(pnews), "pos_auc": np.concatenate(pauc),
            "pos_row": np.concatenate(prow)}
     out["mean"] = {"auc": float(np.nanmean(arr["auc"])),
@@ -182,18 +182,33 @@ def ratio_ci(d, groups=None, z=1.96):
     return float(m), float(m - z * se), float(m + z * se)
 
 
+def _align(res, ref):
+    """Indices that pair up the impressions two results have in common (full set vs a random subset)."""
+    a, b = res["ids"], ref["ids"]
+    if len(a) == len(b) and np.array_equal(a, b):
+        return slice(None), slice(None)
+    _, ia, ib = np.intersect1d(a, b, return_indices=True)
+    return ia, ib
+
+
 def compare(res, ref, key="ndcg@10"):
-    """Paired difference ``res - ref`` of an impression-level metric with a 95% CI."""
-    return ratio_ci(res["arr"][key] - ref["arr"][key])
+    """Paired difference ``res - ref`` of an impression-level metric with a 95% CI (common impressions only)."""
+    ia, ib = _align(res, ref)
+    return ratio_ci(res["arr"][key][ia] - ref["arr"][key][ib])
 
 
 def compare_slice(res, ref, which="cold"):
-    """Paired difference of the positive-level AUC on cold (or warm) clicked articles."""
-    sel = res["cold"] if which == "cold" else ~res["cold"]
+    """Paired difference of the positive-level AUC on cold (or warm) clicked articles.  Clicked articles
+    are matched on (original impression id, article id), so results over different EvalSets compare."""
+    big = int(max(res["pos_news"].max(initial=0), ref["pos_news"].max(initial=0))) + 1
+    ka = res["ids"][res["pos_row"]].astype(np.int64) * big + res["pos_news"]
+    kb = ref["ids"][ref["pos_row"]].astype(np.int64) * big + ref["pos_news"]
+    _, pa, pb = np.intersect1d(ka, kb, return_indices=True)
+    sel = res["cold"][pa] if which == "cold" else ~res["cold"][pa]
     if not sel.any():
         return float("nan"), float("nan"), float("nan")
-    d = res["pos_auc"] - ref["pos_auc"]
-    return ratio_ci(d[sel], groups=res["pos_row"][sel])
+    d = (res["pos_auc"][pa] - ref["pos_auc"][pb])[sel]
+    return ratio_ci(d, groups=(ka[pa] // big)[sel])
 
 
 def verdict(lo, hi):
