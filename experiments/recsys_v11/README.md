@@ -24,7 +24,7 @@ Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM 
 | **H8** | Pooling: trọng số **recency** `exp(-λ·tuổi)`, **MaxSim** (late interaction), top-k, log-sum-exp | ColBERT (SIGIR'20) | — | `pooling` |
 | **H9** | **LLM judge zero-shot** xếp lại top-10 của mean-pool: log-odds `Yes−No` token đầu tiên của câu trả lời (Qwen3-1.7B, tắt thinking), prompt = 8 tiêu đề gần nhất + tiêu đề/chuyên mục ứng viên; ± gộp với điểm gốc | LLMRank "LLMs are Zero-Shot Rankers" (ECIR'24); LLM4Rerank (WWW'25) | LLM4Rerank dạng CoT/đồ thị nhiều mục tiêu; listwise | `rerank` |
 | **H10** | User model **học được** = bản sao V10 `llmenc_ca` (đã kiểm: điểm số giống hệt mã V10) trên từng biểu diễn (frozen / head tốt nhất / LoRA tốt nhất / entity_rag / kNN-RAG) — cải thiện biểu diễn có sống sót khi đã có user model không? | V10 | — | `usermodel` |
-| — | Quét encoder: TF-IDF+LSA (sàn từ vựng), BGE small/base/large, Qwen3-Embedding-0.6B | MTEB; Qwen3-Embedding | Qwen3-Embedding-4B/8B (tuỳ chọn, tốn ≳ 1 giờ/bản) | `sweep` |
+| — | Quét encoder: TF-IDF+LSA (sàn từ vựng), BGE small/base/large, Qwen3-Embedding-0.6B | MTEB; Qwen3-Embedding | Qwen3-Embedding-4B/8B **chưa hỗ trợ** (cần nạp fp16; với mã hiện tại nạp fp32 sẽ hết bộ nhớ T4 và stage `sweep` chỉ ghi log rồi bỏ qua) | `sweep` |
 
 Các venue/tên bài được **tra cứu lại bằng web trong phiên này**: arXiv 2602.10622, LLM2Vec (COLM'24), LLM4Rerank (WWW'25), TIGER (NeurIPS'23), LETTER (**CIKM'24**, không phải SIGIR'25 như ghi nhầm trước đây),
 OneRec (RQ-Kmeans), LLMRank (ECIR'24), KAR (RecSys'24), arXiv 2506.05690. Các mục còn lại lấy từ khảo sát trước trong `docs/research/`.
