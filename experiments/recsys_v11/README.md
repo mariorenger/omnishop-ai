@@ -1,13 +1,11 @@
 # V11 — bộ so sánh đầy đủ các hướng LLM cho news recommendation (MIND-small)
 
-**Một lần Run All trên Kaggle (T4/P100) ≈ 6.5–8.5 giờ, ngân sách đồng hồ cứng 9.5 giờ** cho ~13 họ kỹ thuật / ~100 biến thể,
+**Một lần Run All trên Kaggle (T4) — đã đo 3,2 giờ cho bản v4; bản hiện tại ước ~5,5–6 giờ; ngân sách đồng hồ cứng 9.5 giờ** cho ~13 họ kỹ thuật / ~100 biến thể,
 tất cả đo trên đúng giao thức V10, có khoảng tin cậy ghép cặp, lát cắt tin mới/tin cũ và hiệu chỉnh Bonferroni.
 Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM nào đáng làm luận văn, bằng bằng chứng có CI**.
 
-> ⚠️ **Trạng thái trung thực.** Toàn bộ code đã được kiểm thử đầu-cuối **trên CPU** với dữ liệu đúng định dạng MIND và các mô hình
-> ngẫu nhiên tí hon (BERT, Qwen3). **Chưa có con số nào trên MIND thật, chưa đo thời gian trên GPU, chưa chạy với weight thật
-> của BGE / Qwen3** (sandbox phát triển không có GPU, không tải được weight, không có MIND). Mọi thời gian ở dưới là **ước lượng từ FLOPs**.
-> Số liệu quyết định hướng đi do **lần chạy Kaggle của bạn** tạo ra.
+> ⚠️ **Trạng thái trung thực.** Code được kiểm thử trên CPU với dữ liệu đúng định dạng MIND và các mô hình ngẫu nhiên tí hon; sandbox phát triển không có GPU/MIND/weight.
+> Các con số trên MIND thật (và thời gian) đến từ **các lần chạy Kaggle của bạn** (v4 đầy đủ trên Tesla T4: 3,2 giờ); README không chép lại kết quả — xem `results.md`, `leaderboard*.md`, `direct_comparisons.md` của lần chạy.
 
 ## 1. Giả thuyết ↔ kỹ thuật ↔ paper ↔ mức độ cài đặt
 
@@ -64,16 +62,16 @@ python suite.py --mind-train /data/MINDsmall_train --mind-dev /data/MINDsmall_de
 python make_notebook.py       # sinh lại notebook (đổi NOTEBOOK trong file để tránh cache của Kaggle)
 ```
 
-## 4. Thời gian ước tính (T4; chỉ có một số đo thật: QUICK phần BGE ≈ 13 phút — nhanh hơn ước lượng, nên các con số dưới đây có thể dư; mỗi run in `STAGE TIMINGS` và lưu `timings.json` để hiệu chỉnh)
+## 4. Thời gian (đã đo ở lần chạy đầy đủ v4: Tesla T4, chỉ dùng 1 trong 2 GPU)
 
-| Phần | Nội dung | Ước tính |
+| Phần | Số đo thật (giây) | Ghi chú |
 |---|---|---|
-| **A-core** (BGE-small) | E0 3' · controls 1' · pooling 3' · graph (Louvain ×2, RAG, user-RAG) 20–30' · head (6×3 seed) 20' · histquery 12' · sid (RQ-KMeans, SID-GPT, chấm cả slate) 20–25' | 1.1–1.5 h |
-| **B** (Qwen3-Embedding-0.6B + Qwen3-1.7B) | E0 15' · histquery (tập con) 11' · **llm_user 3 mode × 32–40'** · rerank ≤35' · augment ≤35' · graphrag_llm 15' · pooling+graph+head 35' · usermodel 22' | 3.8–4.8 h |
-| **A-phần còn lại** | encoder LoRA/DoRA ×3 ≈ 60' · usermodel (5 view × 2 seed) 35' · sweep (bge-base 3', bge-large 10', Qwen3 đã cache) 18' | 1.6–2.2 h |
-| **Tổng** | | **≈ 6.5–8.5 h** (chặn ở 9.5 h) |
+| **A-core** (BGE-small) | E0 33 · controls 5 · pooling 19 · graph 77 · head 176 · histquery 145 · sid 572 | **17 phút** (chấm cả slate bằng SID-GPT = 321 s) |
+| **B** (Qwen3-Embedding-0.6B + Qwen3-1.7B) | E0 544 · histquery 321 · **llm_user 1989 (một mode)** · rerank 960 · augment 1181 · graphrag_llm 108 · pooling 25 · graph 71 · head 133 · usermodel 494 | **88 phút** |
+| **A-phần còn lại** | encoder LoRA/DoRA ×3 3672 · usermodel 537 · sweep (4 encoder) 334 | **75 phút** |
+| **Tổng v4** | | **3,22 giờ** |
 
-Nếu GPU chậm hơn dự kiến, thứ tự ưu tiên là: A-core → B → A-phần còn lại, nên thứ bị bỏ trước là LoRA/DoRA, sweep, user model của run A. Muốn chắc chắn dưới 6 giờ: `V11_BUDGET_H=6`.
+Bản v6 thêm: 2 mode tower nữa (bidir, soft) + causal seed 1 (≈ +100 phút), tập test tower 30k thay vì 15k (≈ +40 phút), tower BGE (≈ +5 phút), các hàng `+pop` (≈ +15 phút), quét thêm 3 encoder (≈ +15 phút) ⇒ **ước ~5,5–6 giờ**. Mỗi run in `STAGE TIMINGS` và lưu `timings.json`. Nếu cần ngắn hơn: `V11_BUDGET_H=4` hoặc bớt `causal@1` khỏi `--llm-user-modes`.
 
 ## 5. Cách đọc kết quả → hướng luận văn
 
@@ -100,6 +98,8 @@ mô phỏng "Run All" của notebook (QUICK) từ thư mục trống trên fixtu
 tốc độ sinh văn bản của Qwen3-1.7B; thời gian Louvain trên ~50k bài; bộ nhớ GPU khi chạy tower (có tự giảm batch khi OOM).
 
 ## 6b. Sự cố môi trường đã gặp khi chạy thật
+
+* **Probe mask loại nhầm `bidir` và `soft`** (lần chạy đầy đủ v4): tiêu chí `soft(λ=1e-6) ≈ causal` quá chặt với LLM thật (đo được 0,099 trên Qwen3 vì logit rất lớn ở vài token đặc biệt; trong khi `causal-4D == native` và `soft(1) == bidir` đều chính xác 0,0). Đã đổi: số đó chỉ để tham khảo, `probe_ok()` chỉ kiểm tra 3 điều kiện còn lại; lịch trình `soft` bắt đầu đúng bằng causal (λ=0). Test tái hiện báo cáo thật trong `selftest.py`.
 
 * **`ImportError: Found an incompatible version of torchao`** (peft từ chối torchao 0.10 có sẵn trong ảnh Kaggle ngay khi gắn LoRA; lộ ra ở stage `encoder`, và sẽ chặn cả `llm_user`): đã vá bằng `common.fix_peft_torchao()` (coi torchao là không có — ta không dùng nó), có test tái hiện bằng torchao giả trong `selftest.py`.
 * Dòng `WORSE` với Δ = −0.0000 [−0.0000, −0.0000] ở các head không học được gì (adapter giữ nguyên epoch 0 = frozen): do làm tròn float32/float64 giữa dòng mới và dòng tham chiếu; đã sửa, giờ in `identical`.

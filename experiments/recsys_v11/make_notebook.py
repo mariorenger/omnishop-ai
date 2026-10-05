@@ -1,11 +1,11 @@
-"""Build the self-contained Kaggle notebook ``v11_full_suite_v5.ipynb`` from the module files.
+"""Build the self-contained Kaggle notebook ``v11_full_suite_v6.ipynb`` from the module files.
 
 Bump NOTEBOOK when the content changes: Kaggle caches notebooks by file name."""
 import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOK = "v11_full_suite_v5.ipynb"
+NOTEBOOK = "v11_full_suite_v6.ipynb"
 MODULES = ["data.py", "metrics.py", "common.py", "rep_eval.py", "semgraph.py", "adapt.py", "pooling.py", "sid.py",
            "llm_user.py", "llm_gen.py", "usermodel.py", "stages_ext.py", "suite.py"]
 
@@ -50,7 +50,7 @@ tách **tin mới (cold) / tin cũ (warm)**, hiệu chỉnh **Bonferroni**, và 
 **Cách chạy:** (1) Settings → Accelerator **GPU (T4/P100)**, Internet **On**. (2) *Add Input* → dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev`
 (ví dụ `thinhhuynh3108/mindsmall`). (3) **Run All**. Lần đầu nên đặt `QUICK = True` để bắt lỗi môi trường rồi chạy đầy đủ (phần BGE của QUICK đã đo thật ≈ 13 phút trên Kaggle; phần Qwen3/LLM chưa đo, ước ~30–60 phút vì phải encode 65k bài bằng Qwen3, chạy Louvain và tải model); chỉ thử BGE: `V11_RUN_B=0`.
 
-**Thời gian ước tính trên T4 (CHƯA đo — ước lượng từ FLOPs):** A-core ≈ 1.1–1.5 h · B (Qwen3-Embedding + LLM) ≈ 3.8–4.8 h · A-phần còn lại ≈ 1.6–2.2 h ⇒ **~6.5–8.5 h**.
+**Thời gian (đã đo ở lần chạy đầy đủ v4 trên Tesla T4, chỉ dùng 1 GPU): 3,2 giờ** — A-core 17 phút · B 88 phút (một mode tower = 33 phút) · A-phần còn lại 75 phút. Bản này thêm 2 mode tower nữa (bidir, soft), 1 lần chạy lại causal với seed khác, tower BGE, các hàng `+pop`, tập test tower 30k và quét thêm encoder ⇒ **ước ~5,5–6 giờ**.
 `BUDGET_H` (mặc định 9.5) là ngân sách đồng hồ chung: mọi vòng lặp dài tự dừng, stage nào không còn thời gian thì bị bỏ qua (kết quả luôn được ghi sau từng stage;
 chạy lại cell sẽ **resume** các stage đã xong).
 
@@ -139,17 +139,18 @@ B_BASE = ["--encoder", ENCODER_B, "--work", WORK + "/qwen3", "--max-len", "256",
           "--hq-plain", "0", "--hq-subset", "1", "--gen-model", GEN_MODEL, "--um-views", "frozen,head,entity_rag"]
 A_QUICK = ["--seeds", "1", "--pairs", "20000", "--pairs-enc", "3000", "--enc-steps", "60", "--epochs-head", "1", "--betas", "0.5",
            "--knn-k", "10", "--lams", "1.0", "--gammas", "0.5", "--bs-enc", "16", "--hq-plain", "0", "--sid-epochs", "1", "--sid-steps", "300",
-           "--sid-val-n", "500", "--um-epochs", "2", "--um-seeds", "1", "--um-views", "frozen,head"]
+           "--sid-val-n", "500", "--um-epochs", "2", "--um-seeds", "1", "--um-views", "frozen,head",
+           "--llm-user-steps", "60", "--llm-user-bs", "16", "--llm-val-n", "400", "--llm-test-n", "1000"]
 B_QUICK = ["--seeds", "1", "--pairs", "20000", "--epochs-head", "1", "--betas", "0.5", "--knn-k", "10", "--lams", "1.0", "--gammas", "0.5",
            "--llm-user-modes", "causal,soft", "--llm-user-steps", "60", "--llm-user-bs", "8", "--llm-val-n", "400", "--llm-test-n", "1000",
            "--gen-val-n", "60", "--gen-test-n", "150", "--augment-minutes", "4", "--rerank-val-n", "40", "--rerank-test-n", "100",
            "--rerank-minutes", "4", "--gr-max-comm", "30", "--um-epochs", "2", "--um-seeds", "1", "--um-views", "frozen"]
 A1 = "controls,pooling,graph,head,histquery,sid"
-A2 = A1 + ",encoder,usermodel,sweep"
+A2 = A1 + ",encoder,llm_user,usermodel,sweep"
 B_STAGES = "controls,histquery,llm_user,rerank,augment,graphrag_llm,pooling,graph,head,usermodel"
 if QUICK:                                              # smoke test: every stage family runs once, at toy sizes (Louvain only inside graphrag_llm)
     A1 = "controls,pooling,head,histquery,sid"
-    A2 = A1 + ",encoder,usermodel"
+    A2 = A1 + ",encoder,llm_user,usermodel"
     B_STAGES = "controls,histquery,llm_user,rerank,augment,graphrag_llm,usermodel"
 A_ARGS, B_ARGS = [*COMMON, *A_BASE, *(A_QUICK if QUICK else [])], [*COMMON, *B_BASE, *(B_QUICK if QUICK else [])]
 '''),
@@ -182,6 +183,13 @@ gc.collect(); torch.cuda.empty_cache()
     code('''runs, tags = [S] + ([SB] if SB is not None else []), ["bge-small"] + (["qwen3-0.6b"] if SB is not None else [])
 rows = suite.leaderboard(runs, tags, ("bge-small", "frozen"), WORK + "/leaderboard.md", plot=WORK + "/forest.png")
 rows_pop = suite.leaderboard(runs, tags, ("bge-small", "frozen+pop"), WORK + "/leaderboard_pop.md", plot=WORK + "/forest_pop.png", pop=True)
+Q, B = "qwen3-0.6b", "bge-small"
+pairs = [((Q, "ut_causal+meanpool"), (B, "pool_lse")), ((Q, "ut_causal"), (B, "ut_native")), ((Q, "ut_causal+meanpool"), (B, "ut_native+meanpool")),
+         ((Q, "ut_bidir"), (Q, "ut_causal")), ((Q, "ut_soft"), (Q, "ut_causal")), ((Q, "ut_bidir"), (Q, "ut_soft")),
+         ((Q, "ut_causal@1"), (Q, "ut_causal")),                                   # same recipe, different seed: the training-noise floor
+         ((B, "pool_lse"), (B, "um_frozen")), ((B, "um_knn_rag"), (B, "pool_lse")), ((Q, "ut_causal+meanpool"), (B, "um_knn_rag")),
+         ((Q, "ut_causal+meanpool+pop"), (B, "pool_lse+pop")), ((Q, "ut_causal+meanpool+pop"), (B, "frozen+pop")), ((B, "pool_lse+pop"), (B, "frozen+pop"))]
+direct = suite.cross_compare(runs, tags, pairs, WORK + "/direct_comparisons.md")
 '''),
     md("### 9. Kết quả đầy đủ"),
     code('''for sub in ("bge", "qwen3"):

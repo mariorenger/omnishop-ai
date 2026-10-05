@@ -537,6 +537,30 @@ def save_arrays(S):
     return path
 
 
+def cross_compare(suites, tags, pairs, path=None):
+    """Direct paired comparison between named rows of (possibly different) runs on their common impressions:
+    ``pairs = [((tag_a, name_a), (tag_b, name_b)), ...]`` -> Δ nDCG@10 and Δ cold AUC of A - B with 95% CIs."""
+    by_tag = dict(zip(tags, suites))
+    lines = ["| A | B | common impressions | Δ nDCG@10 (A-B) [95% CI] | Δ cold AUC (A-B) [95% CI] | verdict |", "|---|---|---|---|---|---|"]
+    out = []
+    for (ta, na), (tb, nb) in pairs:
+        try:
+            a, b = by_tag[ta].cache[na]["test"], by_tag[tb].cache[nb]["test"]
+        except KeyError as e:
+            log(f"  cross_compare: {ta}:{na} vs {tb}:{nb} skipped (missing {e})")
+            continue
+        d, c = R.compare(a, b, "ndcg@10"), R.compare_slice(a, b, "cold")
+        n = int(len(np.intersect1d(a["ids"], b["ids"])))
+        out.append({"a": f"{ta}:{na}", "b": f"{tb}:{nb}", "n": n, "d_ndcg@10": d, "d_cold_auc": c})
+        lines.append(f"| {ta}:{na} | {tb}:{nb} | {n:,} | {fmt_ci(d)} | {fmt_ci(c)} | {R.verdict(d[1], d[2])} |")
+    md = "\n".join(lines)
+    log("\n================ DIRECT COMPARISONS ACROSS RUNS (paired, common impressions) ================\n" + md)
+    if path:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Direct paired comparisons between rows (A - B)\n\n" + md + "\n")
+    return out
+
+
 def plot_forest(rows, path, top=32):
     """Forest plot of the paired Δ nDCG@10 (95% CI) of the best rows vs the reference; returns the path (None if matplotlib is missing)."""
     try:
@@ -656,17 +680,18 @@ def build_parser():
     ap.add_argument("--sid-val-n", type=int, default=3000)
     ap.add_argument("--sid-ws", type=float, nargs="+", default=[0.25, 0.5, 1.0, 2.0])
     # encoder sweep
-    ap.add_argument("--sweep-encoders", default="BAAI/bge-base-en-v1.5,BAAI/bge-large-en-v1.5,Qwen/Qwen3-Embedding-0.6B")
+    ap.add_argument("--sweep-encoders", default="BAAI/bge-base-en-v1.5,BAAI/bge-large-en-v1.5,BAAI/bge-m3,thenlper/gte-base,"
+                                                 "sentence-transformers/all-mpnet-base-v2,sentence-transformers/all-MiniLM-L6-v2,Qwen/Qwen3-Embedding-0.6B")
     ap.add_argument("--lsa-dim", type=int, default=256)
     # LLM user tower
-    ap.add_argument("--llm-user-modes", default="causal,bidir,soft")
+    ap.add_argument("--llm-user-modes", default="causal,bidir,soft,causal@1")
     ap.add_argument("--llm-user-steps", type=int, default=800)
     ap.add_argument("--llm-user-bs", type=int, default=16)
     ap.add_argument("--llm-user-lr", type=float, default=1e-4)
     ap.add_argument("--llm-user-r", type=int, default=16)
     ap.add_argument("--llm-user-shared", type=int, default=1, help="share all positives and impression negatives of the batch as negatives")
     ap.add_argument("--llm-val-n", type=int, default=5000)
-    ap.add_argument("--llm-test-n", type=int, default=15000)
+    ap.add_argument("--llm-test-n", type=int, default=30000)
     ap.add_argument("--llm-enc-bs", type=int, default=64)
     ap.add_argument("--ut-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
     # learned user model

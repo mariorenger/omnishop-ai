@@ -254,6 +254,19 @@ def test_identical_verdict(S):
     ok("(12) identical results give an exact zero difference and the verdict 'identical'")
 
 
+def test_probe_criteria():
+    """(14) the first Kaggle run measured soft(1e-6) vs causal = 0.099 on the real Qwen3 (huge logits on special tokens) while everything else was
+    exact; that report must pass, a model that ignores the 4D mask must not, and soft(0) must be exactly causal."""
+    real = {"causal_4d_vs_native": 0.0, "bidir_vs_causal": 0.44879, "soft1_vs_bidir": 0.0, "soft0_vs_causal": 0.09895}
+    assert llm_user.probe_ok(real)
+    assert not llm_user.probe_ok({**real, "bidir_vs_causal": 0.0})               # mask silently ignored
+    assert not llm_user.probe_ok({**real, "causal_4d_vs_native": 0.2})           # hand-built causal mask disagrees with the native path
+    attn = torch.tensor([[0, 1, 1, 1], [1, 1, 1, 1]])
+    assert bool((llm_user.build_mask(attn, "soft", 0.0, torch.float32) == llm_user.build_mask(attn, "causal", 1.0, torch.float32)).all())
+    assert bool((llm_user.build_mask(attn, "soft", 1.0, torch.float32) == llm_user.build_mask(attn, "bidir", 1.0, torch.float32)).all())
+    ok("(14) mask probe: the real-Qwen3 report passes, ignored/wrong masks fail; soft(0) == causal and soft(1) == bidir exactly")
+
+
 def test_shared_loss():
     """(4c) shared-negative InfoNCE: B=1 equals plain InfoNCE; a candidate equal to another row's positive is masked."""
     torch.manual_seed(0)
@@ -404,7 +417,8 @@ RUN_A = ["--max-len", "32", "--q-max-len", "64", "--seeds", "2", "--pairs", "300
          "--epochs-enc", "1", "--enc-steps", "8", "--bs-enc", "8", "--lora-r", "4", "--enc-bs", "64", "--device", "cpu", "--hist-k", "8",
          "--betas", "0.5", "1.0", "--knn-k", "5", "10", "--lams", "0.5", "1.0", "--gammas", "0.5", "--sid-k", "8", "--sid-d", "64",
          "--sid-layers", "2", "--sid-heads", "2", "--sid-epochs", "12", "--sid-lr", "3e-3", "--sid-val-n", "100", "--sid-bs", "64",
-         "--um-epochs", "4", "--um-seeds", "1", "--lsa-dim", "32", "--no-resume"]
+         "--um-epochs", "4", "--um-seeds", "1", "--lsa-dim", "32", "--llm-user-steps", "40", "--llm-user-bs", "8", "--llm-user-r", "4",
+         "--llm-user-lr", "3e-3", "--llm-val-n", "100", "--llm-test-n", "150", "--no-resume"]
 
 
 def main():
@@ -417,6 +431,7 @@ def main():
     build_tiny_decoder(dec_dir, texts)
     mind = ["--mind-train", f"{tmp}/train", "--mind-dev", f"{tmp}/dev"]
 
+    test_probe_criteria()
     test_shared_loss()
     test_torchao_shim(tmp)
     test_sid()
@@ -432,7 +447,7 @@ def main():
     suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", part1, "--sweep-encoders", dec_dir, *RUN_A[:-1]])
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        S = suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", f"{part1},encoder,usermodel,sweep", "--sweep-encoders", dec_dir,
+        S = suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", f"{part1},encoder,llm_user,usermodel,sweep", "--sweep-encoders", dec_dir,
                         *RUN_A[:-1]])                                                       # no --no-resume: must pick up state.pkl
     text = buf.getvalue()
     print(text[-3500:])
@@ -452,7 +467,8 @@ def main():
     expected = {"frozen", "random_vec", "frozen_hf", "pool_recency", "pool_maxsim", "pool_topk", "pool_lse", "entity_rag", "knn_rag",
                 "community_graphrag", "user_rag", "head_lin", "head_mlp+hn+mrl", "lora+mrl+hn", "dora+mrl+hn", "histq_instr",
                 "histq_plain+meanpool", "sid_profile", "sid_profile+meanpool", "sid_gpt", "sid_gpt_pmi", "sid_gpt+meanpool",
-                "um_frozen", "um_head", "um_encoder", "um_entity_rag", "um_knn_rag", "enc_tfidf_lsa", "enc_tinyqwen3embedding"}
+                "um_frozen", "um_head", "um_encoder", "um_entity_rag", "um_knn_rag", "enc_tfidf_lsa", "enc_tinyqwen3embedding",
+                "ut_native", "ut_native+meanpool"}
     assert not (expected - names), f"missing rows: {sorted(expected - names)}"
     assert len([r for r in S.records if r["name"] == "frozen"]) == 1 and len(names) == len(S.records), "duplicate rows after resume"
     for r in S.records:
@@ -542,7 +558,7 @@ def main():
                      "--gr-max-comm", "10", "--gr-titles", "4", "--no-resume",
                      "--stages", "controls,histquery,llm_user,rerank,augment,graphrag_llm,pooling,graph,head,usermodel"])
     nb = {r["name"] for r in SB.records}
-    exp_b = {"frozen", "histq_instr", "histq_instr+meanpool", "ut_causal", "ut_bidir", "ut_soft", "ut_causal+meanpool", "ut_soft+meanpool",
+    exp_b = {"frozen", "histq_instr", "histq_instr+meanpool", "ut_causal", "ut_bidir", "ut_soft", "ut_causal+meanpool", "ut_soft+meanpool", "ut_causal@1",
              "rerank_llm", "rerank_fused", "kar_item", "kar_user", "kar_user+meanpool", "kar_item+user", "community_llm", "community_llm_ctx",
              "um_frozen", "um_head", "um_entity_rag", "entity_rag", "head_lin"}
     assert not (exp_b - nb), f"run B missing rows: {sorted(exp_b - nb)}"
@@ -557,6 +573,11 @@ def main():
     rows_pop = suite.leaderboard([S, SB], ["A", "B"], ("A", "frozen+pop"), os.path.join(tmp, "leaderboard_pop.md"), pop=True)
     assert len(rows_pop) > 15 and all(x["family"].endswith("+pop") or x["family"] == "control" for x in rows_pop)
     assert all(x["family"] != "control" or x["name"] in ("popularity", "frozen+pop") for x in rows_pop)
+    cc = suite.cross_compare([S, SB], ["A", "B"], [(("B", "ut_causal"), ("B", "ut_bidir")), (("B", "ut_causal@1"), ("B", "ut_causal")),
+                                                    (("B", "ut_causal+meanpool"), ("A", "pool_lse")), (("A", "ut_native"), ("B", "ut_causal")),
+                                                    (("B", "nope"), ("A", "pool_lse"))], os.path.join(tmp, "direct.md"))
+    assert len(cc) == 4 and all(np.isfinite(x["d_ndcg@10"][0]) for x in cc) and cc[0]["n"] > 50      # the unknown row is skipped, not fatal
+    ok("(15) direct paired comparison across runs/subsets works (unknown rows are skipped)")
     test_masks_and_tower(dec_dir, SB.data, SB.E0, SB.titles)
 
     # ---------------- wall-clock budget: a (practically) zero budget skips every optional stage but still writes outputs

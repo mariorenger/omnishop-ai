@@ -167,7 +167,7 @@ def stage_llm_user(S, args):
     from llm_user import UserTower, probe_masks, train_user_tower
     log("\n== H5 fine-tuned LLM user tower: history-as-text, LoRA, causal / bidirectional / soft attention mask ==")
     dec = decoder_only(args.encoder)
-    modes = [m for m in args.llm_user_modes.split(",") if m] if dec else ["native"]
+    modes = [m for m in args.llm_user_modes.split(",") if m] if dec else ["native"]     # "causal@1" = the causal mode with training seed 1 (noise estimate)
     K, fam = args.hist_k, "H5-LLM-user"
     hq = HistQueries(S.data, S.titles, K)
     sets = {sp: S.subset(sp, n) for sp, n in (("val", args.llm_val_n), ("test", args.llm_test_n))}
@@ -186,17 +186,20 @@ def stage_llm_user(S, args):
         missing = int((np.abs(Q[qi]).sum(1) == 0).sum())
         if missing:
             log(f"      WARNING: {missing:,}/{len(qi):,} {sp} queries were not encoded (wall-clock budget) - their rows score as ties")
-            S.kv.setdefault("queries_missing", {})[f"{tw.mode}/{sp}"] = missing
+            S.kv.setdefault("queries_missing", {})[f"{tw.label}/{sp}"] = missing
         return Q
 
-    for mode in modes:
+    for label in modes:
+        mode, _, sd = label.partition("@")
+        seed = int(sd) if sd else 0
         if S.time_left() < 1800:
-            log(f"  {mode}: skipped (wall-clock budget)")
+            log(f"  {label}: skipped (wall-clock budget)")
             continue
         tw = UserTower(args.encoder, mode, prefix=pre, max_len=args.q_max_len, device=S.device)
+        tw.label = label
         if dec and mode != "causal":
             ok, rep = probe_masks(tw, probe_texts)
-            log(f"  attention-mask probe for '{mode}': {'OK' if ok else 'FAILED -> variant skipped'} {({k: round(v, 5) if isinstance(v, float) else v for k, v in rep.items()})}")
+            log(f"  attention-mask probe for '{label}': {'OK' if ok else 'FAILED -> variant skipped'} {({k: round(v, 5) if isinstance(v, float) else v for k, v in rep.items()})}")
             if not ok:
                 del tw
                 continue
@@ -208,18 +211,18 @@ def stage_llm_user(S, args):
 
         info = train_user_tower(tw, qfn, S.data.train_core, E_doc, kind="lora", steps=args.llm_user_steps, bs=args.llm_user_bs,
                                 lr=args.llm_user_lr, r=args.llm_user_r, eval_fn=eval_fn, shared_negs=bool(args.llm_user_shared),
-                                deadline=S.deadline(0.3), log=log)
+                                seed=seed, deadline=S.deadline(0.3), log=log)
         info["truncated"] = bool(info["steps"] < args.llm_user_steps)
         if info["truncated"]:
-            log(f"      WARNING: '{mode}' trained {info['steps']}/{args.llm_user_steps} steps (wall-clock budget) - not comparable with the other masks")
+            log(f"      WARNING: '{label}' trained {info['steps']}/{args.llm_user_steps} steps (wall-clock budget) - not comparable with the other masks")
         Qv = info.pop("payload") if info.get("payload") is not None else encode_split(tw, "val")
         Qt = encode_split(tw, "test")
         info.pop("losses", None)
         sc = {"val": hq.scorer(Qv, E_doc, "val", S.device, ids=sets["val"][0]),
               "test": hq.scorer(Qt, E_doc, "test", S.device, ids=sets["test"][0])}
-        S.select(f"ut_{mode}", fam, [{"mode": mode, "steps": args.llm_user_steps, "r": args.llm_user_r}], lambda c, sp: sc[sp],
+        S.select(f"ut_{label}", fam, [{"mode": mode, "seed": seed, "steps": args.llm_user_steps, "r": args.llm_user_r}], lambda c, sp: sc[sp],
                  "frozen", info, es=es)
-        S.select(f"ut_{mode}+meanpool", fam, [{"mode": mode, "w": w} for w in args.ut_ws],
+        S.select(f"ut_{label}+meanpool", fam, [{"mode": mode, "seed": seed, "w": w} for w in args.ut_ws],
                  lambda c, sp: fuse([(mp, 1.0), (sc[sp], c["w"])]), "frozen", info, es=es)
         del tw
         if S.device == "cuda":

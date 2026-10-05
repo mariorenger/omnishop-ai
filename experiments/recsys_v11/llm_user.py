@@ -49,8 +49,10 @@ def build_mask(attn, mode, lam, dtype):
     else:
         allow = valid.expand(B, 1, T, T) | eye
     bias = torch.zeros(B, 1, T, T, dtype=torch.float32, device=dev)
-    if mode == "soft" and lam < 1.0:
-        bias = bias + torch.where(tril, 0.0, math.log(max(lam, 1e-6)))
+    if mode == "soft" and lam <= 0.0:                                           # lambda = 0 is exactly causal
+        allow = (tril & valid) | eye
+    elif mode == "soft" and lam < 1.0:
+        bias = bias + torch.where(tril, 0.0, math.log(max(lam, 1e-9)))
     neg = torch.finfo(dtype).min
     return torch.where(allow, bias, torch.full_like(bias, neg)).to(dtype)
 
@@ -187,9 +189,14 @@ def probe_masks(tower, texts, tol=5e-3):
         tower.model.train(was)
         return False, {"error": repr(e)[:200]}
     tower.model.train(was)
-    ok = (rep["causal_4d_vs_native"] < tol and rep["bidir_vs_causal"] > 1e-6
-          and rep["soft1_vs_bidir"] < tol and rep["soft0_vs_causal"] < tol)
-    return ok, rep
+    return probe_ok(rep, tol), rep
+
+
+def probe_ok(rep, tol=5e-3):
+    """Pass/fail of a probe report.  ``soft0_vs_causal`` (lambda = 1e-6) is informational only: real LLMs put huge attention logits on a
+    few special tokens (e.g. the final EOS), so a -13.8 bias does not make future tokens negligible even though the mask code is right
+    (the first Kaggle run measured 0.099 there while causal-4D == native and soft(1) == bidir were exact)."""
+    return bool(rep["causal_4d_vs_native"] < tol and rep["bidir_vs_causal"] > 1e-6 and rep["soft1_vs_bidir"] < tol)
 
 
 def shared_negative_loss(z, E_doc, pos, negs, tau=0.05):
@@ -264,7 +271,7 @@ def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=1
         if deadline is not None and time.time() > deadline:
             log(f"      [tower] deadline reached at step {step - 1}/{steps}")
             break
-        tower.lam = min(1.0, step / max(ramp * steps, 1)) if tower.mode == "soft" else 1.0
+        tower.lam = min(1.0, (step - 1) / max(ramp * steps, 1)) if tower.mode == "soft" else 1.0     # step 1 is exactly causal
         ix = order[(step - 1) * bs:step * bs]
         sel = [rows[i] for i in ix]
         z = tower.embed([query_fn(rw[1]) for rw in sel])
