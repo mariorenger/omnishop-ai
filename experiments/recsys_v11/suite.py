@@ -345,7 +345,8 @@ def stage_encoder(S, args):
     S.record("frozen_hf", "control", {"max_len": args.max_len}, S.run(R.mean_pool_scorer(Et), "val"),
              S.run(R.mean_pool_scorer(Et), "test"), "frozen_hf")
     del enc0
-    for mode, mrl in (("lora", True), ("dora", True), ("lora", False)):
+    variants = (("lora", True), ("dora", True), ("lora", False))
+    for i, (mode, mrl) in enumerate(variants):
         if S.time_left() < 1800:
             log(f"  {mode}: skipped (wall-clock budget)")
             continue
@@ -354,11 +355,12 @@ def stage_encoder(S, args):
         t0 = time.time()
         E, info = adapt.train_encoder(enc, texts, pairs, Ef, mode=mode, mrl=mrl, hardneg=True,
                                       epochs=args.epochs_enc, bs=args.bs_enc, r=args.lora_r, val_ids=val_ids,
-                                      val_fn=S.val_ndcg, max_steps=args.enc_steps, deadline=S.deadline(0.15), log=log)
+                                      val_fn=S.val_ndcg, max_steps=args.enc_steps, deadline=S.deadline(0.45 / (len(variants) - i)), log=log)
         Et = S.tensor(E)
         S.record(name, "H2-adapt", {"mode": mode, "mrl": mrl, "r": args.lora_r}, S.run(R.mean_pool_scorer(Et), "val"),
                  S.run(R.mean_pool_scorer(Et), "test"), "frozen_hf",
-                 {"trainable": info["trainable"], "steps": info["steps"], "train_s": time.time() - t0})
+                 {"trainable": info["trainable"], "steps": info["steps"], "train_s": time.time() - t0,
+                  "truncated": bool(info["steps"] < min(args.enc_steps, args.epochs_enc * (len(pairs[0]) // args.bs_enc)))})
         S.export(name, E, args.encoder)
         del enc
         if S.device == "cuda":
