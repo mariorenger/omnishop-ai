@@ -48,7 +48,7 @@ tách **tin mới (cold) / tin cũ (warm)**, hiệu chỉnh **Bonferroni**, và 
 | — | quét encoder: TF-IDF/LSA, BGE small/base/large, Qwen3-Embedding | `sweep` |
 
 **Cách chạy:** (1) Settings → Accelerator **GPU (T4/P100)**, Internet **On**. (2) *Add Input* → dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev`
-(ví dụ `thinhhuynh3108/mindsmall`). (3) **Run All**. Lần đầu nên đặt `QUICK = True` (~45–60 phút) để bắt lỗi môi trường rồi chạy đầy đủ.
+(ví dụ `thinhhuynh3108/mindsmall`). (3) **Run All**. Lần đầu nên đặt `QUICK = True` (~60–90 phút, chủ yếu là encode toàn bộ 65k bài hai lần, Louvain và tải model) để bắt lỗi môi trường rồi chạy đầy đủ; muốn thử nhanh hơn nữa: `V11_RUN_B=0` (~30 phút, chỉ BGE).
 
 **Thời gian ước tính trên T4 (CHƯA đo — ước lượng từ FLOPs):** A-core ≈ 1.1–1.5 h · B (Qwen3-Embedding + LLM) ≈ 3.8–4.8 h · A-phần còn lại ≈ 1.6–2.2 h ⇒ **~6.5–8.5 h**.
 `BUDGET_H` (mặc định 9.5) là ngân sách đồng hồ chung: mọi vòng lặp dài tự dừng, stage nào không còn thời gian thì bị bỏ qua (kết quả luôn được ghi sau từng stage;
@@ -68,7 +68,7 @@ cells += [writefile(m) for m in MODULES]
 cells += [
     md("### 2. Cấu hình"),
     code('''import os, glob, sys, gc, time
-QUICK = bool(int(os.environ.get("V11_QUICK", "0")))              # True: bản rút gọn (~45-60 phút) để bắt lỗi môi trường trên dữ liệu thật
+QUICK = bool(int(os.environ.get("V11_QUICK", "0")))              # True: bản rút gọn (~60-90 phút) để bắt lỗi môi trường trên dữ liệu thật
 BUDGET_H = float(os.environ.get("V11_BUDGET_H", "9.5"))          # ngân sách đồng hồ chung cho cả notebook (giờ)
 ENCODER_A = os.environ.get("V11_ENCODER", "BAAI/bge-small-en-v1.5")        # run A: encoder nhỏ, đúng control của V10
 ENCODER_B = os.environ.get("V11_ENCODER_B", "Qwen/Qwen3-Embedding-0.6B")   # run B: LLM embedding (decoder-only)
@@ -141,13 +141,14 @@ A_QUICK = ["--seeds", "1", "--pairs", "20000", "--pairs-enc", "3000", "--enc-ste
 B_QUICK = ["--seeds", "1", "--pairs", "20000", "--epochs-head", "1", "--betas", "0.5", "--knn-k", "10", "--lams", "1.0", "--gammas", "0.5",
            "--llm-user-modes", "causal,soft", "--llm-user-steps", "60", "--llm-user-bs", "8", "--llm-val-n", "400", "--llm-test-n", "1000",
            "--gen-val-n", "60", "--gen-test-n", "150", "--augment-minutes", "4", "--rerank-val-n", "40", "--rerank-test-n", "100",
-           "--rerank-minutes", "4", "--gr-max-comm", "30", "--um-epochs", "2", "--um-seeds", "1", "--um-views", "frozen,head"]
+           "--rerank-minutes", "4", "--gr-max-comm", "30", "--um-epochs", "2", "--um-seeds", "1", "--um-views", "frozen"]
 A1 = "controls,pooling,graph,head,histquery,sid"
 A2 = A1 + ",encoder,usermodel,sweep"
 B_STAGES = "controls,histquery,llm_user,rerank,augment,graphrag_llm,pooling,graph,head,usermodel"
-if QUICK:
+if QUICK:                                              # smoke test: every stage family runs once, at toy sizes (Louvain only inside graphrag_llm)
+    A1 = "controls,pooling,head,histquery,sid"
     A2 = A1 + ",encoder,usermodel"
-    B_STAGES = "controls,histquery,llm_user,rerank,augment,graphrag_llm,head,usermodel"
+    B_STAGES = "controls,histquery,llm_user,rerank,augment,graphrag_llm,usermodel"
 A_ARGS, B_ARGS = [*COMMON, *A_BASE, *(A_QUICK if QUICK else [])], [*COMMON, *B_BASE, *(B_QUICK if QUICK else [])]
 '''),
     md("### 5. Run A — phần lõi (H1, H2-head, H3, H4, H7, H8)"),
@@ -158,13 +159,21 @@ gc.collect(); torch.cuda.empty_cache()
     md("### 6. Run B — LLM embedding + LLM sinh văn bản (H5 tower causal/bidir/soft, H9 judge, H6 augment, H4b GraphRAG-LLM, …)"),
     code('''SB = None
 if RUN_B:
-    suite.EQUIV_REFERENCE = reference_encoder(ENCODER_B, 256)
-    SB = suite.main([*B_ARGS, "--stages", B_STAGES])
+    try:
+        suite.EQUIV_REFERENCE = reference_encoder(ENCODER_B, 256)
+        SB = suite.main([*B_ARGS, "--stages", B_STAGES])
+    except Exception as e:                       # e.g. model download failed: keep the A results and still run the rest
+        import traceback; traceback.print_exc()
+        print("!! RUN B FAILED:", repr(e)[:300], "-> continuing with the remaining runs")
     gc.collect(); torch.cuda.empty_cache()
 '''),
     md("### 7. Run A — phần còn lại (LoRA/DoRA, user model học được, quét encoder); resume từ state.pkl"),
     code('''suite.EQUIV_REFERENCE = reference_encoder(ENCODER_A, 256)
-S = suite.main([*A_ARGS, "--stages", A2])
+try:
+    S = suite.main([*A_ARGS, "--stages", A2])
+except Exception as e:
+    import traceback; traceback.print_exc()
+    print("!! RUN A (second part) FAILED:", repr(e)[:300], "-> the results of the first part are still in", WORK + "/bge")
 gc.collect(); torch.cuda.empty_cache()
 '''),
     md("### 8. Leaderboard chung (một control toàn cục = BGE-small frozen, đúng V10) và forest plot"),

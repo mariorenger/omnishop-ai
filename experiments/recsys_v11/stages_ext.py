@@ -207,7 +207,8 @@ def stage_llm_user(S, args):
             return S.run(hq.scorer(Q, E_doc, "val", S.device, ids=sets["val"][0]), "val", es=es)["mean"]["ndcg@10"]
 
         info = train_user_tower(tw, qfn, S.data.train_core, E_doc, kind="lora", steps=args.llm_user_steps, bs=args.llm_user_bs,
-                                lr=args.llm_user_lr, r=args.llm_user_r, eval_fn=eval_fn, deadline=S.deadline(0.3), log=log)
+                                lr=args.llm_user_lr, r=args.llm_user_r, eval_fn=eval_fn, shared_negs=bool(args.llm_user_shared),
+                                deadline=S.deadline(0.3), log=log)
         info["truncated"] = bool(info["steps"] < args.llm_user_steps)
         if info["truncated"]:
             log(f"      WARNING: '{mode}' trained {info['steps']}/{args.llm_user_steps} steps (wall-clock budget) - not comparable with the other masks")

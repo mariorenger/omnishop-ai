@@ -617,6 +617,7 @@ def build_parser():
     ap.add_argument("--llm-user-bs", type=int, default=16)
     ap.add_argument("--llm-user-lr", type=float, default=1e-4)
     ap.add_argument("--llm-user-r", type=int, default=16)
+    ap.add_argument("--llm-user-shared", type=int, default=1, help="share all positives and impression negatives of the batch as negatives")
     ap.add_argument("--llm-val-n", type=int, default=5000)
     ap.add_argument("--llm-test-n", type=int, default=15000)
     ap.add_argument("--llm-enc-bs", type=int, default=64)

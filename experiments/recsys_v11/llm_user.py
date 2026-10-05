@@ -190,6 +190,21 @@ def probe_masks(tower, texts, tol=5e-3):
     return ok, rep
 
 
+def shared_negative_loss(z, E_doc, pos, negs, tau=0.05):
+    """InfoNCE of each query against ALL positives and ALL impression negatives of the batch (``B + B*K`` candidates) instead of
+    only its own K negatives.  The document tower is frozen, so the extra negatives cost nothing.  A candidate that is the same
+    article as a row's positive (but sits in another column) is masked: it would be a false negative."""
+    a = F.normalize(z, dim=-1)
+    ids = torch.cat([pos, negs.reshape(-1)])
+    C = F.normalize(E_doc[ids], dim=-1)
+    logits = a @ C.T / tau
+    B = len(pos)
+    ar = torch.arange(B, device=z.device)
+    same = ids[None, :] == pos[:, None]
+    same[ar, ar] = False
+    return F.cross_entropy(logits.masked_fill(same, float("-inf")), ar)
+
+
 def fit_batch_size(tower, texts, bs, params, log=log):
     """Dry-run forward+backward on the longest queries; halve the batch while the GPU runs out of memory
     (a failure 30 minutes into training would cost the whole variant)."""
@@ -215,7 +230,7 @@ def fit_batch_size(tower, texts, bs, params, log=log):
 
 
 def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=16, lr=1e-4, tau=0.05, r=16,
-                     seed=0, eval_fn=None, eval_at=(0.5, 1.0), ramp=0.5, warmup=50, deadline=None, log=log):
+                     seed=0, eval_fn=None, eval_at=(0.33, 0.67, 1.0), ramp=0.5, warmup=50, shared_negs=True, deadline=None, log=log):
     """Contrastive fine-tuning of the user tower.
 
     ``query_fn(hist) -> str``: history ids -> query text;  ``rows``: train_core ``(user, hist, pos, negs)``;
@@ -253,7 +268,8 @@ def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=1
         z = tower.embed([query_fn(rw[1]) for rw in sel])
         pos = torch.as_tensor([rw[2] for rw in sel], device=z.device)
         negs = torch.as_tensor(np.stack([np.asarray(rw[3], np.int64) for rw in sel]), device=z.device)
-        loss = adapt.contrastive_loss(z, E_doc[pos], pos, E_doc[negs], tau, dims)
+        loss = (shared_negative_loss(z, E_doc, pos, negs, tau) if shared_negs
+                else adapt.contrastive_loss(z, E_doc[pos], pos, E_doc[negs], tau, dims))
         if not torch.isfinite(loss):                                   # fp16 overflow in the LLM: skip the batch, abort if persistent
             bad += 1
             if bad > 5:

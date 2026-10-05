@@ -183,6 +183,55 @@ def test_masks_and_tower(dec_dir, data, E_doc, titles):
     ok("(4b) tower training: loss falls in causal / bidir / soft; a deadline in the past stops it cleanly")
 
 
+def test_shared_loss():
+    """(4c) shared-negative InfoNCE: B=1 equals plain InfoNCE; a candidate equal to another row's positive is masked."""
+    torch.manual_seed(0)
+    E = F.normalize(torch.randn(30, 16), dim=-1)
+    z = torch.randn(3, 16)
+    pos = torch.tensor([4, 7, 4])                                      # rows 0 and 2 share the positive article 4
+    negs = torch.tensor([[1, 2], [3, 5], [6, 8]])
+    one = llm_user.shared_negative_loss(z[:1], E, pos[:1], negs[:1], 0.05)
+    a = F.normalize(z[:1], dim=-1)
+    manual = F.cross_entropy((a @ E[torch.tensor([4, 1, 2])].T / 0.05), torch.tensor([0]))
+    assert abs(float(one) - float(manual)) < 1e-5
+    got = llm_user.shared_negative_loss(z, E, pos, negs, 0.05)
+    A = F.normalize(z, dim=-1)
+    ids = torch.tensor([4, 7, 4, 1, 2, 3, 5, 6, 8])
+    lg = A @ E[ids].T / 0.05
+    lg[0, 2] = float("-inf")                                            # row 0 must not treat row 2's identical positive as a negative
+    lg[2, 0] = float("-inf")
+    assert abs(float(got) - float(F.cross_entropy(lg, torch.arange(3)))) < 1e-5
+    ok("(4c) shared-negative InfoNCE: matches plain InfoNCE for one row and masks identical-article false negatives")
+
+
+def test_v10_equivalence(data, E):
+    """(10) the learned user model is a clone of V10's ``LLMEncCA``: identical scores given identical weights (needs the V10 repo)."""
+    import importlib.util
+    import types
+    path = os.environ.get("V10_MODELS", "/home/user/nguyenpnguyen/recsys-project/training/models.py")
+    if not os.path.exists(path):
+        print(f"SKIP (10) V10 models.py not found at {path}; set V10_MODELS=/path/to/training/models.py to run this check")
+        return
+    spec = importlib.util.spec_from_file_location("v10_models", path)
+    v10 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(v10)
+    ref = v10.LLMEncCA(types.SimpleNamespace(llm_emb=E), types.SimpleNamespace(dim=64, dropout=0.2)).eval()
+    mine = UM.LLMEncCA(E, 64, 0.2).eval()
+    mine.head.load_state_dict(ref.news.head.state_dict())
+    mine.cand_proj.load_state_dict(ref.cand_proj.state_dict())
+    rows = data.test[:40]
+    with torch.no_grad():
+        a = ref.score(data.collate_eval(rows))
+        worst = 0.0
+        for b in R.EvalSet(rows):
+            sc = mine.score(b["hist"], b["hist_mask"], b["cand"])
+            for k, r in enumerate(b["rows"]):
+                n = int(b["cand_mask"][k].sum())
+                worst = max(worst, float((sc[k, :n] - a[r, :n]).abs().max()))
+    assert worst < 1e-5, worst
+    ok(f"(10) learned user model == V10 LLMEncCA (max abs score diff {worst:.1e} over 40 impressions)")
+
+
 def test_sid():
     """(5) Semantic-ID components."""
     rng = np.random.default_rng(0)
@@ -297,6 +346,7 @@ def main():
     build_tiny_decoder(dec_dir, texts)
     mind = ["--mind-train", f"{tmp}/train", "--mind-dev", f"{tmp}/dev"]
 
+    test_shared_loss()
     test_sid()
     test_generator(dec_dir, texts, tmp)
 
@@ -388,6 +438,7 @@ def main():
     ok(f"(7b) LoRA trainer learns: loss {losses[0]:.3f} -> {losses[-1]:.3f}, val nDCG@10 {val_fn(E):.4f} -> {val_fn(Ef):.4f}")
 
     test_cache_fuse_subset(S)
+    test_v10_equivalence(S.data, S.E0)
 
     # (8) direction-vs-direction comparison and per-impression arrays
     n_h = min(5, len([r for r in S.reps if r["family"] not in suite.TECHNIQUE_FAMILIES_EXCLUDED]))

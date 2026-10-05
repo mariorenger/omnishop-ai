@@ -36,14 +36,14 @@ OneRec (RQ-Kmeans), LLMRank (ECIR'24), KAR (RecSys'24), arXiv 2506.05690. Các m
 * **Mọi so sánh kèm CI 95% ghép cặp theo impression** (positive cùng impression gộp cụm). Dòng chạy trên **tập con ngẫu nhiên lồng nhau** (H1 ở run B, H5, H6, H9) luôn được so với control **trên đúng các impression đó** (cột `ref nDCG@10`), không so con số tuyệt đối với dòng chạy toàn bộ.
 * **Chọn đại diện từng họ theo validation** (`val_delta` = chênh lệch ghép cặp trên validation, nên hợp lệ cả với tập con), không theo test; kết luận có **Bonferroni** theo số họ. **HEAD-TO-HEAD** giữa top-5 họ kỹ thuật (xếp theo validation), Bonferroni theo số cặp.
 * **Lát cắt tin mới/tin cũ**: *cold* = bài được click mà các dòng train không hề quan sát — nơi embedding LLM lẽ ra phải thắng.
-* **Kiểm tra tái lập**: `frozen` phải khớp V10 `bge_zeroshot` (AUC 0.6241, nDCG@10 0.3909) và `um_frozen` phải gần V10 `llmenc_ca` (0.6494 / 0.3997, dung sai 0.01 vì V10 chỉ 1 seed). **Guard pooling**: `HFEncoder` được so với Sentence-Transformers trên 64 bài trước khi chạy (bắt lỗi pooling/EOS/prefix, quan trọng với Qwen3 dùng last-token pooling).
+* **Kiểm tra tái lập**: `frozen` phải khớp V10 `bge_zeroshot` (AUC 0.6241, nDCG@10 0.3909) và `um_frozen` phải gần V10 `llmenc_ca` (0.6494 / 0.3997, dung sai 0.01 vì V10 chỉ 1 seed). (V10 embed bằng Sentence-Transformers với `max_seq_length` mặc định 512 của BGE; ở đây cắt 256 token — chênh lệch không đáng kể vì gần như mọi bài MIND < 256 token; nếu `MISMATCH` thì thử `--max-len 512`.) **Guard pooling**: `HFEncoder` được so với Sentence-Transformers trên 64 bài trước khi chạy (bắt lỗi pooling/EOS/prefix, quan trọng với Qwen3 dùng last-token pooling).
 * **Leaderboard chung** (một control toàn cục = BGE-small frozen) + `forest.png`; hàng H10 bị loại khỏi leaderboard vì có control riêng (`um_frozen`).
 * **Ngân sách đồng hồ chung** (`--budget-hours`): vòng lặp dài nhận `deadline` và dừng êm, stage nào không còn thời gian bị bỏ qua, kết quả được ghi sau *từng* stage; gọi lại sẽ **resume** (`state.pkl`, chỉ khi dữ liệu *và mọi tham số ảnh hưởng kết quả* giống hệt — QUICK không bao giờ lẫn vào bản đầy đủ). Dòng bị cắt giữa chừng được gắn cờ (`truncated`, `queries_missing`) để không so sánh nhầm.
 
 ## 3. Chạy
 
 **Kaggle:** upload `v11_full_suite_v3.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
-Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; ~45–60 phút, mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template).
+Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; ~60–90 phút vì phải encode toàn bộ 65k bài hai lần, chạy Louvain và tải model; mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template). Thử nhanh hơn nữa: `V11_RUN_B=0` (~30 phút, chỉ BGE).
 
 | Biến môi trường | Mặc định | Ý nghĩa |
 |---|---|---|
