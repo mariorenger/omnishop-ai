@@ -42,8 +42,8 @@ OneRec (RQ-Kmeans), LLMRank (ECIR'24), KAR (RecSys'24), arXiv 2506.05690. Các m
 
 ## 3. Chạy
 
-**Kaggle:** upload `v11_full_suite_v3.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
-Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; ~60–90 phút vì phải encode toàn bộ 65k bài hai lần, chạy Louvain và tải model; mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template). Thử nhanh hơn nữa: `V11_RUN_B=0` (~30 phút, chỉ BGE).
+**Kaggle:** upload `v11_full_suite_v4.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
+Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; phần BGE đã đo thật ≈ 13 phút trên Kaggle, phần Qwen3/LLM chưa đo (ước ~30–60 phút vì phải encode 65k bài bằng Qwen3, chạy Louvain và tải model); mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template). Chỉ thử BGE: `V11_RUN_B=0`.
 
 | Biến môi trường | Mặc định | Ý nghĩa |
 |---|---|---|
@@ -63,7 +63,7 @@ python suite.py --mind-train /data/MINDsmall_train --mind-dev /data/MINDsmall_de
 python make_notebook.py       # sinh lại notebook (đổi NOTEBOOK trong file để tránh cache của Kaggle)
 ```
 
-## 4. Thời gian ước tính (T4, **chưa đo**)
+## 4. Thời gian ước tính (T4; chỉ có một số đo thật: QUICK phần BGE ≈ 13 phút — nhanh hơn ước lượng, nên các con số dưới đây có thể dư; mỗi run in `STAGE TIMINGS` và lưu `timings.json` để hiệu chỉnh)
 
 | Phần | Nội dung | Ước tính |
 |---|---|---|
@@ -98,6 +98,11 @@ mô phỏng "Run All" của notebook (QUICK) từ thư mục trống trên fixtu
 ❌ **Chưa kiểm chứng:** mọi hiệu năng trên MIND thật; thời gian trên T4/P100; fp16/AMP + LoRA/GradScaler trên GPU thật; weight thật của BGE/Qwen3 (guard pooling chạy lúc runtime); hành vi mask 4D với phiên bản `transformers` trên Kaggle (có probe runtime, variant nào fail sẽ bị bỏ qua và ghi log);
 tốc độ sinh văn bản của Qwen3-1.7B; thời gian Louvain trên ~50k bài; bộ nhớ GPU khi chạy tower (có tự giảm batch khi OOM).
 
+## 6b. Sự cố môi trường đã gặp khi chạy thật
+
+* **`ImportError: Found an incompatible version of torchao`** (peft từ chối torchao 0.10 có sẵn trong ảnh Kaggle ngay khi gắn LoRA; lộ ra ở stage `encoder`, và sẽ chặn cả `llm_user`): đã vá bằng `common.fix_peft_torchao()` (coi torchao là không có — ta không dùng nó), có test tái hiện bằng torchao giả trong `selftest.py`.
+* Dòng `WORSE` với Δ = −0.0000 [−0.0000, −0.0000] ở các head không học được gì (adapter giữ nguyên epoch 0 = frozen): do làm tròn float32/float64 giữa dòng mới và dòng tham chiếu; đã sửa, giờ in `identical`.
+
 ## 7. Hạn chế cần nói trong luận văn
 
 Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed** (chênh lệch nhỏ hơn ~0.005 nDCG@10 giữa các mask có thể là nhiễu huấn luyện). Dòng chạy tập con (H5/H6/H9) có CI rộng hơn: chỉ phát hiện được hiệu ứng lớn.
@@ -108,7 +113,7 @@ Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed**
 
 `data.py`/`metrics.py` (V10, nguyên văn) · `common.py` (đồng hồ ngân sách, fusion, `ScoreCache`, `HistQueries`) · `rep_eval.py` (evaluator vector hoá, CI ghép cặp, so sánh qua tập con) ·
 `semgraph.py` (RAG/GraphRAG-lite) · `adapt.py` (head, LoRA/DoRA, MRL) · `pooling.py` (H8) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10) ·
-`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v11_full_suite_v3.ipynb`.
+`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v11_full_suite_v4.ipynb`.
 
 ## 9. Tài liệu
 

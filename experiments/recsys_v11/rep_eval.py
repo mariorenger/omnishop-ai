@@ -214,4 +214,6 @@ def compare_slice(res, ref, which="cold"):
 def verdict(lo, hi):
     if np.isnan(lo):
         return "n/a"
+    if abs(lo) < 1e-7 and abs(hi) < 1e-7:                      # the variant reproduces the reference exactly (e.g. an adapter that kept epoch 0)
+        return "identical"
     return "BETTER" if lo > 0 else ("WORSE" if hi < 0 else "no sig. difference")

@@ -81,8 +81,8 @@ def stage_pooling(S, args):
     fam = "H8-pooling"
     S.select("pool_recency", fam, [{"lam": l} for l in args.pool_lams], lambda c, sp: P.recency_scorer(E, c["lam"]), "frozen")
     S.select("pool_maxsim", fam, [{}], lambda c, sp: P.late_scorer(E, "max"), "frozen")
-    S.select("pool_topk", fam, [{"k": k} for k in (3, 5)], lambda c, sp: P.late_scorer(E, "topk", c["k"]), "frozen")
-    S.select("pool_lse", fam, [{"tau": t} for t in (0.05, 0.1)], lambda c, sp: P.late_scorer(E, "lse", c["tau"]), "frozen")
+    S.select("pool_topk", fam, [{"k": k} for k in args.pool_ks], lambda c, sp: P.late_scorer(E, "topk", c["k"]), "frozen")
+    S.select("pool_lse", fam, [{"tau": t} for t in args.pool_taus], lambda c, sp: P.late_scorer(E, "lse", c["tau"]), "frozen")
 
 
 # ============================================================================ H7 Semantic IDs

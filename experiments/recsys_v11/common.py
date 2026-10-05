@@ -98,6 +98,34 @@ def load_hf(auto_cls, name, dtype=None, trust_remote_code=False):
     return model if model.dtype == dtype else model.to(dtype)
 
 
+def fix_peft_torchao():
+    """Kaggle images ship torchao 0.10 while recent peft raises ``ImportError`` for torchao < 0.16 the moment a LoRA adapter is injected
+    (``dispatch_torchao`` -> ``is_torchao_available``).  We never use torchao, so make peft treat it as absent.  Returns True if patched."""
+    try:
+        import peft.import_utils as iu
+        iu.is_torchao_available()
+        return False                                          # absent or recent enough: nothing to do
+    except ImportError:
+        pass
+    except Exception:
+        return False
+    import importlib
+    off = lambda *a, **k: False
+    iu.is_torchao_available = off
+    if hasattr(iu, "is_torchao_ge_v0_18_0"):
+        iu.is_torchao_ge_v0_18_0 = off
+    for mod in ("peft.tuners.lora.torchao", "peft.utils.quantization_utils"):
+        try:
+            m = importlib.import_module(mod)
+            for name in ("is_torchao_available", "is_torchao_ge_v0_18_0"):
+                if hasattr(m, name):
+                    setattr(m, name, off)
+        except Exception:
+            pass
+    log("      [peft] incompatible torchao detected -> treating it as absent (we do not use it)")
+    return True
+
+
 def decoder_only(name):
     """Last-token-pooled embedding models are decoder-only LLMs (Qwen3-Embedding, e5-mistral, ...)."""
     import adapt

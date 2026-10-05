@@ -29,7 +29,7 @@ import torch
 import torch.nn.functional as F
 
 import adapt
-from common import load_hf, log
+from common import fix_peft_torchao, load_hf, log
 
 MODES = ("causal", "bidir", "soft")
 
@@ -76,8 +76,9 @@ class UserTower:
         if self.decoder:
             self.tok.padding_side = "left"
         self.model = load_hf(AutoModel, name, dtype, trust_remote_code).to(device)
-        self.mask_dtype = self.model.dtype
         self.amp = device == "cuda" and dtype == torch.float32          # fp32 master weights + fp16 autocast
+        # a float attention mask must match the dtype of q/k/v: fp16 under autocast, otherwise the weights' dtype
+        self.mask_dtype = torch.float16 if self.amp else self.model.dtype
         self.grad_ckpt = grad_ckpt
         self.lam = 1.0
         self.peft = False
@@ -85,6 +86,7 @@ class UserTower:
     # -- adaptation
     def attach_peft(self, kind="lora", r=16, dropout=0.05):
         from peft import LoraConfig, get_peft_model
+        fix_peft_torchao()
         cfg = LoraConfig(r=r, lora_alpha=2 * r, lora_dropout=dropout, target_modules=peft_targets(self.model),
                          use_dora=(kind == "dora"), bias="none")
         self.model = get_peft_model(self.model, cfg)

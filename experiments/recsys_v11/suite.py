@@ -156,6 +156,7 @@ class Suite:
     def record(self, name, family, cfg, val, test, ref_name, extra=None):
         """Store a row; Δ vs the reference is computed on the test split with paired CIs (common impressions only)."""
         ref = self.cache.get(ref_name)
+        val, test = _slim(val), _slim(test)           # same float32 rounding as the cached reference: identical variants give exactly 0
         row = {"name": name, "family": family, "stage": self.stage, "cfg": cfg, "ref": ref_name,
                "n_val": int(len(val["ids"])), "n_test": int(len(test["ids"])),
                "val_ndcg@10": val["mean"]["ndcg@10"], "val_auc": val["mean"]["auc"], **test["mean"],
@@ -172,7 +173,7 @@ class Suite:
             row["ref_ndcg@10_same"] = float(np.mean(rt["arr"]["ndcg@10"][ib]))
             row["ref_auc_same"] = float(np.nanmean(rt["arr"]["auc"][ib]))
         self.records.append(row)
-        self.cache[name] = {"val": _slim(val), "test": _slim(test)}
+        self.cache[name] = {"val": val, "test": test}
         d = row.get("d_ndcg@10")
         log(f"  {name:34s} val nDCG@10={row['val_ndcg@10']:.4f} | test AUC={row['auc']:.4f} nDCG@10={row['ndcg@10']:.4f}"
             + (f" (n={row['n_test']:,})" if row["n_test"] != len(self.es["test"].rows) else "")
@@ -452,8 +453,9 @@ def summarize(S):
         se = (d[2] - d[1]) / (2 * 1.96)
         adj = R.verdict(d[0] - z_adj * se, d[0] + z_adj * se)
         reps.append(best)
+        kept = " [adapter = frozen: no epoch beat epoch 0 on validation]" if best.get("best_epochs") and not any(best["best_epochs"]) else ""
         log(f"{fam:18s} rep={best['name']:24s} (best of {len(rs):2d} by val, n={best['n_test']:,}, vs {best['ref']}) Δ nDCG@10 {fmt_ci(d)} -> {best['verdict']}"
-            f" | Bonferroni(m={len(by_h)}): {adj}" + (f" | Δ cold AUC {fmt_ci(c)}" if c and not np.isnan(c[0]) else ""))
+            f" | Bonferroni(m={len(by_h)}): {adj}" + (f" | Δ cold AUC {fmt_ci(c)}" if c and not np.isnan(c[0]) else "") + kept)
     log("Rule: pursue a direction only if its Bonferroni-adjusted verdict is BETTER; prefer the ones that also win on the "
         "cold slice (where LLM embeddings should matter) and whose gain is practically meaningful (>~0.005 nDCG@10).\n"
         "Unadjusted 'BETTER' on one of many rows can be chance: with all effects null, about 1 in 20 rows would still pass.")
@@ -597,6 +599,8 @@ def build_parser():
     ap.add_argument("--lams", type=float, nargs="+", default=[0.25, 0.5, 1.0, 2.0])
     ap.add_argument("--gammas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
     ap.add_argument("--pool-lams", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.2])
+    ap.add_argument("--pool-taus", type=float, nargs="+", default=[0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3, 0.5])
+    ap.add_argument("--pool-ks", type=int, nargs="+", default=[2, 3, 4, 5, 7, 10])
     # semantic ids
     ap.add_argument("--sid-k", type=int, default=256)
     ap.add_argument("--sid-levels", type=int, default=3)
@@ -709,6 +713,7 @@ def main(argv=None):
         try:
             STAGES[s](S, args)
             done.add(s)
+            S.kv.setdefault("timings", {})[s] = round(time.time() - t_stage)
             log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s (total {common.CLOCK.elapsed() / 3600:.2f}h)")
         except Exception:  # one failing stage must not discard the others
             log(f"\n!! stage '{s}' failed:\n{traceback.format_exc()}")
@@ -717,6 +722,11 @@ def main(argv=None):
         write_table(S, args.work)
         S.save_state(done)
     S.close()
+    tm = S.kv.get("timings", {})
+    if tm:
+        log("STAGE TIMINGS (s): " + ", ".join(f"{k}={v}" for k, v in tm.items()) + f" | sum={sum(tm.values())}s")
+        with open(os.path.join(args.work, "timings.json"), "w", encoding="utf-8") as f:
+            json.dump(tm, f, indent=1)
     md = write_table(S, args.work)
     log("\n" + md)
     S.reps = summarize(S)

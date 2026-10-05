@@ -183,6 +183,49 @@ def test_masks_and_tower(dec_dir, data, E_doc, titles):
     ok("(4b) tower training: loss falls in causal / bidir / soft; a deadline in the past stops it cleanly")
 
 
+def test_torchao_shim(tmp):
+    """(11) Kaggle ships torchao 0.10; recent peft then raises ImportError when a LoRA adapter is injected.  Reproduce it with a fake old
+    torchao in a subprocess: plain peft must fail, our adapters (encoder LoRA/DoRA and the LLM tower) must work."""
+    import subprocess
+    fake = os.path.join(tmp, "fake_torchao")
+    os.makedirs(os.path.join(fake, "torchao"), exist_ok=True)
+    os.makedirs(os.path.join(fake, "torchao-0.10.0.dist-info"), exist_ok=True)
+    open(os.path.join(fake, "torchao", "__init__.py"), "w").close()
+    with open(os.path.join(fake, "torchao-0.10.0.dist-info", "METADATA"), "w") as f:
+        f.write("Metadata-Version: 2.1\nName: torchao\nVersion: 0.10.0\n")
+    code = f"""
+import os, sys
+sys.path.insert(0, {os.path.dirname(os.path.abspath(__file__))!r})
+import peft.import_utils as iu
+try:
+    iu.is_torchao_available(); raised = False
+except ImportError:
+    raised = True
+import selftest, adapt, llm_user
+texts = selftest.build_fixture({os.path.join(tmp, "ta")!r})
+selftest.build_tiny_encoder({os.path.join(tmp, "ta_enc")!r}, texts)
+selftest.build_tiny_decoder({os.path.join(tmp, "ta_dec-qwen3-embedding")!r}, texts)
+a = adapt.HFEncoder({os.path.join(tmp, "ta_enc")!r}, max_len=32, device="cpu").attach_peft("lora", 4)
+b = adapt.HFEncoder({os.path.join(tmp, "ta_enc")!r}, max_len=32, device="cpu").attach_peft("dora", 4)
+c = llm_user.UserTower({os.path.join(tmp, "ta_dec-qwen3-embedding")!r}, "bidir", device="cpu").attach_peft("lora", 4)
+print("RESULT", raised, a > 0, b > 0, c > 0)
+"""
+    r = subprocess.run([sys.executable, "-c", code], env=dict(os.environ, PYTHONPATH=fake), capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)))
+    line = [l for l in r.stdout.splitlines() if l.startswith("RESULT")]
+    assert line and line[0] == "RESULT True True True True", (r.stdout[-800:], r.stderr[-1500:])
+    ok("(11) torchao 0.10 + recent peft: plain peft raises ImportError, our LoRA/DoRA encoder and LLM tower still attach")
+
+
+def test_identical_verdict(S):
+    """(12) a variant that reproduces its reference exactly must read 'identical', not 'WORSE' because of float rounding."""
+    mp = R.mean_pool_scorer(S.tensor(S.E0))
+    a, b = suite._slim(S.run(mp, "test")), suite._slim(S.run(mp, "test"))
+    d = R.compare(a, b, "ndcg@10")
+    assert d == (0.0, 0.0, 0.0) and R.verdict(d[1], d[2]) == "identical"
+    assert R.verdict(1e-3, 2e-3) == "BETTER" and R.verdict(-2e-3, -1e-3) == "WORSE" and R.verdict(-1e-3, 1e-3) == "no sig. difference"
+    ok("(12) identical results give an exact zero difference and the verdict 'identical'")
+
+
 def test_shared_loss():
     """(4c) shared-negative InfoNCE: B=1 equals plain InfoNCE; a candidate equal to another row's positive is masked."""
     torch.manual_seed(0)
@@ -347,6 +390,7 @@ def main():
     mind = ["--mind-train", f"{tmp}/train", "--mind-dev", f"{tmp}/dev"]
 
     test_shared_loss()
+    test_torchao_shim(tmp)
     test_sid()
     test_generator(dec_dir, texts, tmp)
 
@@ -438,6 +482,7 @@ def main():
     ok(f"(7b) LoRA trainer learns: loss {losses[0]:.3f} -> {losses[-1]:.3f}, val nDCG@10 {val_fn(E):.4f} -> {val_fn(Ef):.4f}")
 
     test_cache_fuse_subset(S)
+    test_identical_verdict(S)
     test_v10_equivalence(S.data, S.E0)
 
     # (8) direction-vs-direction comparison and per-impression arrays

@@ -28,7 +28,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from common import load_hf
+from common import fix_peft_torchao, load_hf
 
 
 # ------------------------------------------------------------------- pairs
@@ -197,6 +197,7 @@ class HFEncoder:
 
     def attach_peft(self, mode="lora", r=16, dropout=0.05):
         from peft import LoraConfig, get_peft_model
+        fix_peft_torchao()
         names = {n.split(".")[-1] for n, _ in self.model.named_modules()}
         targets = ["q_proj", "v_proj"] if "q_proj" in names else ["query", "value"]
         cfg = LoraConfig(r=r, lora_alpha=2 * r, lora_dropout=dropout, target_modules=targets,

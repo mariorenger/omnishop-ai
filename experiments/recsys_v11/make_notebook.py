@@ -1,11 +1,11 @@
-"""Build the self-contained Kaggle notebook ``v11_full_suite_v3.ipynb`` from the module files.
+"""Build the self-contained Kaggle notebook ``v11_full_suite_v4.ipynb`` from the module files.
 
 Bump NOTEBOOK when the content changes: Kaggle caches notebooks by file name."""
 import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOK = "v11_full_suite_v3.ipynb"
+NOTEBOOK = "v11_full_suite_v4.ipynb"
 MODULES = ["data.py", "metrics.py", "common.py", "rep_eval.py", "semgraph.py", "adapt.py", "pooling.py", "sid.py",
            "llm_user.py", "llm_gen.py", "usermodel.py", "stages_ext.py", "suite.py"]
 
@@ -48,7 +48,7 @@ tách **tin mới (cold) / tin cũ (warm)**, hiệu chỉnh **Bonferroni**, và 
 | — | quét encoder: TF-IDF/LSA, BGE small/base/large, Qwen3-Embedding | `sweep` |
 
 **Cách chạy:** (1) Settings → Accelerator **GPU (T4/P100)**, Internet **On**. (2) *Add Input* → dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev`
-(ví dụ `thinhhuynh3108/mindsmall`). (3) **Run All**. Lần đầu nên đặt `QUICK = True` (~60–90 phút, chủ yếu là encode toàn bộ 65k bài hai lần, Louvain và tải model) để bắt lỗi môi trường rồi chạy đầy đủ; muốn thử nhanh hơn nữa: `V11_RUN_B=0` (~30 phút, chỉ BGE).
+(ví dụ `thinhhuynh3108/mindsmall`). (3) **Run All**. Lần đầu nên đặt `QUICK = True` để bắt lỗi môi trường rồi chạy đầy đủ (phần BGE của QUICK đã đo thật ≈ 13 phút trên Kaggle; phần Qwen3/LLM chưa đo, ước ~30–60 phút vì phải encode 65k bài bằng Qwen3, chạy Louvain và tải model); chỉ thử BGE: `V11_RUN_B=0`.
 
 **Thời gian ước tính trên T4 (CHƯA đo — ước lượng từ FLOPs):** A-core ≈ 1.1–1.5 h · B (Qwen3-Embedding + LLM) ≈ 3.8–4.8 h · A-phần còn lại ≈ 1.6–2.2 h ⇒ **~6.5–8.5 h**.
 `BUDGET_H` (mặc định 9.5) là ngân sách đồng hồ chung: mọi vòng lặp dài tự dừng, stage nào không còn thời gian thì bị bỏ qua (kết quả luôn được ghi sau từng stage;
@@ -68,7 +68,7 @@ cells += [writefile(m) for m in MODULES]
 cells += [
     md("### 2. Cấu hình"),
     code('''import os, glob, sys, gc, time
-QUICK = bool(int(os.environ.get("V11_QUICK", "0")))              # True: bản rút gọn (~60-90 phút) để bắt lỗi môi trường trên dữ liệu thật
+QUICK = bool(int(os.environ.get("V11_QUICK", "0")))              # True: bản rút gọn để bắt lỗi môi trường trên dữ liệu thật (BGE ~13 phút, Qwen3/LLM ước ~30-60 phút)
 BUDGET_H = float(os.environ.get("V11_BUDGET_H", "9.5"))          # ngân sách đồng hồ chung cho cả notebook (giờ)
 ENCODER_A = os.environ.get("V11_ENCODER", "BAAI/bge-small-en-v1.5")        # run A: encoder nhỏ, đúng control của V10
 ENCODER_B = os.environ.get("V11_ENCODER_B", "Qwen/Qwen3-Embedding-0.6B")   # run B: LLM embedding (decoder-only)
