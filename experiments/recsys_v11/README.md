@@ -39,6 +39,8 @@ Embedding tốt nhất xuất ra `.npz` để cắm vào `bench.py --news-emb` c
   nhiều seed (`--seeds`), báo độ lệch chuẩn giữa các seed.
 * **Chọn đại diện từng hướng theo *validation*, không theo test**; kết luận cuối cùng có **hiệu chỉnh Bonferroni** theo số hướng
   (chọn 1-trong-4 là bài toán so sánh bội). Với ~20 dòng, nếu mọi hiệu ứng đều bằng 0 thì vẫn kỳ vọng ~1 dòng "BETTER" do ngẫu nhiên.
+* **So sánh trực tiếp giữa các hướng** (bảng HEAD-TO-HEAD, ghép cặp, Bonferroni theo số cặp) — ngoài so với control. `test_arrays.npz` lưu metric
+  theo từng impression của mọi biến thể để phân tích thêm mà không phải chạy lại.
 * **Lát cắt tin mới/tin cũ**: *cold* = bài được click mà các dòng train không hề quan sát. Đây là nơi embedding LLM
   *lẽ ra* phải thắng; một hướng không thắng ở đây thì khó nói là "tận dụng LLM".
 * **Epoch 0 (= embedding gốc) luôn tham gia chọn epoch** ⇒ adapter không bao giờ tệ hơn frozen trên validation.
@@ -49,7 +51,7 @@ Embedding tốt nhất xuất ra `.npz` để cắm vào `bench.py --news-emb` c
 
 ## Chạy
 
-**Kaggle (khuyến nghị):** upload `v11_research_suite.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có
+**Kaggle (khuyến nghị):** upload `v11_research_suite_v2.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có
 **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All. Lần đầu đặt `QUICK = True`
 (~10 phút, kiểm tra môi trường) rồi mới chạy đầy đủ. Đặt `RUN_QWEN3 = True` để chạy lại các stage rẻ với Qwen3-Embedding-0.6B.
 

@@ -39,6 +39,8 @@ Every row is compared with the frozen embedding using a **paired 95% CI**, and s
 **How to run (3 steps):** (1) Settings → Accelerator **GPU**, Internet **On**. (2) *Add Input* → a MIND dataset with **both** `MINDsmall_train` and `MINDsmall_dev` (e.g. `thinhhuynh3108/mindsmall`). (3) **Run All**.
 Set `QUICK = True` first for a ~10 min smoke run on the real data.
 
+The run ends with a **DECISION SUMMARY** (one representative per direction, chosen on validation, Bonferroni-adjusted), a **HEAD-TO-HEAD** table between the directions, and `test_arrays.npz` (per-impression metrics of every variant, so further paired analysis needs no re-run).
+
 The first cell of results prints a **reproduction check**: the `frozen` row must match the V10 `bge_zeroshot` row (AUC 0.6241, nDCG@10 0.3909) — if it says MISMATCH, stop and fix before trusting anything else."""),
          md("### 0. Dependencies"),
          code("%pip install -q peft sentence-transformers\n"),
@@ -114,7 +116,7 @@ print("exported embeddings (usable with V10 bench.py --news-emb):", [f for f in 
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                                    "language_info": {"name": "python"}, "accelerator": "GPU"},
       "nbformat": 4, "nbformat_minor": 5}
-out = os.path.join(HERE, "v11_research_suite.ipynb")
+out = os.path.join(HERE, "v11_research_suite_v2.ipynb")
 with open(out, "w", encoding="utf-8") as f:
     json.dump(nb, f, ensure_ascii=False, indent=1)
 print("wrote", out, "cells:", len(cells))

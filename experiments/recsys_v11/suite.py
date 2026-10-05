@@ -331,6 +331,44 @@ def summarize(S):
     log("Rule: pursue a direction only if its Bonferroni-adjusted verdict is BETTER; prefer the ones that also win on the "
         "cold slice (where LLM embeddings should matter) and whose gain is practically meaningful (>~0.005 nDCG@10).\n"
         "Unadjusted 'BETTER' on one of ~20 rows can be chance: with all effects null, about 1 in 20 rows would still pass.")
+    return [max(rs, key=lambda r: r["val_ndcg@10"]) for rs in by_h.values()]
+
+
+def head_to_head(S, reps):
+    """Direction-vs-direction comparison on the test split (paired over impressions), Bonferroni over the pairs.
+    The control comparison above says whether a direction helps at all; this says which direction is better."""
+    from itertools import combinations
+    from statistics import NormalDist
+    pairs = list(combinations(reps, 2))
+    out = []
+    if not pairs:
+        return out
+    z_adj = NormalDist().inv_cdf(1 - 0.05 / (2 * len(pairs)))
+    log(f"\n-- HEAD-TO-HEAD between directions (test, paired). CI shown is unadjusted 95%; the verdict is Bonferroni-adjusted over {len(pairs)} pairs --")
+    for a, b in pairs:
+        ra, rb = S.cache[a["name"]]["test"], S.cache[b["name"]]["test"]
+        d, c = R.compare(ra, rb, "ndcg@10"), R.compare_slice(ra, rb, "cold")
+        se = (d[2] - d[1]) / (2 * 1.96)
+        lo, hi = d[0] - z_adj * se, d[0] + z_adj * se
+        word = f"{a['family']} > {b['family']}" if lo > 0 else (f"{b['family']} > {a['family']}" if hi < 0 else "not distinguishable")
+        out.append({"a": a["name"], "b": b["name"], "d_ndcg@10": d, "d_cold_auc": c, "verdict": word})
+        log(f"  {a['family']}:{a['name']} vs {b['family']}:{b['name']}  Δ nDCG@10 {fmt_ci(d)} | Δ cold AUC {fmt_ci(c)} -> {word}")
+    return out
+
+
+def save_arrays(S):
+    """Per-impression metrics of every variant (test split) so any further paired analysis needs no re-run."""
+    out = {"impr_ids": np.array([r[0] for r in S.data.test])}
+    for name, c in S.cache.items():
+        t = c["test"]
+        for k in R.METRICS:
+            out[f"{name}__{k}"] = t["arr"][k].astype(np.float32)
+        out[f"{name}__pos_auc"] = t["pos_auc"].astype(np.float32)
+    first = next(iter(S.cache.values()))["test"]
+    out["pos_news"], out["pos_row"], out["cold"] = first["pos_news"], first["pos_row"], first["cold"]
+    path = os.path.join(S.work, "test_arrays.npz")
+    np.savez_compressed(path, **out)
+    return path
 
 
 # ------------------------------------------------------------------------ main
@@ -411,7 +449,11 @@ def main(argv=None):
         write_table(S, args.work)
     md = write_table(S, args.work)
     log("\n" + md)
-    summarize(S)
+    S.reps = summarize(S)
+    S.h2h = head_to_head(S, S.reps)
+    with open(os.path.join(args.work, "head_to_head.json"), "w", encoding="utf-8") as f:
+        json.dump(S.h2h, f, indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
+    log(f"per-impression arrays -> {save_arrays(S)}")
     return S
 
 

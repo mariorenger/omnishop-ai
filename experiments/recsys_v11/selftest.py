@@ -177,6 +177,13 @@ def main():
     assert np.abs(Ef - E).mean() > 1e-3 and val_fn(Ef) >= val_fn(E) - 1e-9
     print(f"OK (7) LoRA trainer learns: loss {losses[0]:.3f} -> {losses[-1]:.3f}, val nDCG@10 {val_fn(E):.4f} -> {val_fn(Ef):.4f}")
 
+    # (8) direction-vs-direction comparison and per-impression arrays exist
+    assert len(S.h2h) == len(S.reps) * (len(S.reps) - 1) // 2 and len(S.reps) == 4, (len(S.reps), len(S.h2h))
+    assert all(np.isfinite(h["d_ndcg@10"][0]) for h in S.h2h)
+    z = np.load(os.path.join(out, "test_arrays.npz"))
+    assert z["frozen__auc"].shape[0] == len(S.data.test) and "histq_instr__ndcg@10" in z.files
+    print(f"OK (8) head-to-head: {len(S.h2h)} direction pairs; test_arrays.npz holds {len(z.files)} arrays")
+
     # (4) outputs
     for f in ("results.md", "results.json"):
         assert os.path.getsize(os.path.join(out, f)) > 0
