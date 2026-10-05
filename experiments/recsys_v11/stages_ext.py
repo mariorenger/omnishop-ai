@@ -259,15 +259,13 @@ def _views(S, args):
 
 
 def stage_usermodel(S, args):
-    log("\n== H10 learned candidate-aware user model (V10 llmenc_ca) on each representation ==")
+    log("\n== H10 learned user model on each representation: V10 llmenc_ca (candidate-aware) and Fastformer / NRMS / additive readers ==")
     pack = S.store.get("um_pack") or UM.pack_train(S.data.train_core)
     S.store["um_pack"] = pack
     views = _views(S, args)
     fam, ref = "H10-user-model", "um_frozen"
-    for vname, V in views.items():
-        if S.time_left() < 900:
-            log(f"  {vname}: skipped (wall-clock budget)")
-            continue
+
+    def fit(kind, vname, V):
         vals, tests, infos = [], [], []
         for sd in range(args.um_seeds):
             t0 = time.time()
@@ -276,12 +274,19 @@ def stage_usermodel(S, args):
                 return S.run(UM.scorer(model), "val")["mean"]["ndcg@10"]
 
             model, info = UM.train_user_model(V["val"], pack, val_fn, seed=sd, max_epochs=args.um_epochs, device=S.device,
-                                              deadline=S.deadline(0.2), log=lambda *a: None)
+                                              deadline=S.deadline(0.2), log=lambda *a: None, kind=kind)
             vals.append(S.run(UM.scorer(model, V["val"]), "val"))
             tests.append(S.run(UM.scorer(model, V["test"]), "test"))
             infos.append(info)
-            log(f"    {vname} seed {sd}: {info['epochs']} epochs, val nDCG@10={info['best_val']:.4f} ({time.time() - t0:.0f}s)")
-        row = S.record(f"um_{vname}", fam, {"view": vname, "seeds": args.um_seeds}, avg_results(vals), avg_results(tests),
+            log(f"    {kind}/{vname} seed {sd}: {info['epochs']} epochs, val nDCG@10={info['best_val']:.4f} ({time.time() - t0:.0f}s)")
+        return vals, tests, infos
+
+    for vname, V in views.items():
+        if S.time_left() < 900:
+            log(f"  {vname}: skipped (wall-clock budget)")
+            continue
+        vals, tests, infos = fit("ca", vname, V)
+        row = S.record(f"um_{vname}", fam, {"view": vname, "seeds": args.um_seeds, "reader": "ca"}, avg_results(vals), avg_results(tests),
                        ref if ref in S.cache else f"um_{vname}",
                        {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]})
         if vname == "frozen" and args.um_repro:
@@ -289,6 +294,22 @@ def stage_usermodel(S, args):
             ok = abs(row["auc"] - auc_ref) < 0.01 and abs(row["ndcg@10"] - nd_ref) < 0.01
             log(f"  reproduction check vs V10 llmenc_ca (AUC {auc_ref}, nDCG@10 {nd_ref}): "
                 f"{'MATCH (within 0.01)' if ok else 'DIFFERS - single V10 seed, our seeds average; inspect if the gap is > 0.01'}")
+        if S.device == "cuda":
+            torch.cuda.empty_cache()
+    for item in [x for x in args.um_extra.split(",") if x]:                           # "reader:view", e.g. ff:frozen
+        kind, _, vname = item.partition(":")
+        V = views.get(vname)
+        if kind not in ("add", "nrms", "ff") or V is None:
+            log(f"  {item}: skipped (reader must be add|nrms|ff and the view must have been built)")
+            continue
+        if S.time_left() < 900:
+            log(f"  {item}: skipped (wall-clock budget)")
+            continue
+        vals, tests, infos = fit(kind, vname, V)
+        name = f"um_{kind}_{vname}"
+        S.record(name, fam, {"view": vname, "seeds": args.um_seeds, "reader": kind}, avg_results(vals), avg_results(tests),
+                 ref if ref in S.cache else name,
+                 {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]})
         if S.device == "cuda":
             torch.cuda.empty_cache()
 

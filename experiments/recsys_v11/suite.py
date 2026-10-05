@@ -35,13 +35,15 @@ import common
 import rep_eval as R
 import semgraph as G
 import stages_ext as X
+import stages_ref as SR
 from common import HistQueries, avg_results, fuse, log, query_prefix  # noqa: F401  (re-exported for callers)
 from data import MindData
 
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
 DEFAULT_STAGES = "controls,pooling,graph,head,histquery,sid,encoder,usermodel,sweep"
-TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"}      # not "techniques over the frozen embedding"
+REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder"}                             # trained baselines: comparators, not candidate directions
+TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
 
 
 def _slim(r):
@@ -217,7 +219,7 @@ class Suite:
     def signature(self):
         """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
         into a full run); the stage list, budget, device and paths do not matter."""
-        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED}
+        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED and not k.startswith("ref_")}
         return {"args": hashlib.sha1(json.dumps(a, sort_keys=True, default=str).encode()).hexdigest(), "n_news": int(self.data.n_news),
                 "n_val": len(self.data.validation), "n_test": len(self.data.test)}
 
@@ -434,7 +436,7 @@ def stage_histquery(S, args):
 STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "graph": stage_graph, "head": stage_head,
           "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
           "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
-          "augment": X.stage_augment, "rerank": X.stage_rerank}
+          "augment": X.stage_augment, "rerank": X.stage_rerank, **SR.STAGES}
 
 
 # --------------------------------------------------------------------- output
@@ -474,7 +476,7 @@ def summarize(S, pop=False):
         else "\n================ DECISION SUMMARY (content only; control = frozen) ================")
     by_h = {}
     for r in S.records:
-        if r["family"] != "control" and "verdict" in r and r["family"].endswith("+pop") == pop:
+        if r["family"] != "control" and "verdict" in r and r["family"].endswith("+pop") == pop and r["family"].replace("+pop", "") not in REFERENCE_FAMILIES:
             by_h.setdefault(r["family"], []).append(r)
     if not by_h:
         return []
@@ -617,8 +619,10 @@ def leaderboard(suites, tags, ref, path=None, top=None, plot=None, pop=False):
     md = "\n".join(lines)
     if path:
         with open(path, "w", encoding="utf-8") as f:
-            f.write(f"# Leaderboard over runs {tags}: zero-shot representation / re-ranking variants vs one global reference, paired on the common impressions "
-                    f"(rows evaluated on subsets use the same impressions in the reference). Learned user-model rows (H10) are excluded: see each run's results.md (control um_frozen).\n\n{md}\n")
+            f.write(f"# Leaderboard over runs {tags}: zero-shot representation / re-ranking variants and trained reference baselines vs one global reference, paired on the common "
+                    f"impressions (rows evaluated on subsets use the same impressions in the reference). Learned user-model rows (H10) are excluded: see each run's results.md (control um_frozen).\n"
+                    + ("NOTE: '+pop' rows add V10's online CTR, counted from earlier impressions *of the test day itself* (streaming feedback): not comparable with offline papers.\n" if pop else "")
+                    + f"\n{md}\n")
     log("\n================ LEADERBOARD (all runs, one global reference) ================\n" + md)
     if plot:
         log(f"forest plot -> {plot_forest(rows, plot)}")
@@ -699,6 +703,20 @@ def build_parser():
     ap.add_argument("--um-seeds", type=int, default=2)
     ap.add_argument("--um-epochs", type=int, default=12)
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
+    ap.add_argument("--um-extra", default="ff:frozen,nrms:frozen,ff:knn_rag", help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff); '' = none")
+    # reference baselines (NRMS / NAML / Fastformer with the published recipe) and the ablation ladder
+    ap.add_argument("--ref-glove", type=int, default=1, help="initialise word vectors from GloVe-300 (downloads it; falls back to random and says so)")
+    ap.add_argument("--ref-glove-path", default="", help="GloVe txt/zip to use instead of downloading")
+    ap.add_argument("--ref-dims", default="300,16,16,400,1", help="emb,heads,head_dim,naml_filters,fastformer_layers of the published-recipe models")
+    ap.add_argument("--ref-title-len", type=int, default=30)
+    ap.add_argument("--ref-body-len", type=int, default=50)
+    ap.add_argument("--ref-train-frac", type=float, default=1.0, help="fraction of training impressions (QUICK only)")
+    ap.add_argument("--ref-max-epochs", type=int, default=0, help="cap on epochs (0 = the recipe's own: 10, V10 recipe 12)")
+    ap.add_argument("--ref-bs", type=int, default=0, help="batch size (0 = the recipe's own: 64)")
+    ap.add_argument("--ref-seeds", type=int, default=1)
+    ap.add_argument("--ref-model-minutes", type=float, default=35.0, help="wall-clock cap per reference model")
+    ap.add_argument("--ref-min-minutes", type=float, default=10.0, help="do not start a reference model with less than this left")
+    ap.add_argument("--ref-repro", default=None, help='V10 NRMS "auc,ndcg10" for the harness check of the V10-recipe rung (0.6181,0.3685)')
     # generation-based stages
     ap.add_argument("--gen-model", default="Qwen/Qwen3-1.7B")
     ap.add_argument("--gen-fp32", type=int, default=0, help="load the generator in fp32 (use if fp16 produces garbage)")
@@ -747,7 +765,6 @@ def main(argv=None):
         emb = {str(i): v for i, v in zip(z["ids"], z["vecs"])}
         log(f"E0 <- {args.news_emb} ({len(emb):,} vectors)")
     else:
-        t0 = time.time()
         vecs, secs = X.embed_news(meta, args.encoder, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
         if EQUIV_REFERENCE is not None:
             guard_embeddings(vecs, meta, EQUIV_REFERENCE)
@@ -758,6 +775,14 @@ def main(argv=None):
     seen_tr, seen_va = G.observed_masks(data)
     S = Suite(data, meta, data.llm_emb, device, args.work, seen_tr, seen_va, args)
     done = set() if args.no_resume else S.load_state()
+    ref_sig = hashlib.sha1(json.dumps({k: v for k, v in sorted(vars(args).items()) if k.startswith("ref_")}, default=str).encode()).hexdigest()
+    stale = {s_ for s_ in done if s_.startswith("ref_")} if S.kv.get("ref_sig", ref_sig) != ref_sig else set()
+    if stale:                                                                          # reference-model settings changed: redo only those stages
+        log(f"reference-baseline settings changed since the saved state -> re-running {sorted(stale)}")
+        done -= stale
+        S.records = [r for r in S.records if r.get("stage") not in stale]
+        S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
+    S.kv["ref_sig"] = ref_sig
     if done:
         log(f"resuming: stages already finished -> {sorted(done)} ({len(S.records)} rows restored)")
     wanted = [s for s in args.stages.split(",") if s]
@@ -777,10 +802,12 @@ def main(argv=None):
         t_stage = time.time()
         S.stage = s
         try:
-            STAGES[s](S, args)
-            done.add(s)
-            S.kv.setdefault("timings", {})[s] = round(time.time() - t_stage)
-            log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s (total {common.CLOCK.elapsed() / 3600:.2f}h)")
+            if STAGES[s](S, args) is False:                                        # the stage declined to run (budget, missing prerequisite): retry on resume
+                log(f"-- stage '{s}' did not run (reason above); not marked finished")
+            else:
+                done.add(s)
+                S.kv.setdefault("timings", {})[s] = round(time.time() - t_stage)
+                log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s (total {common.CLOCK.elapsed() / 3600:.2f}h)")
         except Exception:  # one failing stage must not discard the others
             log(f"\n!! stage '{s}' failed:\n{traceback.format_exc()}")
         if device == "cuda":
@@ -802,6 +829,10 @@ def main(argv=None):
     for fn, obj in (("head_to_head.json", S.h2h), ("head_to_head_pop.json", S.h2h_pop)):
         with open(os.path.join(args.work, fn), "w", encoding="utf-8") as f:
             json.dump(obj, f, indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
+    try:
+        SR.ladder_table(S, args.ref_repro, os.path.join(args.work, "ladder.md"))
+    except Exception:
+        log(f"ladder table failed:\n{traceback.format_exc()}")
     log(f"per-impression arrays -> {save_arrays(S)}")
     return S
 

@@ -40,7 +40,7 @@ def load_news_meta(train_dir, dev_dir):
             for line in f:
                 p = line.rstrip("\n").split("\t")
                 if len(p) >= 5:
-                    by_id[p[0]] = (p[1], p[3], p[4], p[6] if len(p) > 6 else "", p[7] if len(p) > 7 else "")
+                    by_id[p[0]] = (p[1], p[3], p[4], p[6] if len(p) > 6 else "", p[7] if len(p) > 7 else "", p[2])
     ids = list(by_id)
     titles = [by_id[i][1] for i in ids]
     abstracts = [by_id[i][2] for i in ids]
@@ -58,6 +58,7 @@ def load_news_meta(train_dir, dev_dir):
 
     ents = [wikidata(by_id[i][3], by_id[i][4]) for i in ids]
     return {"ids": ids, "titles": titles, "abstracts": abstracts, "cats": [by_id[i][0] for i in ids],
+            "subcats": [by_id[i][5] for i in ids],
             "text": [(t + ". " + a).strip() for t, a in zip(titles, abstracts)], "ents": ents}
 
 

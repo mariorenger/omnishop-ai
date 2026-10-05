@@ -1,8 +1,12 @@
 # V11 — bộ so sánh đầy đủ các hướng LLM cho news recommendation (MIND-small)
 
-**Một lần Run All trên Kaggle (T4) — đã đo 3,2 giờ cho bản v4; bản hiện tại ước ~5,5–6 giờ; ngân sách đồng hồ cứng 9.5 giờ** cho ~13 họ kỹ thuật / ~100 biến thể,
-tất cả đo trên đúng giao thức V10, có khoảng tin cậy ghép cặp, lát cắt tin mới/tin cũ và hiệu chỉnh Bonferroni.
-Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM nào đáng làm luận văn, bằng bằng chứng có CI**.
+**Một lần Run All trên Kaggle (T4) — đã đo 3,2 giờ cho bản v4; bản hiện tại ước ~7–8,5 giờ (chưa đo); ngân sách đồng hồ cứng 9.5 giờ** cho ~14 họ kỹ thuật / ~110 biến thể
+**và các baseline NRMS / NAML / Fastformer huấn luyện đúng công thức đã công bố**, tất cả đo trên đúng giao thức V10, có khoảng tin cậy ghép cặp, lát cắt tin mới/tin cũ và hiệu chỉnh Bonferroni.
+Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM nào đáng làm luận văn, bằng bằng chứng có CI — và so với baseline huấn luyện đàng hoàng, không phải với baseline yếu**.
+
+**Vì sao v7 có baseline mới.** Ở V10, NRMS / NAML / Fastformer đạt AUC 0,60–0,64 và nDCG@10 0,36–0,40, thấp hơn khoảng 0,03–0,05 ở mọi chỉ số so với các số công bố cho MIND-small
+(NRMS ≈ 0,66 / 0,41 theo arXiv 2304.03112 và NewsReX; xem §10, lấy từ kết quả tìm kiếm, **chưa mở PDF**). Chênh lệch này lớn hơn nhiều độ lệch chuẩn giữa các seed (±0,002–0,003) nên không phải may rủi.
+Bộ đo của V11 thì đúng (khớp `metrics.py`, khớp `bge_zeroshot` của V10, vector ngẫu nhiên cho AUC 0,50), nên nguyên nhân khả dĩ nằm ở *công thức huấn luyện của V10* (§1, hàng R). Vì vậy câu "hơn Fastformer của V10" chưa đủ làm luận điểm.
 
 > ⚠️ **Trạng thái trung thực.** Code được kiểm thử trên CPU với dữ liệu đúng định dạng MIND và các mô hình ngẫu nhiên tí hon; sandbox phát triển không có GPU/MIND/weight.
 > Các con số trên MIND thật (và thời gian) đến từ **các lần chạy Kaggle của bạn** (v4 đầy đủ trên Tesla T4: 3,2 giờ); README không chép lại kết quả — xem `results.md`, `leaderboard*.md`, `direct_comparisons.md` của lần chạy.
@@ -11,6 +15,7 @@ Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM 
 
 | | Kỹ thuật đã cài | Dòng paper (venue đã tra cứu) | **Chưa cài** (nói rõ để không nhận vơ) | Stage |
 |---|---|---|---|---|
+| **R** | **Baseline tham chiếu** — NRMS, NAML, Fastformer huấn luyện đúng công thức đã công bố: title-only regex (30 token; NAML thêm abstract 50 token + category/subcategory), từ vựng có UNK (không đổi từ hiếm thành PAD), **GloVe-300**, 16 head × 16, additive attention 200, dropout 0,2, **negative lấy lại mỗi epoch**, Adam lr 1e-4, **mask padding**; chọn epoch theo validation nDCG@10 như V10. Hàng `nrms_ref`, `naml_ref`, `fastformer_ref` (+ `+pop`), `nrms_ref@1` (cùng công thức, seed khác = sàn nhiễu huấn luyện), `nrms_ref_refit` (huấn luyện lại trên train_core **+ validation** với số epoch `nrms_ref` đã chọn — số so được với bài báo vốn dùng toàn bộ train; cột validation của hàng này lặp lại lượt chọn epoch, chỉ cột test có ý nghĩa). **Thang ablation** NRMS: `ladder0_v10recipe` (tái hiện công thức V10 trong harness này; kiến trúc cho điểm **giống hệt** NRMS của V10 khi chép trọng số, lệch ≤ 3e-8 — đã kiểm) → `ladder1_data` (+ title-only regex, UNK, mask, negative mỗi epoch) → `ladder2_recipe` (+ cỡ/ lr chuẩn, vector ngẫu nhiên N(0,0.1)) → `nrms_ref` (+ GloVe), bảng `ladder.md` | NRMS (EMNLP-IJCNLP'19), NAML (IJCAI'19), Fastformer (arXiv 2108.09084), GloVe (EMNLP'14), MIND (ACL'20) | Fastformer là **cài lại** theo cấu trúc mã chính thức (additive attention theo head, query đóng vai value, transform + residual, FFN, embedding vị trí; 1 lớp, 256-d) — *không* phải mã gốc; NAML dùng đúng 4 view nhưng chưa đối chiếu từng siêu tham số với mã gốc. Không tinh chỉnh siêu tham số | `ref_nrms`, `ref_naml`, `ref_ff`, `ref_nrms_refit`, `ref_nrms_s1`, `ref_l0`, `ref_l1`, `ref_l2` |
 | **H1** | History-as-text: ghép 10 tiêu đề gần nhất thành 1 query *có instruction*, embed bằng cùng encoder (zero-shot), ± gộp với mean-pool | Qwen3-Embedding (arXiv 2506.05176, instruction-aware); language-based user profile | — | `histquery` |
 | **H2** | Co-click contrastive adaptation: residual head (lin/mlp), **LoRA / DoRA** trong vòng lặp encoder, **Matryoshka (MRL)**, **hard negative theo impression**, chọn epoch theo validation (epoch 0 = frozen cũng được chọn) | LLM2Rec (KDD'25); MRL (NeurIPS'22), fMRLRec (EMNLP-Findings'24), SMEC (EMNLP'25); DoRA (ICML'24) | LLM2Rec đầy đủ (pretrain nhiều giai đoạn) | `head`, `encoder` |
 | **H3** | RAG ở mức *biểu diễn*: bổ sung bài bằng context của **thực thể Wikidata** hoặc **k bài cũ gần nhất** (bộ nhớ nhân quả) | RAG; K-RagRec (ACL'25) | LLM đọc ngữ cảnh truy xuất (xem H4b/H6) | `graph` |
@@ -21,7 +26,7 @@ Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM 
 | **H7** | **Semantic IDs**: RQ-KMeans 3 tầng × 256 (fit trên nội dung bài đã quan sát, bài mới gán bằng centroid gần nhất). (a) `sid_profile`: độ trùng tiền tố mã giữa lịch sử và ứng viên (tầng thô khái quát hoá cho tin mới). (b) **SID-GPT** (transformer nhân quả 4 tầng, next-code-token trên chuỗi đọc) dùng làm **slate ranker**: `log P(mã ứng viên | lịch sử)`, có biến thể PMI trừ `log P(mã ứng viên)` | TIGER (NeurIPS'23); OneRec Technical Report (arXiv 2506.13695, RQ-Kmeans) | Tokenizer *học được* (LETTER, CIKM'24); generative **retrieval** (MIND là xếp hạng slate cho sẵn) | `sid` |
 | **H8** | Pooling: trọng số **recency** `exp(-λ·tuổi)`, **MaxSim** (late interaction), top-k, log-sum-exp | ColBERT (SIGIR'20) | — | `pooling` |
 | **H9** | **LLM judge zero-shot** xếp lại top-10 của mean-pool: log-odds `Yes−No` token đầu tiên của câu trả lời (Qwen3-1.7B, tắt thinking), prompt = 8 tiêu đề gần nhất + tiêu đề/chuyên mục ứng viên; ± gộp với điểm gốc | LLMRank "LLMs are Zero-Shot Rankers" (ECIR'24); LLM4Rerank (WWW'25) | LLM4Rerank dạng CoT/đồ thị nhiều mục tiêu; listwise | `rerank` |
-| **H10** | User model **học được** = bản sao V10 `llmenc_ca` (đã kiểm: điểm số giống hệt mã V10) trên từng biểu diễn (frozen / head tốt nhất / LoRA tốt nhất / entity_rag / kNN-RAG) — cải thiện biểu diễn có sống sót khi đã có user model không? | V10 | — | `usermodel` |
+| **H10** | User model **học được** = bản sao V10 `llmenc_ca` (đã kiểm: điểm số giống hệt mã V10) trên từng biểu diễn (frozen / head tốt nhất / LoRA tốt nhất / entity_rag / kNN-RAG) — cải thiện biểu diễn có sống sót khi đã có user model không? **Thêm (v7):** cùng bảng vector đóng băng và cùng head 2 lớp nhưng reader *không nhìn ứng viên* là **Fastformer** (`um_ff_*`), **self-attention kiểu NRMS** (`um_nrms_*`) hoặc additive attention (`um_add_*`) ⇒ cô lập xem *module attention* nào đáng giá khi đã có vector LLM | V10; Fastformer; NRMS | — | `usermodel` (`--um-extra`) |
 | — | Quét encoder: TF-IDF+LSA (sàn từ vựng), BGE small/base/large, Qwen3-Embedding-0.6B | MTEB; Qwen3-Embedding | Qwen3-Embedding-4B/8B **chưa hỗ trợ** (cần nạp fp16; với mã hiện tại nạp fp32 sẽ hết bộ nhớ T4 và stage `sweep` chỉ ghi log rồi bỏ qua) | `sweep` |
 
 Các venue/tên bài được **tra cứu lại bằng web trong phiên này**: arXiv 2602.10622, LLM2Vec (COLM'24), LLM4Rerank (WWW'25), TIGER (NeurIPS'23), LETTER (**CIKM'24**, không phải SIGIR'25 như ghi nhầm trước đây),
@@ -37,12 +42,15 @@ OneRec (RQ-Kmeans), LLMRank (ECIR'24), KAR (RecSys'24), arXiv 2506.05690. Các m
 * **Kiểm tra tái lập**: `frozen` phải khớp V10 `bge_zeroshot` (AUC 0.6241, nDCG@10 0.3909) và `um_frozen` phải gần V10 `llmenc_ca` (0.6494 / 0.3997, dung sai 0.01 vì V10 chỉ 1 seed). (V10 embed bằng Sentence-Transformers với `max_seq_length` mặc định 512 của BGE; ở đây cắt 256 token — chênh lệch không đáng kể vì gần như mọi bài MIND < 256 token; nếu `MISMATCH` thì thử `--max-len 512`.) **Guard pooling**: `HFEncoder` được so với Sentence-Transformers trên 64 bài trước khi chạy (bắt lỗi pooling/EOS/prefix, quan trọng với Qwen3 dùng last-token pooling).
 * **Leaderboard chung** (một control toàn cục = BGE-small frozen) + `forest.png`; hàng H10 bị loại khỏi leaderboard vì có control riêng (`um_frozen`).
 * **Hai khung so sánh**: *content only* (control `frozen`) và *with popularity* (mọi biến thể zero-shot có bản sinh đôi `+pop`, control `frozen+pop` = V10 `bge_zs_pop`; kèm `leaderboard_pop.md`, `forest_pop.png`, `head_to_head_pop.json`). Lý do: trong bảng V10, `popularity` thuần (nDCG@10 0.4026) đã vượt mọi model nơ-ron huấn luyện (NAML 0.3953, llmenc_ca 0.3997, NRMS 0.3685, Fastformer 0.3642) và `bge_zs_pop` (0.4330) là model tốt nhất — nên một kỹ thuật LLM chỉ thật sự có giá trị nếu còn đóng góp *khi đã có popularity* (hoặc nếu nhắm cold-start, nơi popularity chưa có). `controls` kiểm tra `popularity` và `frozen+pop` khớp V10 (`--repro-pop`).
+* **Baseline tham chiếu cùng split, cùng evaluator.** Các dòng huấn luyện được dựng lại từ `behaviors.tsv` đúng như `data.py` (cùng cách tách ngày, cùng lọc) và **bị từ chối nếu lệch**: số impression/ngày validation phải bằng `MindData`, mỗi mẫu huấn luyện phải có cùng bài được click + cùng lịch sử, và mọi negative mà V10 đã bốc phải nằm trong pool của impression (bắt lỗi ánh xạ id bài báo khác nhau mà số lượng vẫn khớp; test đảo thứ tự id để chắc chắn lỗi này bị bắt). Baseline được chấm bằng đúng `Suite.run` (cùng CI ghép cặp, cùng lát cắt cold/warm theo `seen_tr` của V10). Chúng nằm ở họ `ref-baseline` / `ref-ladder`: **có trong leaderboard** nhưng **không** tham gia DECISION SUMMARY / HEAD-TO-HEAD như một "hướng ứng viên".
+* **`pop` là phản hồi online.** `_online_log_ctr` (V10) đếm click của các impression *trước đó trong chính tập test* (ngày 15/11). Đó là thiết lập streaming hợp lệ nhưng khác giao thức offline của các bài báo: các hàng `+pop` (nDCG@10 ≈ 0,43) **không so được** với số công bố; chỉ bảng *content only* so được. Không mô hình độ trễ phản hồi.
+* **Sàn nhiễu huấn luyện.** CI ghép cặp chỉ tính nhiễu *mẫu test*, không tính nhiễu *seed huấn luyện*. `nrms_ref@1` (cùng công thức, seed 1) và `ut_causal@1` cho biết độ lớn đó; chênh lệch nhỏ hơn nó giữa hai mô hình *đã huấn luyện* không phải phát hiện.
 * **Ngân sách đồng hồ chung** (`--budget-hours`): vòng lặp dài nhận `deadline` và dừng êm, stage nào không còn thời gian bị bỏ qua, kết quả được ghi sau *từng* stage; gọi lại sẽ **resume** (`state.pkl`, chỉ khi dữ liệu *và mọi tham số ảnh hưởng kết quả* giống hệt — QUICK không bao giờ lẫn vào bản đầy đủ). Dòng bị cắt giữa chừng được gắn cờ (`truncated`, `queries_missing`) để không so sánh nhầm.
 
 ## 3. Chạy
 
-**Kaggle:** upload `v11_full_suite_v5.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
-Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; phần BGE đã đo thật ≈ 13 phút trên Kaggle, phần Qwen3/LLM chưa đo (ước ~30–60 phút vì phải encode 65k bài bằng Qwen3, chạy Louvain và tải model); mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template). Chỉ thử BGE: `V11_RUN_B=0`.
+**Kaggle:** upload `v11_full_suite_v7.ipynb` → Settings: GPU + Internet On → *Add Input* dataset MIND có **cả** `MINDsmall_train` và `MINDsmall_dev` (vd `thinhhuynh3108/mindsmall`) → Run All.
+Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô cấu hình; phần BGE đã đo thật ≈ 13 phút trên Kaggle, phần Qwen3/LLM chưa đo (ước ~30–60 phút vì phải encode 65k bài bằng Qwen3, chạy Louvain và tải model); mục đích bắt lỗi môi trường: tải model, bộ nhớ GPU, phiên bản `transformers`/`peft`, mask 4D, chat template). Chỉ thử BGE: `V11_RUN_B=0`; bỏ baseline: `V11_REF=0`. Thứ tự chạy: **A-core → baseline (R) → B (Qwen3) → A-phần còn lại**; cuối cùng ghi `SUMMARY_v11.md` (gộp mọi bảng) — gửi file đó để đọc kết quả.
 
 | Biến môi trường | Mặc định | Ý nghĩa |
 |---|---|---|
@@ -52,6 +60,8 @@ Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô
 | `V11_GEN_MODEL` | `Qwen/Qwen3-1.7B` | LLM sinh văn bản / giám khảo (có thể thử `Qwen/Qwen3-4B-Instruct-2507`, chậm ~2.5×) |
 | `V11_RUN_B` | 1 | 0 = bỏ phần LLM (chỉ còn run A, ~3 giờ) |
 | `V11_REFERENCE` | 1 | 0 = bỏ bước so HFEncoder với Sentence-Transformers |
+| `V11_REF` | 1 | 0 = bỏ 8 mô hình baseline (ước ~1,7–2,2 giờ, chưa đo) |
+| `V11_GLOVE_PATH` | (trống) | file GloVe-300 `txt`/`zip` nếu bạn đã Add Input; trống ⇒ tự dò `/kaggle/input/**/glove*300d*`, rồi tải bản `sentence-transformers/average_word_embeddings_glove.6B.300d` (~480 MB), rồi `gensim`. Hỏng hết ⇒ vector ngẫu nhiên, hàng gắn nhãn `_noglove` |
 | `V11_SWEEP` | bge-base, bge-large, Qwen3-Emb-0.6B | danh sách encoder quét |
 
 **Local:**
@@ -71,12 +81,15 @@ python make_notebook.py       # sinh lại notebook (đổi NOTEBOOK trong file 
 | **A-phần còn lại** | encoder LoRA/DoRA ×3 3672 · usermodel 537 · sweep (4 encoder) 334 | **75 phút** |
 | **Tổng v4** | | **3,22 giờ** |
 
-Bản v6 thêm: 2 mode tower nữa (bidir, soft) + causal seed 1 (≈ +100 phút), tập test tower 30k thay vì 15k (≈ +40 phút), tower BGE (≈ +5 phút), các hàng `+pop` (≈ +15 phút), quét thêm 3 encoder (≈ +15 phút) ⇒ **ước ~5,5–6 giờ**. Mỗi run in `STAGE TIMINGS` và lưu `timings.json`. Nếu cần ngắn hơn: `V11_BUDGET_H=4` hoặc bớt `causal@1` khỏi `--llm-user-modes`.
+Bản v6 thêm: 2 mode tower nữa (bidir, soft) + causal seed 1 (≈ +100 phút), tập test tower 30k thay vì 15k (≈ +40 phút), tower BGE (≈ +5 phút), các hàng `+pop` (≈ +15 phút), quét thêm 3 encoder (≈ +15 phút) ⇒ **ước ~5,5–6 giờ** (chưa đo) cho phần V11 cũ, cộng baseline ⇒ **~7–8,5 giờ**. **Baseline mới (ước, chưa đo):** NRMS ≈ 15 phút, NAML ≈ 30 (nặng nhất: tích chập trên 80 token/bài), Fastformer ≈ 20, `nrms_ref@1` ≈ 15, `nrms_ref_refit` ≈ 15, thang ablation (3 mô hình, 64-d hai rung đầu rẻ) ≈ 25 ⇒ **≈ 1,7–2,2 giờ**; mỗi mô hình bị chặn ở `--ref-model-minutes` (35 phút) và dừng êm (hàng gắn cờ `partial`). Mỗi run in `STAGE TIMINGS` và lưu `timings.json`. Nếu cần ngắn hơn: `V11_BUDGET_H=4` hoặc bớt `causal@1` khỏi `--llm-user-modes`.
 
 ## 5. Cách đọc kết quả → hướng luận văn
 
 | Kết quả (CI loại trừ 0 trên test, sau Bonferroni) | Hướng nên theo |
 |---|---|
+| **Biến thể LLM/zero-shot thắng cả `nrms_ref` / `fastformer_ref`** (bảng content-only trong `direct_comparisons.md`) | luận điểm mạnh: "vượt baseline đã huấn luyện chuẩn", không chỉ vượt baseline yếu của V10 |
+| Chỉ thắng baseline V10, **thua** `nrms_ref` | luận điểm cũ không đứng vững; báo cáo trung thực |
+| `ladder.md`: rung nào tăng nhiều nhất | nguồn chính của khoảng cách V10 ↔ bài báo (Δ phụ thuộc thứ tự rung; có tương tác) |
 | **H5** thắng (nhất là `ut_soft`/`ut_bidir` > `ut_causal`) | "Tinh chỉnh LLM làm user encoder + lịch trình attention mask" — đúng dòng 2026 |
 | **H7** thắng, nhất là trên *cold* | "Semantic ID cho cold-start tin tức; generative model dùng làm slate ranker" |
 | **H3/H4/H4b** thắng trên *cold* | "Retrieval-/Graph-augmented representation cho tin mới", mở rộng bằng LLM đọc ngữ cảnh |
@@ -92,9 +105,14 @@ Bản v6 thêm: 2 mode tower nữa (bidir, soft) + causal seed 1 (≈ +100 phút
 **Semantic ID**: k-means, chấm điểm theo batch == tham chiếu từng chuỗi (kể cả lịch sử rỗng), PMI(lịch sử rỗng)=0, học được quy luật "bài kế tiếp" tất định (AUC 1.0);
 **generator**: greedy không phụ thuộc batch, cache JSONL, deadline; Yes/No log-odds batch == đơn lẻ; **so sánh trên tập con** == cắt thủ công; `ScoreCache`/z-fusion bảo toàn thứ hạng; clone `LLMEncCA` cho điểm **giống hệt** mã V10;
 **resume** (gọi lần 2 bỏ qua stage đã xong, dùng lại `kv`/records, không trùng dòng) và **ngân sách** (ngân sách ~0 → bỏ qua mọi stage tuỳ chọn nhưng vẫn ghi kết quả);
-mô phỏng "Run All" của notebook (QUICK) từ thư mục trống trên fixture: 3 lần gọi `suite.main`, không stage nào lỗi, có `leaderboard.md` + `forest.png`.
+mô phỏng "Run All" của notebook (QUICK) từ thư mục trống trên fixture: 4 lần gọi `suite.main` (A-core, baseline, B, A-còn-lại), không stage nào lỗi, có `leaderboard.md` + `forest.png` + `ladder.md` + `SUMMARY_v11.md`.
 
-❌ **Chưa kiểm chứng:** mọi hiệu năng trên MIND thật; thời gian trên T4/P100; fp16/AMP + LoRA/GradScaler trên GPU thật; weight thật của BGE/Qwen3 (guard pooling chạy lúc runtime); hành vi mask 4D với phiên bản `transformers` trên Kaggle (có probe runtime, variant nào fail sẽ bị bỏ qua và ghi log);
+**Baseline mới (v7):** token/từ vựng/UNK; nạp GloVe từ `txt`, `zip`, thư mục sentence-transformers và chuỗi lỗi → ngẫu nhiên có nhãn; ma trận embedding mang đúng hàng GloVe, PAD = 0; **mẫu huấn luyện dựng lại == `train_core` của V10** (cùng bài click, cùng lịch sử, mọi negative của V10 nằm trong pool; đảo thứ tự id bị từ chối); negative thật sự được bốc lại mỗi epoch, không lặp khi pool ≥ 4, có lặp khi pool nhỏ hơn (như V10);
+**rung 0 của thang ablation == NRMS của V10** (chép trọng số: lệch điểm ≤ 3e-8 trên 50 impression); attention Fastformer == bản vòng lặp tham chiếu; encoder có mask bất biến theo phần PAD thêm vào (bố cục V10 thì *không*); scorer (mã hoá cả catalogue một lần) == forward huấn luyện (mã hoá theo batch); lịch sử rỗng ⇒ mọi ứng viên bằng điểm; cả 3 họ đều học được cấu trúc chủ đề giả (loss giảm, val tăng);
+reader Fastformer/NRMS/additive trên vector đóng băng: add/nrms bất biến theo thứ tự lịch sử, Fastformer thì không; stage baseline trong suite: hàng + twin `+pop`, bảng ablation, harness check, không lọt vào DECISION SUMMARY, resume theo từng mô hình, đổi cấu hình baseline chỉ chạy lại các stage baseline, fallback không GloVe (`_noglove`), chạy con (QUICK).
+
+❌ **Chưa kiểm chứng:** mọi hiệu năng trên MIND thật (kể cả việc `nrms_ref` có rơi vào khoảng bài báo hay không); **đường tải GloVe trên Kaggle** (`snapshot_download` thư mục `0_WordEmbeddings`, `gensim`; sandbox phát triển không có mạng ra Hugging Face — parser đã được kiểm trên cùng định dạng giả lập, và có đường lùi); tốc độ huấn luyện baseline (ước 40–150 ms/bước trên T4);
+Fastformer cài lại có khớp mã chính thức về siêu tham số hay không; thời gian trên T4/P100; fp16/AMP + LoRA/GradScaler trên GPU thật; weight thật của BGE/Qwen3 (guard pooling chạy lúc runtime); hành vi mask 4D với phiên bản `transformers` trên Kaggle (có probe runtime, variant nào fail sẽ bị bỏ qua và ghi log);
 tốc độ sinh văn bản của Qwen3-1.7B; thời gian Louvain trên ~50k bài; bộ nhớ GPU khi chạy tower (có tự giảm batch khi OOM).
 
 ## 6b. Sự cố môi trường đã gặp khi chạy thật
@@ -108,13 +126,15 @@ tốc độ sinh văn bản của Qwen3-1.7B; thời gian Louvain trên ~50k bà
 
 Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed** (chênh lệch nhỏ hơn ~0.005 nDCG@10 giữa các mask có thể là nhiễu huấn luyện). Dòng chạy tập con (H5/H6/H9) có CI rộng hơn: chỉ phát hiện được hiệu ứng lớn.
 `soft` ≠ Gradient-Guided Soft Masking. Giám khảo LLM 1.7B pointwise zero-shot khá yếu so với các hệ rerank mạnh. Entity graph dựa trên chú thích Wikidata của MIND. Popularity (CTR online của V10) **không** nằm trong các hàng gốc; nó chỉ xuất hiện ở các hàng sinh đôi `+pop` (cùng cấu hình, gộp z-score 1:1 như `bge_zs_pop`, không tinh chỉnh trọng số; hàng `rerank_*` không có bản `+pop`).
+**Baseline:** (i) các hàng baseline thường huấn luyện trên `train_core` (≈ 80,7% số impression của MINDsmall_train; 10% ngày cuối là validation) trong khi các bài báo dùng toàn bộ train ⇒ hơi bất lợi cho baseline; riêng `nrms_ref_refit` huấn luyện lại trên cả validation (nhưng chỉ NRMS, và số epoch lấy từ lượt chọn trên validation); (ii) GloVe-6B (chữ thường) thay vì 840B; (iii) mặc định 1 seed (nhiễu seed trong các nguồn khác ±0,002–0,003); (iv) chỉ số bài báo trích từ kết quả tìm kiếm, cần đối chiếu PDF; (v) thang ablation là tích luỹ nên Δ của mỗi rung phụ thuộc thứ tự; (vi) không tinh chỉnh siêu tham số cho bất kỳ mô hình nào (baseline lẫn các hướng LLM) — so sánh công bằng ở mức "cấu hình mặc định", không phải "mỗi bên tối ưu hết cỡ".
 Đo ở mức biểu diễn zero-shot cho phần lớn họ; H10 là cầu nối sang user model học được nhưng vẫn chỉ là một kiến trúc (V10 `llmenc_ca`).
 
 ## 8. Bản đồ file
 
 `data.py`/`metrics.py` (V10, nguyên văn) · `common.py` (đồng hồ ngân sách, fusion, `ScoreCache`, `HistQueries`) · `rep_eval.py` (evaluator vector hoá, CI ghép cặp, so sánh qua tập con) ·
-`semgraph.py` (RAG/GraphRAG-lite) · `adapt.py` (head, LoRA/DoRA, MRL) · `pooling.py` (H8) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10) ·
-`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v11_full_suite_v5.ipynb`.
+`semgraph.py` (RAG/GraphRAG-lite) · `adapt.py` (head, LoRA/DoRA, MRL) · `pooling.py` (H8) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10, reader Fastformer/NRMS/additive) ·
+`refdata.py` (token, GloVe, dựng lại mẫu huấn luyện V10 + negative bốc lại mỗi epoch) · `refmodels.py` (NRMS/NAML/Fastformer, trainer) · `stages_ref.py` (stage baseline + bảng ablation) ·
+`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v11_full_suite_v7.ipynb`.
 
 ## 9. Tài liệu
 
@@ -123,4 +143,17 @@ LLM2Vec (COLM'24) · "How Do Decoder-Only LLMs Perceive Users? Rethinking Attent
 Matryoshka Representation Learning (NeurIPS'22) · fMRLRec (EMNLP-Findings'24) · SMEC (EMNLP'25) · DoRA (ICML'24) · ColBERT (SIGIR'20) ·
 K-RagRec (ACL'25) · Microsoft GraphRAG (arXiv 2404.16130) · "When to use Graphs in RAG" (arXiv 2506.05690) ·
 KAR "Towards Open-World Recommendation with Knowledge Augmentation from LLMs" (RecSys'24) · "LLMs are Zero-Shot Rankers for Recommender Systems" (ECIR'24) · LLM4Rerank (WWW'25) ·
-"LLM-Driven News Recommendation via Lightweight Task-Adaptive Modules" (Applied Sciences 2026).
+"LLM-Driven News Recommendation via Lightweight Task-Adaptive Modules" (Applied Sciences 2026) ·
+NRMS "Neural News Recommendation with Multi-Head Self-Attention" (EMNLP-IJCNLP'19) · NAML "Neural News Recommendation with Attentive Multi-View Learning" (IJCAI'19) · Fastformer "Additive Attention Can Be All You Need" (arXiv 2108.09084) ·
+GloVe (EMNLP'14) · MIND (ACL'20).
+
+## 10. Số công bố cho MIND-small (chỉ để kiểm tra độ lớn — **chưa mở PDF**, lấy từ kết quả tìm kiếm)
+
+| Mô hình | AUC | MRR | nDCG@5 | nDCG@10 | Nguồn |
+|---|---|---|---|---|---|
+| NRMS | 66,58 ± 0,17 | 31,44 ± 0,15 | 34,99 ± 0,19 | 41,21 ± 0,16 | arXiv 2304.03112 |
+| NAML | 67,14 ± 0,20 | 31,58 ± 0,28 | 35,20 ± 0,29 | 41,52 ± 0,28 | arXiv 2304.03112 |
+| NRMS (JAX) | 66,14 – 66,39 | 31,30 – 31,35 | 34,56 – 34,69 | 40,96 – 40,97 | NewsReX (model card) |
+| NAML (JAX) | 66,61 | 31,49 | 34,78 | 41,19 | NewsReX (model card) |
+
+Quy luật cấu trúc để phát hiện bảng sai: ở mọi nguồn trên và trong cả 163 dòng kết quả của lần chạy đầy đủ v4 (kể cả các dòng gần ngẫu nhiên), **nDCG@5 luôn lớn hơn MRR**; ở 141 dòng có AUC > 0,60 mức chênh nằm trong 0,022–0,033. Một bảng có MRR > nDCG@5 (như bảng không trích dẫn tìm được trên Google) không khớp quy luật đó — đừng dùng làm tài liệu tham chiếu.

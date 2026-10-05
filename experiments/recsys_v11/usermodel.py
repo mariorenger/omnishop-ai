@@ -38,6 +38,40 @@ class LLMEncCA(nn.Module):
         return (torch.einsum("bch,bhd->bcd", att, h) * c).sum(-1)
 
 
+class LLMEncUser(nn.Module):
+    """Same frozen article table and 2-layer head as ``LLMEncCA``, but the reader is encoded *without* looking at the candidate:
+    ``add`` additive attention pooling (NAML-style), ``nrms`` multi-head self-attention + additive pooling, ``ff`` Fastformer block +
+    additive pooling.  Only the user encoder differs from the V10 clone, so the comparison isolates the attention module."""
+
+    def __init__(self, emb, kind="ff", dim=64, heads=2, dropout=0.2, device="cpu"):
+        super().__init__()
+        from refmodels import AddAttn, FastEncoder, SelfAttn
+        self.set_emb(emb, device)
+        self.kind = kind
+        self.head = nn.Sequential(nn.Linear(self.emb.shape[1], dim), nn.GELU(), nn.LayerNorm(dim), nn.Dropout(dropout), nn.Linear(dim, dim))
+        self.enc = {"add": None, "nrms": SelfAttn(dim, heads, dim // heads, out_proj=True),
+                    "ff": FastEncoder(dim, dim, heads, 1, 50)}[kind]
+        self.pool = AddAttn(dim, 200)
+        self.to(device)
+
+    def set_emb(self, emb, device=None):
+        self.emb = torch.as_tensor(np.ascontiguousarray(emb, np.float32)).to(device or self.emb.device)
+
+    def score(self, hist, hist_mask, cand):
+        from refmodels import safe_mask
+        h, c = self.head(self.emb[hist]), self.head(self.emb[cand])
+        safe = safe_mask(hist_mask)
+        if self.enc is not None:
+            h = self.enc(h, safe)
+        u = self.pool(h, safe) * hist_mask.any(-1, keepdim=True).to(h.dtype)
+        return torch.einsum("bd,bcd->bc", u, c)
+
+
+def make_model(kind, emb, dim=64, dropout=0.2, device="cpu"):
+    """``ca``: the V10 clone; ``add`` / ``nrms`` / ``ff``: candidate-independent readers (see ``LLMEncUser``)."""
+    return LLMEncCA(emb, dim, dropout, device) if kind == "ca" else LLMEncUser(emb, kind, dim, 2, dropout, device)
+
+
 def pack_train(rows, max_hist=50):
     """train_core rows ``(user, hist, pos, negs)`` -> arrays (hist [N,H], mask [N,H], cands [N,1+n_neg], pos first)."""
     N = len(rows)
@@ -52,12 +86,12 @@ def pack_train(rows, max_hist=50):
 
 
 def train_user_model(emb, pack, val_fn, seed=0, dim=64, dropout=0.2, lr=1e-3, wd=1e-5, bs=64, max_epochs=12,
-                     min_epochs=3, patience=2, min_delta=1e-3, device="cpu", deadline=None, log=print):
+                     min_epochs=3, patience=2, min_delta=1e-3, device="cpu", deadline=None, log=print, kind="ca"):
     """``val_fn(model) -> float`` (validation nDCG@10, evaluated with the embedding table valid for the validation
-    period).  Returns ``(model restored to its best epoch, info)``."""
+    period).  ``kind``: user encoder, see ``make_model``.  Returns ``(model restored to its best epoch, info)``."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    model = LLMEncCA(emb, dim, dropout, device)
+    model = make_model(kind, emb, dim, dropout, device)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
     H, M, C = (torch.from_numpy(a).to(device) for a in pack)
     N = len(H)

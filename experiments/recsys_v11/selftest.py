@@ -36,6 +36,8 @@ import common
 import llm_gen
 import llm_user
 import metrics
+import refdata as RD
+import refmodels as RM
 import rep_eval as R
 import sid as SID
 import suite
@@ -412,6 +414,364 @@ def test_cache_fuse_subset(S):
     ok("(6b) ScoreCache == direct scoring, z-fusion of one scorer is rank-preserving, subset CIs equal manual slicing, subsets are nested")
 
 
+
+# --------------------------------------------------------------------------- reference baselines
+def build_fake_glove(path, words, dim, seed=0):
+    rng = np.random.default_rng(seed)
+    with open(path, "w", encoding="utf-8") as f:
+        for w in words:
+            f.write(w + " " + " ".join(f"{x:.5f}" for x in rng.normal(0, 0.4, dim)) + "\n")
+        f.write("new york " + " ".join(["0.1"] * (dim + 1)) + "\n")            # multi-token entry of the 840B file: must be skipped
+
+
+def test_ref_data(tmp, mind_train, data, meta):
+    """(16) token tables, GloVe loading (txt / zip / sentence-transformers folder / failure chain) and the V10-identical training samples."""
+    assert RD.tokenize("Trump's U.S. plan, 2020!") == ["trump", "s", "u", ".", "s", ".", "plan", ",", "2020", "!"]   # the apostrophe is dropped, .,!?;| are tokens
+    v = RD.build_vocab([["a", "b", "b"], ["b", "c"]], min_freq=2, keep={"c"})
+    assert v == {"<pad>": 0, "<unk>": 1, "b": 2, "c": 3}, v
+    enc = RD.encode_tokens([["b", "zzz", "c"], []], v, 4)
+    assert enc.shape == (3, 4) and enc[1].tolist() == [2, 1, 3, 0] and not enc[0].any() and not enc[2].any()
+    # GloVe: txt, zip, sentence-transformers folder; the corpus words only
+    words = ["t1w1", "t2w2", "sw3", "unseen"]
+    gp = os.path.join(tmp, "glove.6B.8d.txt")
+    build_fake_glove(gp, words, 8)
+    want = {"t1w1", "sw3", "t3w3"}
+    w, M = RD._glove_local(gp, 8, want)
+    assert sorted(w) == ["sw3", "t1w1"] and M.shape == (2, 8)
+    import zipfile
+    zp = os.path.join(tmp, "glove.6B.zip")
+    with zipfile.ZipFile(zp, "w") as z:
+        z.write(gp, "glove.6B.8d.txt")
+    w2, M2 = RD._glove_local(zp, 8, want)
+    assert sorted(w2) == sorted(w) and np.allclose(M2[np.argsort(w2)], M[np.argsort(w)])
+    st = os.path.join(tmp, "st_glove", "0_WordEmbeddings")
+    os.makedirs(st, exist_ok=True)
+    mat = torch.randn(len(words), 8)
+    with open(os.path.join(st, "whitespacetokenizer_config.json"), "w") as f:
+        json.dump({"vocab": words, "stop_words": [], "do_lower_case": False}, f)
+    torch.save({"emb_layer.weight": mat}, os.path.join(st, "pytorch_model.bin"))
+    w3, M3 = RD._from_st_dir(os.path.dirname(st), 8, want)
+    assert sorted(w3) == ["sw3", "t1w1"] and np.allclose(M3[w3.index("t1w1")], mat[0].numpy())
+    off = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline"))
+    saved = RD._glove_hf, RD._glove_gensim
+    RD._glove_hf, RD._glove_gensim = off, off
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            none = RD.load_glove(want, 8, source=os.path.join(tmp, "missing.txt"))
+            ok_ = RD.load_glove(want, 8, source=gp)
+    finally:
+        RD._glove_hf, RD._glove_gensim = saved
+    assert none == (None, None, "") and ok_[2].startswith("file:") and "no GloVe source worked" in buf.getvalue()
+    # RefText: the embedding matrix carries the GloVe rows, zero PAD, matched random scale for the rest
+    allw = sorted({w_ for t in meta["titles"] + meta["abstracts"] for w_ in RD.tokenize(t)})
+    gp2 = os.path.join(tmp, "glove_all.txt")
+    build_fake_glove(gp2, allw[:60], 8, seed=1)
+    text = RD.RefText(meta, title_len=12, body_len=20, glove_dim=8, glove_source=gp2, log=lambda *a: None)
+    assert text.title.shape == (data.n_news, 12) and text.body.shape == (data.n_news, 20) and text.cat.shape == (data.n_news,)
+    assert not text.title[0].any() and text.cat[0] == 0 and text.n_cat == 7
+    E = text.embedding(8, seed=0)
+    j = text.vocab[text.glove_words[0]]
+    assert np.allclose(E[j], text.glove_mat[0]) and not E[0].any() and E.shape == (text.vocab_size, 8)
+    assert text.stats["glove_vocab_hits"] >= 50 and text.stats["unk_title_share"] < 0.2
+    assert not np.allclose(text.embedding(8, 0), text.embedding(8, 1))                  # the seed changes the random rows
+    Er = text.embedding(8, 0, init="random")
+    assert abs(Er[text.vocab[allw[-1]]].std() - 0.1) < 0.2 and not np.allclose(Er[j], text.glove_mat[0])
+    # V10-identical training samples with the full negative pool
+    core = RD.read_train_core(mind_train, meta["ids"], data)
+    ts = RD.TrainSet(core)
+    RD.check_train_alignment(ts, data)
+    assert ts.n_samples == len(data.train_core) and ts.n_imp <= data.train_core_impressions
+    bad = list(reversed(meta["ids"]))                                                     # a different article order must be caught
+    try:
+        RD.check_train_alignment(RD.TrainSet(RD.read_train_core(mind_train, bad, data)), data)
+        raise AssertionError("a permuted article-id mapping went undetected")
+    except ValueError:
+        pass
+    rng = np.random.default_rng(0)
+    d1, d2 = ts.draw(rng), ts.draw(rng)
+    assert d1.shape == (ts.n_samples, 4) and not np.array_equal(d1, d2), "negatives are not re-drawn"
+    small = 0
+    for s_ in range(ts.n_samples):
+        i = ts.samp_imp[s_]
+        pool = set(ts.neg_flat[ts.neg_off[i]:ts.neg_off[i] + ts.neg_cnt[i]].tolist())
+        assert set(d1[s_].tolist()) <= pool
+        if ts.neg_cnt[i] >= 4:
+            assert len(set(d1[s_].tolist())) == 4, "sampling without replacement expected when the pool holds >= 4"
+        else:
+            small += 1
+    for ep in range(1, 4):                                                                # batches: shapes and the history mask
+        H, M, C = next(iter(ts.batches(256, ep, 0, "cpu")))
+        assert H.shape[1] == 50 and C.shape[1] == 5 and bool(((H > 0) == M).all())
+    union = [set() for _ in range(ts.n_samples)]                                          # over many epochs every negative of a pool gets drawn
+    for ep in range(30):
+        d = ts.draw(np.random.default_rng(100 + ep))
+        for s_ in range(0, ts.n_samples, 7):
+            union[s_].update(d[s_].tolist())
+    for s_ in range(0, ts.n_samples, 7):
+        i = ts.samp_imp[s_]
+        pool = set(ts.neg_flat[ts.neg_off[i]:ts.neg_off[i] + ts.neg_cnt[i]].tolist())
+        assert union[s_] == pool or len(pool) > 30, (s_, len(union[s_]), len(pool))
+    st_ = RD.StaticTrainSet(data.train_core)
+    b0 = next(iter(st_.batches(8, 1, 0, "cpu")))
+    assert b0[2].shape == (8, 5) and st_.n_samples == len(data.train_core)
+    sub = RD.subsample(core, 0.5)
+    assert abs(len(sub) - len(core) // 2) <= 1 and RD.subsample(core, 1.0) is core
+    ok(f"(16) reference data: regex tokens, vocab/UNK, GloVe (txt, zip, sentence-transformers folder, failure chain), embedding init; "
+       f"{ts.n_samples:,} samples == V10 train_core with the full negative pool (re-drawn each epoch, {small} small pools drawn with replacement); "
+       f"a permuted article mapping is rejected")
+    return text, ts
+
+
+def naive_fast_attention(m, x, mask):
+    """Loop version of the official Fastformer additive attention (one head at a time, softmax over real tokens only)."""
+    B, L, d = x.shape
+    out = torch.zeros_like(x)
+    for b in range(B):
+        idx = mask[b].nonzero().flatten()
+        q, k = m.q(x[b]), m.k(x[b])
+        p = torch.zeros(L, d)
+        for h in range(m.h):
+            sl = slice(h * m.dh, (h + 1) * m.dh)
+            a = torch.softmax(m.q_att(q)[idx, h] / m.dh ** 0.5, 0)
+            gq = (a[:, None] * q[idx][:, sl]).sum(0)
+            p[:, sl] = k[:, sl] * gq
+        u = torch.zeros(L, d)
+        for h in range(m.h):
+            sl = slice(h * m.dh, (h + 1) * m.dh)
+            bta = torch.softmax(m.k_att(p)[idx, h] / m.dh ** 0.5, 0)
+            gk = (bta[:, None] * p[idx][:, sl]).sum(0)
+            u[:, sl] = gk * q[:, sl]
+        out[b] = m.transform(u) + q
+    return out
+
+
+def test_ref_models(data, meta, text, ts):
+    """(17) architectures: Fastformer == loop reference, padding invariance, scorer == training forward, V10-NRMS equality, all three learn."""
+    import types
+    torch.manual_seed(0)
+    # Fastformer additive attention against the loop version
+    fa = RM.FastSelfAttn(32, 4).eval()
+    x = torch.randn(3, 9, 32)
+    mask = torch.ones(3, 9, dtype=torch.bool)
+    mask[1, 5:] = False
+    mask[2, 2:] = False
+    with torch.no_grad():
+        got, want = fa(x, mask), naive_fast_attention(fa, x, mask)
+    assert torch.allclose(got[mask], want[mask], atol=1e-5), float((got[mask] - want[mask]).abs().max())
+    # additive attention ignores masked positions
+    ad = RM.AddAttn(16, 8).eval()
+    xx = torch.randn(2, 6, 16)
+    mm = torch.tensor([[1, 1, 1, 0, 0, 0], [1, 1, 1, 1, 1, 1]], dtype=torch.bool)
+    x2 = xx.clone()
+    x2[0, 3:] = 99.0
+    assert torch.allclose(ad(xx, mm)[0], ad(x2, mm)[0], atol=1e-5)
+    # padding invariance of the masked news encoders (a longer PAD tail must not move the vector); the V10 layout is NOT invariant
+    from dataclasses import replace
+    base = {"nrms": replace(RM.preset("nrms"), emb_dim=32, heads=4, head_dim=8, init="random"),
+            "fastformer": replace(RM.preset("fastformer"), emb_dim=32, heads=4, head_dim=8, ff_layers=1, init="random"),
+            "naml": replace(RM.preset("naml"), emb_dim=32, naml_filters=32, init="random")}
+    for kind, cfg in base.items():
+        net = RM.build_net(cfg, "cpu", 0, text, data).eval()
+        wide = RD.RefText.__new__(RD.RefText)
+        wide.__dict__.update(text.__dict__)
+        wide.title = np.concatenate([text.title, np.zeros((text.title.shape[0], 9), np.int64)], 1)
+        net2 = RM.build_net(cfg, "cpu", 0, wide, data).eval()
+        net2.load_state_dict({k: v for k, v in net.state_dict().items() if k != "news_enc.pos.weight"}, strict=False)
+        if kind == "fastformer":                                                 # positions beyond the short length only exist in the wide model
+            net2.news_enc.pos.weight.data[:text.title.shape[1]] = net.news_enc.pos.weight.data
+        ids = torch.arange(1, 60)
+        with torch.no_grad():
+            a, b = net.encode_news(ids), net2.encode_news(ids)
+        assert torch.allclose(a, b, atol=1e-4), (kind, float((a - b).abs().max()))
+        # batch invariance of the article encoder
+        with torch.no_grad():
+            one = torch.cat([net.encode_news(ids[i:i + 1]) for i in range(0, 12)])
+        assert torch.allclose(one, a[:12], atol=1e-4)
+    cfg = replace(base["nrms"], title_mask=False)
+    net = RM.build_net(cfg, "cpu", 0, text, data).eval()
+    wide = RD.RefText.__new__(RD.RefText)
+    wide.__dict__.update(text.__dict__)
+    wide.title = np.concatenate([text.title, np.zeros((text.title.shape[0], 9), np.int64)], 1)
+    net2 = RM.build_net(cfg, "cpu", 0, wide, data).eval()
+    net2.load_state_dict(net.state_dict(), strict=False)
+    with torch.no_grad():
+        assert not torch.allclose(net.encode_news(torch.arange(1, 30)), net2.encode_news(torch.arange(1, 30)), atol=1e-3), \
+            "without a title mask the PAD tail should change the vector (this is the V10 behaviour the ladder removes)"
+    # scorer (catalogue encoded once) == the training forward (articles encoded per batch), empty histories tie
+    es = R.EvalSet(data.test[:60])
+    for kind, cfg in base.items():
+        net = RM.build_net(cfg, "cpu", 0, text, data).eval()
+        sc = RM.make_scorer(net)
+        for b in es:
+            with torch.no_grad():
+                a, c = sc(b), net(b["hist"], b["hist_mask"], b["cand"])
+            m = b["cand_mask"]
+            assert torch.allclose(a[m], c[m], atol=1e-4), (kind, float((a[m] - c[m]).abs().max()))
+            empty = ~b["hist_mask"].any(1)
+            if empty.any():
+                assert float(a[empty].abs().max()) == 0.0, "a reader without history must score every candidate equally"
+    # V10's NRMS: identical scores once the weights are copied (the ladder's first rung is a re-implementation of it)
+    import importlib.util
+    path = os.environ.get("V10_MODELS", "/home/user/nguyenpnguyen/recsys-project/training/models.py")
+    if os.path.exists(path):
+        spec = importlib.util.spec_from_file_location("v10_models_ref", path)
+        v10 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(v10)
+        ref = v10.NRMS(types.SimpleNamespace(vocab_size=data.vocab_size), types.SimpleNamespace(dim=64, heads=2, dropout=0.2)).eval()
+        mine = RM.build_net(RM.preset("v10"), "cpu", 0, None, data).eval()
+        with torch.no_grad():
+            mine.emb.weight.copy_(ref.news.word_emb.weight)
+
+            def split_mha(mha, att):
+                W, bias, D = mha.in_proj_weight, mha.in_proj_bias, mha.in_proj_weight.shape[1]
+                for i, lin in enumerate((att.q, att.k, att.v)):
+                    lin.weight.copy_(W[i * D:(i + 1) * D])
+                    lin.bias.copy_(bias[i * D:(i + 1) * D])
+                att.o.weight.copy_(mha.out_proj.weight)
+                att.o.bias.copy_(mha.out_proj.bias)
+            split_mha(ref.news.mha, mine.news_att)
+            split_mha(ref.user_mha, mine.user_att)
+            for src, dst in ((ref.news.pool, mine.news_pool), (ref.user_pool, mine.user_pool)):
+                dst.proj.load_state_dict(src.proj.state_dict())
+                dst.q.load_state_dict(src.query.state_dict())
+        rows = [r for r in data.test if len(r[2]) > 0][:50]
+        sc = RM.make_scorer(mine)
+        with torch.no_grad():
+            want = ref.score(data.collate_eval(rows))
+            worst = 0.0
+            for b in R.EvalSet(rows):
+                got = sc(b)
+                for k, r in enumerate(b["rows"]):
+                    n = int(b["cand_mask"][k].sum())
+                    worst = max(worst, float((got[k, :n] - want[r, :n]).abs().max()))
+        assert worst < 1e-4, worst
+        ok(f"(17b) ladder rung 0 == V10's NRMS: identical scores with copied weights (max abs diff {worst:.1e} over {len(rows)} impressions)")
+    else:
+        print(f"SKIP (17b) V10 models.py not found at {path}")
+    # every family learns the planted topic structure of the fixture
+    seen = np.ones(data.n_news, bool)
+    es_val = R.EvalSet(data.validation)
+    out = {}
+    for kind, cfg in base.items():
+        cfg = replace(cfg, lr=3e-3, max_epochs=6, min_epochs=6, patience=99, bs=64)
+        net = RM.build_net(cfg, "cpu", 0, text, data)
+        val_fn = lambda n: R.evaluate(RM.make_scorer(n), es_val, seen)["mean"]["ndcg@10"]
+        start = val_fn(net.eval())
+        net, info = RM.train_ref(net, ts, val_fn, cfg, seed=0, log=lambda *a: None)
+        h = info["history"]
+        assert h[-1]["loss"] < h[0]["loss"] - 0.05 and info["best_val"] > start + 0.03, (kind, h[0]["loss"], h[-1]["loss"], start, info["best_val"])
+        out[kind] = (round(start, 3), round(info["best_val"], 3))
+    cfgf = replace(base["nrms"], lr=3e-3, max_epochs=6, bs=64)
+    netf = RM.build_net(cfgf, "cpu", 0, text, data)
+    calls = []
+    netf, inf = RM.train_ref(netf, ts, lambda n: calls.append(1) or 0.0, cfgf, seed=0, log=lambda *a: None, fixed_epochs=2)
+    assert inf["epochs"] == 2 and not calls and np.isnan(inf["history"][0]["val"]) and inf["history"][1]["loss"] < inf["history"][0]["loss"], "fixed_epochs must not validate"
+    ok(f"(17) reference models: Fastformer attention == loop reference, masked encoders are padding-invariant (V10 layout is not), scorer == training forward, "
+       f"empty history ties; NRMS/Fastformer/NAML learn the planted signal (val nDCG@10 untrained -> trained: {out})")
+
+
+def test_um_readers(data, E):
+    """(18) Fastformer / NRMS / additive readers over frozen article vectors: finite, order-aware only where they should be, empty history ties."""
+    pack = UM.pack_train(data.train_core[:600])
+    rows = data.test[:80]
+    for kind in ("add", "nrms", "ff"):
+        m = UM.make_model(kind, E, 32, 0.2).eval()
+        assert isinstance(m, UM.LLMEncUser)
+        for b in R.EvalSet(rows):
+            with torch.no_grad():
+                s = m.score(b["hist"], b["hist_mask"], b["cand"])
+                assert torch.isfinite(s).all()
+                empty = ~b["hist_mask"].any(1)
+                if empty.any():
+                    assert float(s[empty].abs().max()) == 0.0
+                perm = b["hist"].clone()
+                pm = b["hist_mask"].clone()
+                for k in range(len(perm)):                                   # reverse the valid history of every row
+                    n = int(pm[k].sum())
+                    perm[k, :n] = perm[k, :n].flip(0)
+                s2 = m.score(perm, pm, b["cand"])
+            same = torch.allclose(s[b["cand_mask"]], s2[b["cand_mask"]], atol=1e-4)
+            assert same == (kind != "ff"), (kind, same)                      # add / nrms ignore order; Fastformer has positions
+        val_fn = lambda mod: R.evaluate(UM.scorer(mod), R.EvalSet(data.validation[:120]))["mean"]["ndcg@10"]
+        model, info = UM.train_user_model(E, pack, val_fn, kind=kind, dim=32, max_epochs=2, min_epochs=1, device="cpu", log=lambda *a: None)
+        assert np.isfinite(info["best_val"]) and isinstance(model, UM.LLMEncUser)
+    assert isinstance(UM.make_model("ca", E, 32, 0.2), UM.LLMEncCA)
+    ok("(18) learned readers over frozen vectors: add/nrms are history-order invariant, the Fastformer reader is not; empty history ties; all train")
+
+
+
+def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
+    """(19) the reference-baseline stages inside the suite: rows, popularity twins, ladder table, harness check, exclusion from the
+    direction summaries, per-model resume, the no-GloVe fallback and the subsampled QUICK path."""
+    allw = sorted({w for t in S_A.meta["titles"] + S_A.meta["abstracts"] for w in RD.tokenize(t)})
+    glove = os.path.join(tmp, "glove_fixture.txt")
+    build_fake_glove(glove, allw, 32, seed=3)
+    small = ["--ref-dims", "32,4,8,32,1", "--ref-max-epochs", "3", "--ref-repro", "0.6,0.6"]
+    stages = "ref_nrms,ref_naml,ref_ff,ref_nrms_refit,ref_nrms_s1,ref_l0,ref_l1,ref_l2"
+    outR = os.path.join(tmp, "outR")
+    args = [*mind, "--work", outR, "--encoder", enc_dir, "--cache-dir", cache_dir, "--stages", stages, *small, "--ref-glove-path", glove, *RUN_A[:-1]]
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        SR_ = suite.main(args)
+    text = buf.getvalue()
+    names = {r["name"] for r in SR_.records}
+    need = {"ladder0_v10recipe", "ladder1_data", "ladder2_recipe", "nrms_ref", "naml_ref", "fastformer_ref", "nrms_ref+pop", "naml_ref+pop", "fastformer_ref+pop",
+            "nrms_ref@1", "nrms_ref_refit"}
+    assert not (need - names), sorted(need - names)
+    assert not any(n.startswith("ladder") and n.endswith("+pop") for n in names) and "nrms_ref@1+pop" not in names, "only the headline models get popularity twins"
+    assert SR_.row("nrms_ref@1")["ndcg@10"] != SR_.row("nrms_ref")["ndcg@10"], "the second seed must not reproduce the first"
+    for r in SR_.records:
+        for k in ("auc", "mrr", "ndcg@5", "ndcg@10"):
+            assert np.isfinite(r[k]), (r["name"], k)
+    assert "harness check vs V10's own NRMS" in text and "ABLATION LADDER" in text and "huggingface" not in text.split("GloVe-32d")[0][-300:]
+    assert os.path.getsize(os.path.join(outR, "ladder.md")) > 0 and "ladder0_v10recipe" in open(os.path.join(outR, "ladder.md")).read()
+    assert all(r["family"].replace("+pop", "") not in suite.REFERENCE_FAMILIES for r in SR_.reps + SR_.reps_pop), "baselines must not compete as 'directions'"
+    row = SR_.row("nrms_ref")
+    assert row["family"] == "ref-baseline" and row["ref"] == "frozen" and "d_ndcg@10" in row and row["init"].startswith("file:") and row["params"] > 0
+    rf = SR_.row("nrms_ref_refit")
+    assert rf["cfg"]["refit_epochs"] == SR_.row("nrms_ref")["best_epochs"][0] and rf["refit_of"] == "nrms_ref" and rf["ndcg@10"] != SR_.row("nrms_ref")["ndcg@10"]
+    assert abs(rf["val_ndcg@10"] - SR_.row("nrms_ref")["val_ndcg@10"]) < 1e-9, "the refit row must repeat the epoch-selection validation columns"
+    assert SR_.row("nrms_ref+pop")["ref"] == "frozen+pop" and SR_.row("ladder1_data")["cfg"]["dyn_neg"] and not SR_.row("ladder0_v10recipe")["cfg"]["dyn_neg"]
+    rows = suite.leaderboard([S_A, SR_], ["A", "R"], ("A", "frozen"), os.path.join(tmp, "lb_ref.md"))
+    assert {"nrms_ref", "fastformer_ref", "ladder0_v10recipe"} <= {x["name"] for x in rows if x["run"] == "R"}
+    rows_pop = suite.leaderboard([S_A, SR_], ["A", "R"], ("A", "frozen+pop"), os.path.join(tmp, "lb_ref_pop.md"), pop=True)
+    assert {"nrms_ref+pop", "naml_ref+pop"} <= {x["name"] for x in rows_pop if x["run"] == "R"}
+    assert "streaming feedback" in open(os.path.join(tmp, "lb_ref_pop.md")).read()
+    cc = suite.cross_compare([S_A, SR_], ["A", "R"], [(("A", "pool_lse"), ("R", "nrms_ref")), (("R", "nrms_ref"), ("R", "ladder0_v10recipe"))])
+    assert len(cc) == 2 and cc[0]["n"] == len(S_A.data.test)
+    # per-model resume: a second call with the same arguments finds every stage finished
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        suite.main([a for a in args if a != "--no-resume"])
+    assert buf.getvalue().count("already finished (resume), skipped") >= 9 and "== reference baseline" not in buf.getvalue()
+    # changing a reference-model setting re-runs only the reference stages; every other saved row stays
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        SR2 = suite.main([a for a in args if a != "--no-resume"] + ["--ref-seeds", "2"])
+    t2 = buf.getvalue()
+    assert "reference-baseline settings changed" in t2 and t2.count("== reference baseline") == 8 and "stage 'controls' already finished" in t2
+    assert SR2.row("nrms_ref")["seeds"] == 2 and len(SR2.row("nrms_ref")["ndcg10_per_seed"]) == 2 and SR2.row("nrms_ref")["ndcg10_std"] >= 0
+    assert [r["name"] for r in SR2.records].count("frozen") == 1 and [r["name"] for r in SR2.records].count("nrms_ref") == 1
+    # no GloVe anywhere: same models with random word vectors, labelled; the rung that would duplicate nrms_ref is skipped
+    off = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline"))
+    saved = RD._glove_hf, RD._glove_gensim
+    RD._glove_hf, RD._glove_gensim = off, off
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            SN = suite.main([*mind, "--work", os.path.join(tmp, "outN"), "--encoder", enc_dir, "--cache-dir", cache_dir, "--stages", "ref_nrms_refit,ref_l0,ref_l1,ref_l2,ref_nrms,ref_nrms_refit",
+                             *small, "--ref-glove-path", os.path.join(tmp, "missing_glove.txt"), "--ref-train-frac", "0.5", *RUN_A[:-1]])
+    finally:
+        RD._glove_hf, RD._glove_gensim = saved
+    nn_ = {r["name"] for r in SN.records}
+    assert "nrms_ref_noglove" in nn_ and "nrms_ref" not in nn_ and "ladder2_recipe" not in nn_ and "no GloVe source worked" in buf.getvalue()
+    assert "nrms_ref_refit_noglove" in nn_ and "has not run: its validated epoch count is needed" in buf.getvalue(), "refit before its base run must be skipped, then run after it"
+    assert SN.row("nrms_ref_noglove")["init"] == "random" and "ladder0_v10recipe" in nn_ and "nrms_ref_noglove" in open(os.path.join(tmp, "outN", "ladder.md")).read()
+    ok(f"(19) reference stages: {len(need)} rows + ladder table + harness check; baselines stay out of the direction summaries; per-model resume; "
+       f"no-GloVe fallback is labelled '_noglove' and drops the duplicate rung; QUICK subsampling runs")
+    return SR_
+
 # --------------------------------------------------------------------------------- main
 RUN_A = ["--max-len", "32", "--q-max-len", "64", "--seeds", "2", "--pairs", "3000", "--pairs-enc", "600", "--epochs-head", "2",
          "--epochs-enc", "1", "--enc-steps", "8", "--bs-enc", "8", "--lora-r", "4", "--enc-bs", "64", "--device", "cpu", "--hist-k", "8",
@@ -468,7 +828,7 @@ def main():
                 "community_graphrag", "user_rag", "head_lin", "head_mlp+hn+mrl", "lora+mrl+hn", "dora+mrl+hn", "histq_instr",
                 "histq_plain+meanpool", "sid_profile", "sid_profile+meanpool", "sid_gpt", "sid_gpt_pmi", "sid_gpt+meanpool",
                 "um_frozen", "um_head", "um_encoder", "um_entity_rag", "um_knn_rag", "enc_tfidf_lsa", "enc_tinyqwen3embedding",
-                "ut_native", "ut_native+meanpool"}
+                "ut_native", "ut_native+meanpool", "um_ff_frozen", "um_nrms_frozen", "um_ff_knn_rag"}
     assert not (expected - names), f"missing rows: {sorted(expected - names)}"
     assert len([r for r in S.records if r["name"] == "frozen"]) == 1 and len(names) == len(S.records), "duplicate rows after resume"
     for r in S.records:
@@ -529,6 +889,10 @@ def main():
     test_identical_verdict(S)
     test_popularity(S)
     test_v10_equivalence(S.data, S.E0)
+    text_ref, ts_ref = test_ref_data(tmp, f"{tmp}/train", S.data, S.meta)
+    test_ref_models(S.data, S.meta, text_ref, ts_ref)
+    test_um_readers(S.data, S.E0)
+    test_ref_stages(tmp, mind, enc_dir, os.path.join(out, "cache"), S)
 
     # (8) direction-vs-direction comparison and per-impression arrays
     n_h = min(5, len([r for r in S.reps if r["family"] not in suite.TECHNIQUE_FAMILIES_EXCLUDED]))
