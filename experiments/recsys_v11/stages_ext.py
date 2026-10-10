@@ -1,10 +1,13 @@
 """Stage functions of the V11 suite beyond the original four (controls/graph/head/encoder/histquery):
 
-  pooling       H8   recency / late-interaction pooling over frozen vectors
+  pooling       H8   recency / late-interaction pooling over frozen vectors, plus zero-shot k-means interests (H11)
+  moredata      F    which article fields go into the text an encoder reads (title / +category / +entities / view fusion), and how
+                     much history a pooling rule sees (50 / 100 / 200 clicks)
   sid           H7   Semantic IDs: RQ-KMeans profile + TIGER-style generative slate ranker
   sweep         --   encoder-scale sweep (+ lexical TF-IDF/LSA floor)
   llm_user      H5   LoRA-tuned LLM user tower, causal / bidirectional / soft attention mask
-  usermodel     H10  learned candidate-aware user model (V10 ``llmenc_ca``) on top of each representation
+  usermodel     H10  learned candidate-aware user model (V10 ``llmenc_ca``) on top of each representation, plus Fastformer / NRMS /
+                     additive readers and the multi-interest reader ``mi<K>`` (H11)
   graphrag_llm  H4b  GraphRAG with LLM-written community summaries
   augment       H6   KAR-style LLM article expansions and reader profiles
   rerank        H9   zero-shot LLM judge re-ranking the top-k
@@ -13,14 +16,13 @@ Every function takes the ``Suite`` object ``S`` (see suite.py) and the parsed ``
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import time
 
 import numpy as np
 import torch
 
-import adapt
+import fields as FD
 import llm_gen
 import pooling as P
 import rep_eval as R
@@ -31,27 +33,11 @@ from common import HistQueries, ScoreCache, avg_results, decoder_only, fuse, log
 
 
 # ============================================================================ shared helpers
-def embed_news(meta, name, max_len, prefix, device, bs, cache_dir, dtype=torch.float32):
-    """Frozen article vectors ``[n_articles, d]``, cached on disk per (model, max_len, prefix) so that the encoder
-    sweep and a later run with the same model never encode twice.  Returns ``(vecs, seconds)`` (0 if cached)."""
-    key = f"{name}|{max_len}|{prefix}|{len(meta['ids'])}"
-    path = os.path.join(cache_dir, "emb_cache_" + hashlib.sha1(key.encode()).hexdigest()[:12] + ".npz")
-    if os.path.exists(path):
-        z = np.load(path)
-        if str(z["key"]) == key:
-            return z["vecs"], 0.0
-    enc = adapt.HFEncoder(name, max_len=max_len, device=device, prefix=prefix, dtype=dtype)
-    t0 = time.time()
-    vecs = enc.encode(meta["text"], bs=bs)
-    secs = time.time() - t0
-    del enc
-    if device == "cuda":
-        torch.cuda.empty_cache()
-    if not np.isfinite(vecs).all():
-        raise RuntimeError(f"{name}: non-finite embeddings (fp16 overflow?)")
-    os.makedirs(cache_dir, exist_ok=True)
-    np.savez(path, key=np.array(key), vecs=vecs)
-    return vecs, secs
+def embed_news(meta, name, max_len, prefix, device, bs, cache_dir, dtype=torch.float32, texts=None):
+    """Frozen article vectors ``[n_articles, d]`` of ``texts`` (default: the suite's own ``title. abstract``), cached on disk per
+    (model, max_len, prefix, the texts themselves) so that the encoder sweep and a later run with the same model never encode twice and a
+    different text variant can never be served from another variant's cache.  Returns ``(vecs, seconds)`` (0 if cached)."""
+    return FD.embed_texts(meta["text"] if texts is None else texts, name, max_len, prefix, device, bs, cache_dir, dtype)
 
 
 def short(name):
@@ -76,13 +62,102 @@ def sec_split(total, frac):
 
 # ============================================================================ H8 pooling
 def stage_pooling(S, args):
-    log("\n== H8 pooling rule over the frozen vectors (recency / late interaction) ==")
+    log("\n== H8 pooling rule over the frozen vectors (recency / late interaction) and H11 zero-shot multi-interest ==")
     E = S.tensor(S.E0)
     fam = "H8-pooling"
     S.select("pool_recency", fam, [{"lam": l} for l in args.pool_lams], lambda c, sp: P.recency_scorer(E, c["lam"]), "frozen")
     S.select("pool_maxsim", fam, [{}], lambda c, sp: P.late_scorer(E, "max"), "frozen")
     S.select("pool_topk", fam, [{"k": k} for k in args.pool_ks], lambda c, sp: P.late_scorer(E, "topk", c["k"]), "frozen")
     S.select("pool_lse", fam, [{"tau": t} for t in args.pool_taus], lambda c, sp: P.late_scorer(E, "lse", c["tau"]), "frozen")
+    # k-means interests: K=1 is the mean-pool control, K >= the number of clicks is the lse row above, so these rows sit between the two
+    for K in args.km_ks:
+        S.select(f"pool_km{K}", "H11-multi-interest", [{"k": K, "tau": t} for t in args.pool_taus], lambda c, sp: P.cluster_scorer(E, c["k"], c["tau"]), "frozen")
+
+
+# ============================================================================ F: more of the data
+def _embedder(S, args):
+    """``texts -> [len(texts), d]`` frozen vectors of the run's encoder, through the content-keyed cache (no encoding after a resume)."""
+    return lambda texts: FD.embed_texts(texts, args.encoder, args.max_len, args.doc_prefix, S.device, args.enc_bs, S.cache_dir)[0]
+
+
+def view_vectors(S, args):
+    """Title / abstract / category-phrase vectors of every article, ``[n_news, d]`` each (the inputs of the ``views`` fusion)."""
+    emb, V = _embedder(S, args), FD.view_texts(S.meta)
+    return [table_from(S, x) for x in (emb(V["t"]), emb(V["a"]), FD.embed_unique(emb, V["c"]))]
+
+
+def text_table(S, args, spec):
+    """Article table ``[n_news, d]`` of a text variant: ``{'mode': 't'|'ta'|'cta'|'ctae'}`` or ``{'mode': 'views', 'w': [w_title, w_abstract, w_category]}``."""
+    if spec["mode"] == "views":
+        return FD.combine(view_vectors(S, args), spec["w"])
+    return table_from(S, _embedder(S, args)(FD.build_texts(S.meta, spec["mode"])))
+
+
+def stage_moredata(S, args):
+    log("\n== F  more of the data: article fields in the text an encoder reads, and the length of the history a pooling rule sees ==")
+    if "pool_lse" not in S.cache:
+        log("  not run: the late-interaction row of the pooling stage is the reference of the -lse families (run 'pooling' first)")
+        return False
+    a = FD.audit(S.meta, S.data)
+    log(f"  news.tsv has {a['news_columns']} columns per line (MIND-small: 8 = id, category, subcategory, title, abstract, URL, title entities, abstract entities)"
+        + (": MIND-small carries no article body" if a["news_columns"] <= 8 else f": !! {a['news_columns'] - 8} EXTRA column(s) this suite does not read - check whether one is an article body"))
+    log(f"  the longest text is the abstract ({a['abstract_words']:.0f} words on average, {a['abstract_empty']:.1%} empty; "
+        f"title {a['title_words']:.1f} words).  {a['categories']} categories / {a['subcategories']} subcategories; {a['with_entity_labels']:.1%} of articles carry entity names "
+        f"({a['entities_per_article']:.1f} on average).  Test readers have {a['test_history_mean']:.1f} clicks on average, {a['test_history_over_50']:.1%} more than the 50 the control reads (max {a['test_history_max']}).")
+    S.kv["data_audit"] = a
+    modes = [m for m in args.text_modes.split(",") if m]
+    bad = [m for m in modes if m not in FD.MODES + ("views",)]
+    if bad:
+        raise ValueError(f"--text-modes: unknown {bad}; choose from {FD.MODES + ('views',)}")
+    taus = [{"tau": t} for t in args.pool_taus]
+    best = {"name": "pool_lse", "spec": {"mode": "ta"}, "val": S.row("pool_lse")["val_ndcg@10"]}          # the control: the suite's own text
+
+    def consider(row, spec):
+        if row["val_ndcg@10"] > best["val"]:
+            best.update(name=row["name"], spec=spec, val=row["val_ndcg@10"])
+
+    def one_text(mode):
+        t0 = time.time()
+        T = S.tensor(text_table(S, args, {"mode": mode}))
+        log(f"  text '{mode}': {T.shape[1]}-d vectors ready ({time.time() - t0:.0f}s)")
+        S.select(f"txt_{mode}", "F-text", [{"text": mode}], lambda c, sp: R.mean_pool_scorer(T), "frozen")
+        consider(S.select(f"txt_{mode}_lse", "F-text-lse", [{"text": mode, **t} for t in taus], lambda c, sp: P.late_scorer(T, "lse", c["tau"]), "pool_lse"),
+                 {"mode": mode})
+
+    def view_fusion():
+        t0 = time.time()
+        parts = [S.tensor(x) for x in view_vectors(S, args)]
+        log(f"  views: title / abstract / category vectors ready ({time.time() - t0:.0f}s)")
+        held = {}
+
+        def fused(w):                                                          # one fused table at a time: five of them would not fit next to the rest
+            key = tuple(w)
+            if key not in held:
+                held.clear()
+                held[key] = FD.combine(parts, w)
+            return held[key]
+        S.select("txt_views", "F-text", [{"text": "views", "w": list(w)} for w in FD.VIEW_WEIGHTS], lambda c, sp: R.mean_pool_scorer(fused(c["w"])), "frozen")
+        row = S.select("txt_views_lse", "F-text-lse", [{"text": "views", "w": list(w), **t} for w in FD.VIEW_WEIGHTS for t in taus],
+                       lambda c, sp: P.late_scorer(fused(c["w"]), "lse", c["tau"]), "pool_lse")
+        consider(row, {"mode": "views", "w": list(row["cfg"]["w"])})
+
+    for mode in [m for m in modes if m not in ("views", "ta")]:
+        one_text(mode)
+        if S.device == "cuda":
+            torch.cuda.empty_cache()
+    if "views" in modes:
+        view_fusion()
+        if S.device == "cuda":
+            torch.cuda.empty_cache()
+    S.kv["best_text"] = {"name": best["name"], "spec": best["spec"], "val_ndcg@10": best["val"]}
+    log(f"  best text variant by validation late-interaction nDCG@10: {best['name']} ({best['val']:.4f})"
+        + (" -> the suite's own title+abstract stays the text for the learned readers" if best["spec"]["mode"] == "ta" else " -> fed to the learned readers as view 'text'"))
+    # a longer history: the control reads the last 50 clicks (V10); zero-shot rules can read more with no training
+    E0 = S.tensor(S.E0)
+    for H in args.hist_lens:
+        es = {sp: R.EvalSet(rows, max_hist=H, device=S.device) for sp, rows in (("val", S.data.validation), ("test", S.data.test))}
+        S.select(f"hist{H}_mean", "F-history", [{"max_hist": H}], lambda c, sp: R.mean_pool_scorer(E0), "frozen", es=es)
+        S.select(f"hist{H}_lse", "F-history-lse", [{"max_hist": H, **t} for t in taus], lambda c, sp: P.late_scorer(E0, "lse", c["tau"]), "pool_lse", es=es)
 
 
 # ============================================================================ H7 Semantic IDs
@@ -245,6 +320,13 @@ def _views(S, args):
                 rows = [r for r in S.records if r["name"].startswith(("lora", "dora")) and r.get("val_delta") is not None]
                 E = load_export(S, max(rows, key=lambda r: r["val_delta"])["name"])
                 out[v] = {"val": E, "test": E}
+            elif v == "text":
+                bt = S.kv["best_text"]                                         # KeyError if the moredata stage has not run
+                if bt["spec"]["mode"] == "ta":
+                    log("  view 'text': the suite's own title+abstract won on validation, so it is the 'frozen' view - skipped")
+                    continue
+                T = text_table(S, args, bt["spec"])
+                out[v] = {"val": T, "test": T}
             elif v == "entity_rag":
                 cfg, memo = S.row("entity_rag")["cfg"], S.memo()
                 out[v] = {sp: memo[sp].entity_view(cfg["beta"])[0] for sp in ("val", "test")}
@@ -259,15 +341,20 @@ def _views(S, args):
 
 
 def stage_usermodel(S, args):
-    log("\n== H10 learned user model on each representation: V10 llmenc_ca (candidate-aware) and Fastformer / NRMS / additive readers ==")
+    log("\n== H10 learned user model on each representation: V10 llmenc_ca (candidate-aware), Fastformer / NRMS / additive readers, H11 multi-interest readers ==")
     pack = S.store.get("um_pack") or UM.pack_train(S.data.train_core)
     S.store["um_pack"] = pack
     views = _views(S, args)
     fam, ref = "H10-user-model", "um_frozen"
 
+    def seeds_for(vname):
+        """The views the new comparisons are made on (the suite's own vectors and the best text variant) get ``--um-seeds-focus`` seeds,
+        the older consistency-check views (head, encoder, RAG) keep ``--um-seeds``."""
+        return max(args.um_seeds_focus, args.um_seeds) if vname in ("frozen", "text") else args.um_seeds
+
     def fit(kind, vname, V):
         vals, tests, infos = [], [], []
-        for sd in range(args.um_seeds):
+        for sd in range(seeds_for(vname)):
             t0 = time.time()
 
             def val_fn(model):
@@ -277,8 +364,12 @@ def stage_usermodel(S, args):
                                               deadline=S.deadline(0.2), log=lambda *a: None, kind=kind)
             vals.append(S.run(UM.scorer(model, V["val"]), "val"))
             tests.append(S.run(UM.scorer(model, V["test"]), "test"))
+            if isinstance(model, UM.LLMEncMI) and model.K > 1:                  # are the K interests different at all?
+                b = next(iter(S.es["val"]))
+                info.update(model.diversity(b["hist"], b["hist_mask"]))
             infos.append(info)
-            log(f"    {kind}/{vname} seed {sd}: {info['epochs']} epochs, val nDCG@10={info['best_val']:.4f} ({time.time() - t0:.0f}s)")
+            log(f"    {kind}/{vname} seed {sd}: {info['epochs']} epochs, val nDCG@10={info['best_val']:.4f}"
+                + (f", interests: cosine {info['interest_cos']:.2f}, attention TV {info['attn_tv']:.2f}" if "interest_cos" in info else "") + f" ({time.time() - t0:.0f}s)")
         return vals, tests, infos
 
     for vname, V in views.items():
@@ -286,9 +377,10 @@ def stage_usermodel(S, args):
             log(f"  {vname}: skipped (wall-clock budget)")
             continue
         vals, tests, infos = fit("ca", vname, V)
-        row = S.record(f"um_{vname}", fam, {"view": vname, "seeds": args.um_seeds, "reader": "ca"}, avg_results(vals), avg_results(tests),
+        per_seed = [t["mean"]["ndcg@10"] for t in tests]
+        row = S.record(f"um_{vname}", fam, {"view": vname, "seeds": seeds_for(vname), "reader": "ca"}, avg_results(vals), avg_results(tests),
                        ref if ref in S.cache else f"um_{vname}",
-                       {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]})
+                       {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": per_seed, **({"ndcg10_std": float(np.std(per_seed))} if len(per_seed) > 1 else {})})
         if vname == "frozen" and args.um_repro:
             auc_ref, nd_ref = (float(x) for x in args.um_repro.split(","))
             ok = abs(row["auc"] - auc_ref) < 0.01 and abs(row["ndcg@10"] - nd_ref) < 0.01
@@ -299,17 +391,22 @@ def stage_usermodel(S, args):
     for item in [x for x in args.um_extra.split(",") if x]:                           # "reader:view", e.g. ff:frozen
         kind, _, vname = item.partition(":")
         V = views.get(vname)
-        if kind not in ("add", "nrms", "ff") or V is None:
-            log(f"  {item}: skipped (reader must be add|nrms|ff and the view must have been built)")
+        if not UM.is_reader(kind) or kind == "ca" or V is None:
+            log(f"  {item}: skipped (reader must be add|nrms|ff|mi<K> and the view must have been built)")
             continue
         if S.time_left() < 900:
             log(f"  {item}: skipped (wall-clock budget)")
             continue
         vals, tests, infos = fit(kind, vname, V)
         name = f"um_{kind}_{vname}"
-        S.record(name, fam, {"view": vname, "seeds": args.um_seeds, "reader": kind}, avg_results(vals), avg_results(tests),
-                 ref if ref in S.cache else name,
-                 {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]})
+        extra = {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]}
+        if len(tests) > 1:
+            extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"]))
+        if any("interest_cos" in i for i in infos):
+            extra["interest_cos"] = [i.get("interest_cos") for i in infos]
+            extra["attn_tv"] = [i.get("attn_tv") for i in infos]
+        S.record(name, fam, {"view": vname, "seeds": seeds_for(vname), "reader": kind}, avg_results(vals), avg_results(tests),
+                 ref if ref in S.cache else name, extra)
         if S.device == "cuda":
             torch.cuda.empty_cache()
 

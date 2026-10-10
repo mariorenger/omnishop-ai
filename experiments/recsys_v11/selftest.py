@@ -18,6 +18,7 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 import json
 import os
@@ -33,13 +34,16 @@ import torch.nn.functional as F
 
 import adapt
 import common
+import fields as FD
 import llm_gen
 import llm_user
 import metrics
 import refdata as RD
 import refmodels as RM
+import pooling as P
 import rep_eval as R
 import sid as SID
+import stages_ext as X
 import stages_ref as SR
 import suite
 import usermodel as UM
@@ -241,7 +245,10 @@ def test_popularity(S):
     need = {"pool_recency+pop", "pool_maxsim+pop", "pool_topk+pop", "pool_lse+pop", "entity_rag+pop", "knn_rag+pop", "head_lin+pop",
             "histq_instr+pop", "sid_profile+pop", "sid_profile+meanpool+pop", "sid_gpt+pop", "lora+mrl+hn+pop"}
     assert not (need - twins), f"missing popularity twins: {sorted(need - twins)}"
-    assert all(S.row(n)["ref"] == "frozen+pop" for n in twins)
+    for n in twins:                                              # a twin is compared with the popularity twin of whatever its base row is compared with
+        base_ref = S.row(S.row(n)["cfg"]["base"])["ref"]
+        assert S.row(n)["ref"] == (f"{base_ref}+pop" if f"{base_ref}+pop" in S.cache else "frozen+pop"), (n, S.row(n)["ref"], base_ref)
+    assert S.row("txt_t_lse+pop")["ref"] == "pool_lse+pop" and S.row("txt_t+pop")["ref"] == "frozen+pop"
     assert len(S.reps_pop) >= 3 and all(r["family"].endswith("+pop") for r in S.reps_pop)
     ok(f"(13) popularity: frozen+pop == V10-style bge_zs_pop and popularity == raw pop (metrics.py); {len(twins)} '+pop' twins, "
        f"{len(S.reps_pop)} families in the with-popularity summary")
@@ -740,7 +747,7 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     glove = os.path.join(tmp, "glove_fixture.txt")
     build_fake_glove(glove, allw, 32, seed=3)
     small = ["--ref-dims", "32,4,8,32,1", "--ref-max-epochs", "3", "--ref-repro", "0.6,0.6"]
-    stages = "ref_nrms,ref_naml,ref_ff,ref_nrms_refit,ref_nrms_s1,ref_l0,ref_l1,ref_l2"
+    stages = "ref_nrms,ref_naml,ref_ff,ref_ff_refit,ref_nrms_refit,ref_nrms_s1,ref_l0,ref_l1,ref_l2"
     outR = os.path.join(tmp, "outR")
     args = [*mind, "--work", outR, "--encoder", enc_dir, "--cache-dir", cache_dir, "--stages", stages, *small, "--ref-glove-path", glove, *RUN_A[:-1]]
     buf = io.StringIO()
@@ -749,7 +756,7 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     text = buf.getvalue()
     names = {r["name"] for r in SR_.records}
     need = {"ladder0_v10recipe", "ladder1_data", "ladder2_recipe", "nrms_ref", "naml_ref", "fastformer_ref", "nrms_ref+pop", "naml_ref+pop", "fastformer_ref+pop",
-            "nrms_ref@1", "nrms_ref_refit"}
+            "nrms_ref@1", "nrms_ref_refit", "fastformer_ref_refit"}
     assert not (need - names), sorted(need - names)
     assert not any(n.startswith("ladder") and n.endswith("+pop") for n in names) and "nrms_ref@1+pop" not in names, "only the headline models get popularity twins"
     assert SR_.row("nrms_ref@1")["ndcg@10"] != SR_.row("nrms_ref")["ndcg@10"], "the second seed must not reproduce the first"
@@ -783,8 +790,11 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     with contextlib.redirect_stdout(buf):
         SR2 = suite.main([a for a in args if a != "--no-resume"] + ["--ref-seeds", "2"])
     t2 = buf.getvalue()
-    assert "reference-baseline settings changed" in t2 and t2.count("== reference baseline") == 8 and "stage 'controls' already finished" in t2
+    assert "reference-baseline settings changed" in t2 and t2.count("== reference baseline") == 9 and "stage 'controls' already finished" in t2
     assert SR2.row("nrms_ref")["seeds"] == 2 and len(SR2.row("nrms_ref")["ndcg10_per_seed"]) == 2 and SR2.row("nrms_ref")["ndcg10_std"] >= 0
+    ff2, ffr = SR2.row("fastformer_ref"), SR2.row("fastformer_ref_refit")
+    assert len(ff2["best_epochs"]) == 2 and ffr["cfg"]["refit_epochs"] == max(int(round(float(np.mean(ff2["best_epochs"])))), 1) and ffr["refit_of"] == "fastformer_ref"
+    assert ffr["ref"] == "frozen" and ffr["family"] == "ref-baseline" and "fastformer_ref_refit+pop" not in {r["name"] for r in SR2.records}
     assert [r["name"] for r in SR2.records].count("frozen") == 1 and [r["name"] for r in SR2.records].count("nrms_ref") == 1
     # no GloVe anywhere: same models with random word vectors, labelled; the rung that would duplicate nrms_ref is skipped
     off = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline"))
@@ -805,13 +815,186 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
        f"no-GloVe fallback is labelled '_noglove' and drops the duplicate rung; QUICK subsampling runs")
     return SR_
 
+# --------------------------------------------------------------------------- more data and multi-interest
+def test_fields(tmp, enc_dir, S):
+    """(20) text variants, view fusion identity, content-keyed embedding cache."""
+    meta = S.meta
+    assert FD.phrase("football_nfl") == "football nfl" and FD.phrase("finance-companies") == "finance companies"
+    assert FD.phrase("newsworld") == "newsworld" and FD.phrase(None) == ""
+    assert FD.category_phrase("sports", "football_nfl") == "Category: sports. Subcategory: football nfl."
+    assert FD.category_phrase("news", "news") == "Category: news." and FD.category_phrase("", "x") == ""
+    t, ta, cta, ctae = (FD.build_texts(meta, m) for m in ("t", "ta", "cta", "ctae"))
+    assert len(t) == len(ta) == len(cta) == len(ctae) == len(meta["ids"]) and ta == meta["text"]
+    i = 5
+    assert t[i] == meta["titles"][i].strip() and cta[i].startswith("Category: cat") and cta[i].endswith(ta[i])
+    assert ctae[i].startswith(cta[i]) and "Entities: " in ctae[i] and meta["ent_labels"][i]
+    assert all(lab in ctae[i] for lab in meta["ent_labels"][i][:FD.MAX_ENTITIES])
+    assert len({tuple(x) for x in meta["ent_labels"]}) > 1 and all(len(set(x)) == len(x) for x in meta["ent_labels"]), "labels: distinct per article"
+    try:
+        FD.build_texts(meta, "nope")
+        raise AssertionError("an unknown text mode must raise")
+    except ValueError:
+        pass
+    fake = {"titles": ["A b", "C d"], "abstracts": ["", "x y"], "cats": ["sports", ""], "subcats": ["football_nfl", ""]}
+    v = FD.view_texts(fake)
+    assert v["a"] == ["A b", "x y"] and v["c"][0].startswith("Category: sports") and v["c"][1] == "Category: unknown."
+    rng = np.random.default_rng(0)
+    parts = [rng.standard_normal((6, 8)).astype(np.float32) for _ in range(3)]
+    parts = [p_ / np.linalg.norm(p_, axis=1, keepdims=True) for p_ in parts]
+    for w in FD.VIEW_WEIGHTS:
+        assert abs(sum(w) - 1) < 1e-9
+        Fm, Ft = FD.combine(parts, w), FD.combine([torch.from_numpy(p_) for p_ in parts], w).numpy()
+        want = sum(wi * (p_ @ p_.T) for wi, p_ in zip(w, parts))
+        assert np.allclose(Fm, Ft, atol=1e-6) and np.allclose(Fm @ Fm.T, want, atol=1e-5) and np.allclose(np.linalg.norm(Fm, axis=1), 1.0, atol=1e-5)
+    calls = []
+
+    def emb(texts):
+        calls.append(list(texts))
+        return np.array([[len(x), 1.0] for x in texts], np.float32)
+    out = FD.embed_unique(emb, ["bb", "a", "bb", "a", "ccc"])
+    assert calls == [["a", "bb", "ccc"]] and out[:, 0].tolist() == [2, 1, 2, 1, 3], "each distinct string is embedded once"
+    cache = os.path.join(tmp, "fields_cache")
+    A = ta[:40]
+    v1, s1 = FD.embed_texts(A, enc_dir, 32, "", "cpu", 64, cache)
+    v2, s2 = FD.embed_texts(A, enc_dir, 32, "", "cpu", 64, cache)
+    v3, s3 = FD.embed_texts(A[::-1], enc_dir, 32, "", "cpu", 64, cache)                       # same length, other content: must NOT hit the cache
+    assert s1 > 0 and s2 == 0.0 and np.array_equal(v1, v2) and s3 > 0 and not np.allclose(v1, v3) and np.allclose(v1[::-1], v3, atol=1e-5)
+    assert len(os.listdir(cache)) == 2 and FD.digest(A) != FD.digest(A[::-1]) and FD.digest(A) == FD.digest(list(A))
+    v4, s4 = FD.embed_texts(A, enc_dir, 16, "", "cpu", 64, cache)                             # another max_len is another key
+    assert s4 > 0 and len(os.listdir(cache)) == 3
+    aud = FD.audit(meta, S.data)
+    assert aud["news_columns"] == 8 and 0 <= aud["abstract_empty"] <= 1 and aud["articles"] == len(meta["ids"]) and aud["test_history_max"] <= 10 and aud["test_history_over_50"] == 0.0
+    ok("(20) text variants (t/ta/cta/ctae/views) are built as documented, view fusion keeps <u,v> = sum w_v <u_v,v_v>, "
+       "the embedding cache is keyed by the texts themselves (same length + different content = miss)")
+
+
+def test_multi_interest(data, E):
+    """(21) zero-shot k-means interests (K=1 is the mean-pool control, K>=clicks is lse) and the learned multi-interest reader."""
+    Et = torch.from_numpy(E)
+    rows = data.test[:150]
+    for tau in (0.05, 0.3):
+        for b in R.EvalSet(rows):
+            mp, lse = R.mean_pool_scorer(Et)(b), P.late_scorer(Et, "lse", tau)(b)
+            assert torch.allclose(P.cluster_scorer(Et, 1, tau)(b), mp, atol=1e-5), "K=1 must be the mean-pool score"
+            kmax = b["hist"].shape[1]
+            assert torch.allclose(P.cluster_scorer(Et, kmax, tau)(b), lse, atol=1e-4), "K >= clicks must be late interaction (lse)"
+            for K in (2, 3, 5):
+                s = P.cluster_scorer(Et, K, tau)(b)
+                assert torch.isfinite(s).all()
+                empty = ~b["hist_mask"].any(1)
+                if empty.any():
+                    assert float(s[empty].abs().max()) == 0.0, "readers without history score 0"
+                mu, share = P.interest_means(Et, b, K)
+                n = b["hist_mask"].any(1)
+                assert torch.allclose(share.sum(1)[n], torch.ones(int(n.sum())), atol=1e-5) and (share >= 0).all()
+                assert ((share > 0).sum(1) <= torch.clamp(b["hist_mask"].sum(1), max=K)).all(), "no more interests than clicks"
+    d = 6
+    g1, g2 = F.normalize(torch.randn(1, d) + 0.02 * torch.randn(5, d), dim=-1), F.normalize(-torch.randn(1, d) + 0.02 * torch.randn(5, d), dim=-1)
+    T2 = torch.zeros(11, d)
+    T2[1:6], T2[6:11] = g1, g2
+    hb = {"hist": torch.tensor([[1, 6, 2, 7, 3, 8, 4, 9, 5, 10]]), "hist_mask": torch.ones(1, 10, dtype=torch.bool)}
+    mu, share = P.interest_means(T2, hb, 2)
+    assert sorted(share[0].tolist()) == [0.5, 0.5], "two clean groups must be recovered"
+    # the farthest-point start must pick *different* clicks (a min/max mix-up once made it pick the same click K times)
+    hb3 = {"hist": torch.tensor([[1, 2, 3, 6, 7]]), "hist_mask": torch.ones(1, 5, dtype=torch.bool)}
+    assert int((P.interest_means(T2, hb3, 5)[1] > 0).sum()) == 5, "5 distinct clicks, 5 interests -> 5 non-empty groups"
+    pack = UM.pack_train(data.train_core[:600])
+    val_fn = lambda mod: R.evaluate(UM.scorer(mod), R.EvalSet(data.validation[:120]))["mean"]["ndcg@10"]
+    assert [UM.is_reader(k) for k in ("mi1", "mi4", "mi4d", "mi12", "ca", "ff")] == [True] * 6
+    assert not any(UM.is_reader(k) for k in ("mi", "mi0", "mix", "mi4dd", "mi-1", ""))
+    assert UM._mi_spec("mi4d") == (4, 0.1) and UM._mi_spec("mi4") == (4, 0.0)
+    scores = {}
+    for kind in ("mi1", "mi4", "mi4d"):
+        m = UM.make_model(kind, E, 32, 0.2).eval()
+        assert isinstance(m, UM.LLMEncMI) and m.K == int(kind[2]) and (m.div > 0) == kind.endswith("d")
+        for b in R.EvalSet(rows[:60]):
+            with torch.no_grad():
+                s = m.score(b["hist"], b["hist_mask"], b["cand"])
+                assert torch.isfinite(s).all()
+                empty = ~b["hist_mask"].any(1)
+                if empty.any():
+                    assert float(s[empty].abs().max()) == 0.0
+                perm, pm = b["hist"].clone(), b["hist_mask"]
+                for k in range(len(perm)):
+                    nk = int(pm[k].sum())
+                    perm[k, :nk] = perm[k, :nk].flip(0)
+                assert torch.allclose(s, m.score(perm, pm, b["cand"]), atol=1e-4), "the multi-interest reader has no positions"
+            dv = m.diversity(b["hist"], b["hist_mask"])
+            if m.K > 1:
+                assert -1.0 <= dv["interest_cos"] <= 1.0 and 0.0 <= dv["attn_tv"] <= 1.0
+                assert dv["attn_tv"] > 0.01, "interests must attend differently from the start (N(0,1) queries)"
+            else:
+                assert np.isnan(dv["interest_cos"])
+            scores[kind] = s
+        mm = UM.make_model(kind, E, 32, 0.2).train()
+        mm.score(b["hist"], b["hist_mask"], b["cand"])
+        aux = mm.aux_loss()
+        assert (float(aux) > 0) == (kind.endswith("d")), "only the d-variant carries the disagreement regulariser"
+        assert mm.aux_loss() == 0.0, "the regulariser is consumed once"
+        model, info = UM.train_user_model(E, pack, val_fn, kind=kind, dim=32, max_epochs=2, min_epochs=1, device="cpu", log=lambda *a: None)
+        assert np.isfinite(info["best_val"]) and isinstance(model, UM.LLMEncMI)
+    ok("(21) multi-interest: cluster scorer == mean-pool at K=1 and == lse at K>=clicks, groups recovered, no more interests than clicks; "
+       "learned reader finite, order-invariant, empty history ties, interests differ at init, regulariser only in the d-variant, trains")
+
+
+def test_moredata_rows(S, text1, text2):
+    """(22) rows of the moredata stage and of the multi-interest readers inside the full suite run."""
+    names = {r["name"] for r in S.records}
+    need = {"txt_t", "txt_t_lse", "txt_cta", "txt_cta_lse", "txt_ctae", "txt_ctae_lse", "txt_views", "txt_views_lse", "hist100_mean", "hist100_lse",
+            "pool_km2", "pool_km3", "um_mi1_frozen", "um_mi4_frozen", "um_mi4d_frozen", "txt_t+pop", "txt_t_lse+pop", "hist100_lse+pop"}
+    assert not (need - names), sorted(need - names)
+    assert "txt_ta" not in names, "the suite's own text is the control (frozen), not a row of its own"
+    r = S.row("txt_t_lse")
+    assert r["ref"] == "pool_lse" and r["family"] == "F-text-lse" and r["cfg"]["tau"] in S.args.pool_taus and r["cfg"]["text"] == "t"
+    assert S.row("txt_t")["ref"] == "frozen" and S.row("txt_t+pop")["ref"] == "frozen+pop" and S.row("txt_t")["family"] == "F-text"
+    assert S.row("txt_t_lse+pop")["ref"] == "pool_lse+pop" and S.row("txt_t_lse+pop")["family"] == "F-text-lse+pop"
+    assert S.row("txt_views")["cfg"]["w"] in [list(w) for w in FD.VIEW_WEIGHTS] and S.row("txt_views_lse")["cfg"]["tau"] in S.args.pool_taus
+    for n in ("hist100_mean", "hist100_lse"):                                          # fixture histories have <= 10 clicks: reading 100 changes nothing
+        assert abs(S.row(n)["d_ndcg@10"][0]) < 1e-6, n
+    assert S.row("hist100_lse")["ref"] == "pool_lse" and S.row("hist100_mean")["ref"] == "frozen"
+    bt = S.kv["best_text"]
+    cands = {n: S.row(n)["val_ndcg@10"] for n in ("pool_lse", "txt_t_lse", "txt_cta_lse", "txt_ctae_lse", "txt_views_lse")}
+    assert bt["name"] == max(cands, key=cands.get) and np.isfinite(bt["val_ndcg@10"]), "best text is chosen on validation among the lse rows and the control"
+    assert (bt["spec"]["mode"] == "ta") == (bt["name"] == "pool_lse") and S.kv["data_audit"]["articles"] == len(S.meta["ids"])
+    assert "news.tsv has 8 columns" in text1 and "MIND-small carries no article body" in text1 and ("as view 'text'" in text1 or "stays the text for the learned readers" in text1)
+    assert S.row("pool_km2")["family"] == "H11-multi-interest" and S.row("pool_km2")["cfg"]["tau"] in S.args.pool_taus
+    r1, r4 = S.row("um_mi1_frozen"), S.row("um_mi4_frozen")
+    assert r1["cfg"]["reader"] == "mi1" and r4["cfg"]["reader"] == "mi4" and r4["cfg"]["seeds"] == 2 and S.row("um_frozen")["cfg"]["seeds"] == 2
+    assert "interest_cos" not in r1 and len(r4["interest_cos"]) == 2 and len(r4["attn_tv"]) == 2 and len(r4["ndcg10_per_seed"]) == 2 and r4["ndcg10_std"] >= 0
+    assert r4["ref"] == "um_frozen" and S.row("um_head")["cfg"]["seeds"] == 1 and "um_ff_knn_rag" in names
+    assert "attention TV" in text2
+    ok(f"(22) moredata + multi-interest rows: {len(need)} checked (references, popularity twins, validation-chosen text, history 100 == 50 on short histories, seeds)")
+
+
+def test_text_view(S):
+    """(22b) the learned readers on the best non-default text variant, forced (the fixture's random encoder decides the real choice)."""
+    args = copy.copy(S.args)
+    args.um_views, args.um_extra, args.um_seeds, args.um_seeds_focus = "text", "mi4:text,ff:text", 1, 1
+    S.kv["best_text"] = {"name": "txt_cta_lse", "spec": {"mode": "cta"}, "val_ndcg@10": 0.0}
+    S.stage = "usermodel_text"
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        X.stage_usermodel(S, args)
+    names = {r["name"] for r in S.records}
+    assert {"um_text", "um_mi4_text", "um_ff_text"} <= names, buf.getvalue()[-600:]
+    T = X.text_table(S, args, S.kv["best_text"]["spec"])
+    assert T.shape[0] == S.data.n_news and np.allclose(np.linalg.norm(T[1:], axis=1), 1.0, atol=1e-4) and not np.allclose(T, S.E0)
+    S.kv["best_text"] = {"name": "pool_lse", "spec": {"mode": "ta"}, "val_ndcg@10": 0.0}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        X.stage_usermodel(S, args)
+    assert "view 'text': the suite's own title+abstract won" in buf.getvalue() and "mi4:text: skipped" in buf.getvalue()
+    ok("(22b) view 'text' rebuilds the best variant from the cache and feeds um_text / um_mi4_text / um_ff_text; when the control wins the view is skipped, not duplicated")
+
+
 # --------------------------------------------------------------------------------- main
 RUN_A = ["--max-len", "32", "--q-max-len", "64", "--seeds", "2", "--pairs", "3000", "--pairs-enc", "600", "--epochs-head", "2",
          "--epochs-enc", "1", "--enc-steps", "8", "--bs-enc", "8", "--lora-r", "4", "--enc-bs", "64", "--device", "cpu", "--hist-k", "8",
          "--betas", "0.5", "1.0", "--knn-k", "5", "10", "--lams", "0.5", "1.0", "--gammas", "0.5", "--sid-k", "8", "--sid-d", "64",
          "--sid-layers", "2", "--sid-heads", "2", "--sid-epochs", "12", "--sid-lr", "3e-3", "--sid-val-n", "100", "--sid-bs", "64",
          "--um-epochs", "4", "--um-seeds", "1", "--lsa-dim", "32", "--llm-user-steps", "40", "--llm-user-bs", "8", "--llm-user-r", "4",
-         "--llm-user-lr", "3e-3", "--llm-val-n", "100", "--llm-test-n", "150", "--no-resume"]
+         "--llm-user-lr", "3e-3", "--llm-val-n", "100", "--llm-test-n", "150", "--text-modes", "t,cta,ctae,views", "--hist-lens", "100",
+         "--km-ks", "2", "3", "--um-seeds-focus", "2", "--no-resume"]
 
 
 def main():
@@ -836,8 +1019,11 @@ def main():
 
     # ---------------- run A (encoder-type model): first half, then the rest in a second call that must RESUME
     out = os.path.join(tmp, "outA")
-    part1 = "controls,pooling,graph,head,histquery,sid"
-    suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", part1, "--sweep-encoders", dec_dir, *RUN_A[:-1]])
+    part1 = "controls,pooling,moredata,graph,head,histquery,sid"
+    buf1 = io.StringIO()
+    with contextlib.redirect_stdout(buf1):
+        suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", part1, "--sweep-encoders", dec_dir, *RUN_A[:-1]])
+    text1 = buf1.getvalue()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         S = suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", f"{part1},encoder,llm_user,usermodel,sweep", "--sweep-encoders", dec_dir,
@@ -861,7 +1047,7 @@ def main():
                 "community_graphrag", "user_rag", "head_lin", "head_mlp+hn+mrl", "lora+mrl+hn", "dora+mrl+hn", "histq_instr",
                 "histq_plain+meanpool", "sid_profile", "sid_profile+meanpool", "sid_gpt", "sid_gpt_pmi", "sid_gpt+meanpool",
                 "um_frozen", "um_head", "um_encoder", "um_entity_rag", "um_knn_rag", "enc_tfidf_lsa", "enc_tinyqwen3embedding",
-                "ut_native", "ut_native+meanpool", "um_ff_frozen", "um_nrms_frozen", "um_ff_knn_rag"}
+                "ut_native", "ut_native+meanpool", "um_ff_frozen", "um_ff_knn_rag"}
     assert not (expected - names), f"missing rows: {sorted(expected - names)}"
     assert len([r for r in S.records if r["name"] == "frozen"]) == 1 and len(names) == len(S.records), "duplicate rows after resume"
     for r in S.records:
@@ -926,6 +1112,9 @@ def main():
     test_ref_models(S.data, S.meta, text_ref, ts_ref)
     test_ref_oom(S.data, text_ref, ts_ref)
     test_um_readers(S.data, S.E0)
+    test_fields(tmp, enc_dir, S)
+    test_multi_interest(S.data, S.E0)
+    test_moredata_rows(S, text1, text)
     test_ref_stages(tmp, mind, enc_dir, os.path.join(out, "cache"), S)
 
     # (8) direction-vs-direction comparison and per-impression arrays
@@ -941,6 +1130,7 @@ def main():
     cold = S.cache["frozen"]["test"].get("cold_frac")
     assert cold is not None and 0.0 < cold < 1.0, f"fixture should contain cold clicks, got {cold}"
     ok(f"(4) outputs written; cold-click share in the fixture = {cold:.1%}")
+    test_text_view(S)
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")

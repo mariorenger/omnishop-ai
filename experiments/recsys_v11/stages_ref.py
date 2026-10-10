@@ -8,6 +8,9 @@ regex tokens, padding mask, negatives re-drawn each epoch), ``ref_l2`` (+ publis
 (+ GloVe) is ``nrms_ref``.
 
 Each model is its own stage, so a crash or an exhausted budget loses at most one model and a re-run resumes at the next one.
+
+Notebook v13 runs only Fastformer (``ref_ff`` with several seeds, then ``ref_ff_refit``); the NRMS / NAML / ladder stages stay available
+(``V11_REF_ALL=1``) and their measured numbers are in RESULTS_v7.md.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ SPECS = {
     "naml": dict(name="naml_ref", family="ref-baseline", preset="naml", pop=True),
     "ff": dict(name="fastformer_ref", family="ref-baseline", preset="fastformer", pop=True),
     "nrms_refit": dict(name="nrms_ref_refit", family="ref-baseline", preset="nrms", pop=False, refit="nrms_ref"),     # train_core + validation, epochs fixed by nrms_ref
+    "ff_refit": dict(name="fastformer_ref_refit", family="ref-baseline", preset="fastformer", pop=False, refit="fastformer_ref"),   # same for Fastformer
     "nrms1": dict(name="nrms_ref@1", family="ref-baseline", preset="nrms", pop=False, seed0=1),       # same recipe, other seed: the training-noise floor
     "l0": dict(name="ladder0_v10recipe", family="ref-ladder", preset="v10", pop=False),
     "l1": dict(name="ladder1_data", family="ref-ladder", preset="data", pop=False),
@@ -51,7 +55,8 @@ def resources(S, args):
     static = RD.StaticTrainSet(RD.subsample(S.data.train_core, args.ref_train_frac))
     log(f"  reference data: {text.stats} | {dyn.n_samples:,} dynamic-negative samples from {dyn.n_imp:,} impressions "
         f"(V10 static: {static.n_samples:,}) in {time.time() - t0:.0f}s")
-    S.store["ref"] = {"text": text, "dyn": dyn, "static": static, "core": core, "val_imps": RD.subsample(val_imps, args.ref_train_frac)}
+    S.store["ref"] = {"text": text, "dyn": dyn, "static": static, "core": RD.subsample(core, args.ref_train_frac),            # the refit sees the same fraction (QUICK)
+                      "val_imps": RD.subsample(val_imps, args.ref_train_frac)}
     return S.store["ref"]
 
 
@@ -104,7 +109,7 @@ def stage_refit(S, args, spec, res, cfg, name):
     except KeyError:
         log(f"  {name}: skipped ({base_name} has not run: its validated epoch count is needed)")
         return False
-    epochs = int(base["best_epochs"][0])
+    epochs = max(int(round(float(np.mean(base["best_epochs"])))), 1)       # several seeds: the mean of their validated epoch counts
     trainset = RD.TrainSet(res["core"] + res["val_imps"])
     t0 = time.time()
     net, info = _fit_with_oom_fallback(S, cfg, trainset, None, 0, S.deadline(0.45, cap_s=args.ref_model_minutes * 60), res["text"], fixed_epochs=epochs)
@@ -203,5 +208,6 @@ def ladder_table(S, repro=None, path=None):
 
 STAGES = {"ref_nrms": lambda S, a: stage_ref(S, a, "nrms"), "ref_naml": lambda S, a: stage_ref(S, a, "naml"),
           "ref_ff": lambda S, a: stage_ref(S, a, "ff"), "ref_nrms_s1": lambda S, a: stage_ref(S, a, "nrms1"),
-          "ref_nrms_refit": lambda S, a: stage_ref(S, a, "nrms_refit"), "ref_l0": lambda S, a: stage_ref(S, a, "l0"),
+          "ref_nrms_refit": lambda S, a: stage_ref(S, a, "nrms_refit"), "ref_ff_refit": lambda S, a: stage_ref(S, a, "ff_refit"),
+          "ref_l0": lambda S, a: stage_ref(S, a, "l0"),
           "ref_l1": lambda S, a: stage_ref(S, a, "l1"), "ref_l2": lambda S, a: stage_ref(S, a, "l2")}

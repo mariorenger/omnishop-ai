@@ -15,6 +15,8 @@ Hypotheses (see README):
   H8  pooling rule: recency / late interaction
   H9  zero-shot LLM judge re-ranking the top-k
   H10 learned candidate-aware user model on top of each representation (downstream consistency check)
+  H11 multi-interest: zero-shot k-means interests (pooling stage) and a learned K-interest reader (user-model stage), K=1 as its control
+  F   more of the data: category / entity names in the text an encoder reads, view fusion, a longer history (moredata stage)
   +   encoder sweep (TF-IDF/LSA, BGE small/base/large, Qwen3-Embedding)
 """
 from __future__ import annotations
@@ -41,7 +43,7 @@ from data import MindData
 
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
-DEFAULT_STAGES = "controls,pooling,graph,head,histquery,sid,encoder,usermodel,sweep"
+DEFAULT_STAGES = "controls,pooling,moredata,graph,head,histquery,sid,encoder,usermodel,sweep"
 REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder"}                             # trained baselines: comparators, not candidate directions
 TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
 
@@ -183,14 +185,16 @@ class Suite:
             + (f" | cold AUC={row.get('cold_auc', float('nan')):.4f}" if "cold_auc" in row else ""))
         return row
 
-    def pop_twin(self, name, family, cfg, make, es, extra=None):
-        """Same scorer + V10's online popularity (equal-weight z-score sum, exactly V10's ``bge_zs_pop`` recipe), reference ``frozen+pop``."""
+    def pop_twin(self, name, family, cfg, make, es, extra=None, ref_pop="frozen+pop"):
+        """Same scorer + V10's online popularity (equal-weight z-score sum, exactly V10's ``bge_zs_pop`` recipe), reference ``frozen+pop``
+        (or the popularity twin of whichever row the variant is compared with, e.g. ``pool_lse+pop``)."""
         sc = lambda sp: common.fuse([(make(cfg, sp), 1.0), (common.pop_scorer, 1.0)])
         return self.record(f"{name}+pop", f"{family}+pop", {**cfg, "base": name}, self.run(sc("val"), "val", es=es),
-                           self.run(sc("test"), "test", es=es), "frozen+pop", extra)
+                           self.run(sc("test"), "test", es=es), ref_pop, extra)
 
     def want_pop(self, ref_name):
-        return bool(getattr(self.args, "with_pop", 0)) and ref_name == "frozen" and "frozen+pop" in self.cache
+        """A popularity twin is reported when the row it would be compared with has one (``frozen`` always does, ``pool_lse`` after the pooling stage)."""
+        return bool(getattr(self.args, "with_pop", 0)) and f"{ref_name}+pop" in self.cache
 
     def select(self, name, family, configs, make, ref_name, extra=None, es=None, pop=None):
         """Generic grid: choose the config on validation, report it on test once (plus its popularity twin)."""
@@ -205,7 +209,7 @@ class Suite:
         t = self.run(make(cfg, "test"), "test", es=es)
         row = self.record(name, family, cfg, v, t, ref_name, extra)
         if self.want_pop(ref_name) if pop is None else pop:
-            self.pop_twin(name, family, cfg, make, es, extra)
+            self.pop_twin(name, family, cfg, make, es, extra, ref_pop=f"{ref_name}+pop" if f"{ref_name}+pop" in self.cache else "frozen+pop")
         return row
 
     def export(self, name, E, model_name):
@@ -433,7 +437,7 @@ def stage_histquery(S, args):
             torch.cuda.empty_cache()
 
 
-STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "graph": stage_graph, "head": stage_head,
+STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "moredata": X.stage_moredata, "graph": stage_graph, "head": stage_head,
           "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
           "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
           "augment": X.stage_augment, "rerank": X.stage_rerank, **SR.STAGES}
@@ -670,6 +674,10 @@ def build_parser():
     ap.add_argument("--pool-lams", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.2])
     ap.add_argument("--pool-taus", type=float, nargs="+", default=[0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3, 0.5])
     ap.add_argument("--pool-ks", type=int, nargs="+", default=[2, 3, 4, 5, 7, 10])
+    ap.add_argument("--km-ks", type=int, nargs="*", default=[2, 3, 5], help="zero-shot multi-interest: number of k-means interests per reader (rows pool_km<K>)")
+    # more of the data
+    ap.add_argument("--text-modes", default="t,cta,ctae,views", help="article text variants to embed besides the suite's own title+abstract: t, cta, ctae, views")
+    ap.add_argument("--hist-lens", type=int, nargs="*", default=[100, 200], help="history lengths (clicks) for the zero-shot rows; the control reads 50")
     # semantic ids
     ap.add_argument("--sid-k", type=int, default=256)
     ap.add_argument("--sid-levels", type=int, default=3)
@@ -699,11 +707,13 @@ def build_parser():
     ap.add_argument("--llm-enc-bs", type=int, default=64)
     ap.add_argument("--ut-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
     # learned user model
-    ap.add_argument("--um-views", default="frozen,head,encoder,entity_rag,knn_rag")
+    ap.add_argument("--um-views", default="frozen,head,encoder,entity_rag,knn_rag,text")
     ap.add_argument("--um-seeds", type=int, default=2)
+    ap.add_argument("--um-seeds-focus", type=int, default=3, help="seeds for the views the new comparisons are made on ('frozen' and 'text'); trained rows differ by 0.007-0.012 between seeds")
     ap.add_argument("--um-epochs", type=int, default=12)
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
-    ap.add_argument("--um-extra", default="ff:frozen,nrms:frozen,ff:knn_rag", help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff); '' = none")
+    ap.add_argument("--um-extra", default="ff:frozen,ff:knn_rag,mi1:frozen,mi4:frozen,mi4d:frozen,mi4:text",
+                    help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|mi<K>, K learned interests); '' = none")
     # reference baselines (NRMS / NAML / Fastformer with the published recipe) and the ablation ladder
     ap.add_argument("--ref-glove", type=int, default=1, help="initialise word vectors from GloVe-300 (downloads it; falls back to random and says so)")
     ap.add_argument("--ref-glove-path", default="", help="GloVe txt/zip to use instead of downloading")

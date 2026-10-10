@@ -31,7 +31,7 @@ import torch.nn.functional as F
 # --------------------------------------------------------------------- loading
 def load_news_meta(train_dir, dev_dir):
     """Same article order as ``MindData.from_mind`` (global id = position + 1)."""
-    by_id = {}
+    by_id, n_cols = {}, 0
     for d in (train_dir, dev_dir):
         path = os.path.join(d, "news.tsv") if d else None
         if not path or not os.path.exists(path):
@@ -40,6 +40,7 @@ def load_news_meta(train_dir, dev_dir):
             for line in f:
                 p = line.rstrip("\n").split("\t")
                 if len(p) >= 5:
+                    n_cols = max(n_cols, len(p))
                     by_id[p[0]] = (p[1], p[3], p[4], p[6] if len(p) > 6 else "", p[7] if len(p) > 7 else "", p[2])
     ids = list(by_id)
     titles = [by_id[i][1] for i in ids]
@@ -56,10 +57,24 @@ def load_news_meta(train_dir, dev_dir):
                 pass
         return sorted(out)
 
+    def labels(*cols):
+        """Entity names in order of first appearance (title entities first), duplicates removed."""
+        out = []
+        for c in cols:
+            try:
+                for e in json.loads(c) if c else []:
+                    lab = (e.get("Label") or "").strip()
+                    if lab and lab not in out:
+                        out.append(lab)
+            except (ValueError, TypeError, AttributeError):
+                pass
+        return out
+
     ents = [wikidata(by_id[i][3], by_id[i][4]) for i in ids]
     return {"ids": ids, "titles": titles, "abstracts": abstracts, "cats": [by_id[i][0] for i in ids],
             "subcats": [by_id[i][5] for i in ids],
-            "text": [(t + ". " + a).strip() for t, a in zip(titles, abstracts)], "ents": ents}
+            "text": [(t + ". " + a).strip() for t, a in zip(titles, abstracts)], "ents": ents,
+            "ent_labels": [labels(by_id[i][3], by_id[i][4]) for i in ids], "n_cols": n_cols}
 
 
 def observed_masks(data):
