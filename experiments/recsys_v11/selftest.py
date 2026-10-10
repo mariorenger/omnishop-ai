@@ -13,7 +13,7 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
   6. generation / judging are batch-invariant and cached; subset comparisons equal manual slicing;
   7. resume skips finished stages, a tiny wall-clock budget skips the rest without crashing.
 
-    python selftest.py            # ~4-7 min on CPU
+    python selftest.py            # ~25-30 min on a 4-core CPU
 """
 from __future__ import annotations
 

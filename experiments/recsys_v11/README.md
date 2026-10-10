@@ -35,7 +35,7 @@ Cái mất: NAML là baseline duy nhất dùng cả abstract và category, nên 
 * H11: `pool_km` nằm giữa `frozen` và `pool_lse`, có thể bằng hoặc nhỉnh hơn `pool_lse` chút; `um_mi4` ≈ `um_mi1` ≈ `um_ff_frozen` (± 0,005) và ≤ `pool_lse`, vì ở v7 mọi reader học được trên BGE đóng băng đều không vượt `pool_lse` (`pool_lse` hơn `um_frozen` +0,0080). Nếu số khác dự đoán thì đó là phát hiện đáng viết.
 * Cỡ hiệu ứng nhỏ hơn nhiễu seed (0,007 cho một lần huấn luyện; trung bình 3 seed ≈ 0,004) giữa hai hàng *đã huấn luyện* thì chưa phải kết luận: đọc `noise.md` trước khi đọc CI.
 
-> ⚠️ **Trạng thái v13:** mới kiểm bằng `selftest.py` trên CPU với fixture định dạng MIND (đúng chức năng, không có ý nghĩa về điểm số). **Chưa có số đo nào trên MIND thật cho phần mới**; mọi số trong §4 của phần mới là *ước*, số đo thật chỉ có cho các stage cũ của v7 (`RESULTS_v7.md`).
+> ⚠️ **Trạng thái v13:** mới kiểm bằng `selftest.py` (33 kiểm tra qua, trên đúng mã của notebook v13) và mô phỏng "Run All" của notebook v13, đều trên CPU với fixture định dạng MIND (đúng chức năng, không có ý nghĩa về điểm số). **Chưa có số đo nào trên MIND thật cho phần mới**; mọi số trong §4 của phần mới là *ước*, số đo thật chỉ có cho các stage cũ của v7 (`RESULTS_v7.md`).
 
 ## 1. Giả thuyết ↔ kỹ thuật ↔ paper ↔ mức độ cài đặt
 
@@ -97,7 +97,7 @@ Lần đầu nên `QUICK=1` (biến môi trường `V11_QUICK=1` hoặc sửa ô
 **Local:**
 ```bash
 pip install torch transformers peft scipy networkx scikit-learn sentence-transformers matplotlib
-python selftest.py            # ~10 phút CPU, không cần dữ liệu thật
+python selftest.py            # đo ở v13: ~27 phút trên CPU 4 nhân (có một tác vụ khác chạy song song), không cần dữ liệu thật
 python suite.py --mind-train /data/MINDsmall_train --mind-dev /data/MINDsmall_dev --work out --stages controls,pooling,moredata,graph,head,histquery,sid
 python make_notebook.py       # sinh lại notebook (đổi NOTEBOOK trong file để tránh cache của Kaggle)
 ```
