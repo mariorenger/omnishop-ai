@@ -1,0 +1,238 @@
+"""FINAL_REPORT.md of a single-model run: the supermodel, what every technique adds on its own, and the reference baselines.
+
+Nothing here is measured again: every number comes from the rows / caches of the finished ``Suite`` (``S.records`` / ``S.cache``) and from
+``S.kv["supermodel"]`` (weights, rungs, leave-one-group-out).  The text only names what a table shows; it draws no conclusion that the numbers do not
+carry (the verdict words are the ones ``rep_eval.verdict`` and the Bonferroni rule of ``suite.representatives`` already give).
+
+The reference baselines (NRMS / NAML / Fastformer) are NOT trained by the notebooks that call this module: their numbers were measured in the
+earlier full runs (``RESULTS_v7.md``, ``RESULTS_v13.md``) on the same V10 split of MIND-small with the same evaluator, and are only printed when the
+run is on that split (73,152 test impressions).  Differences to them are therefore a *cross-run* comparison: the confidence interval printed is
+the un-paired normal one (wider than a paired interval), and a single trained baseline moves by about 0.007 nDCG@10 from seed to seed.
+"""
+from __future__ import annotations
+
+import json
+import os
+
+import numpy as np
+
+import common
+import rep_eval as R
+
+# Measured earlier on MIND-small (V10 split, this evaluator), content only unless the name says +pop.  Source: RESULTS_v7.md (one seed unless
+# stated), RESULTS_v13.md (Fastformer: mean of 2 seeds; refit = train_core + validation days).  (AUC, MRR, nDCG@5, nDCG@10, cold AUC, warm AUC)
+EARLIER_BASELINES = (
+    ("NRMS, seed 0 (v7)", (0.6392, 0.3037, 0.3293, 0.3937, 0.6471, 0.6400)),
+    ("NRMS, seed 1 (v7)", (0.6501, 0.3091, 0.3372, 0.4005, 0.6630, 0.6152)),
+    ("NRMS refit (v7)", (0.6555, 0.3140, 0.3443, 0.4078, 0.6700, 0.6284)),
+    ("NAML (v7)", (0.6471, 0.3079, 0.3364, 0.4006, 0.6698, 0.5640)),
+    ("Fastformer (v7)", (0.6455, 0.2993, 0.3288, 0.3926, 0.6674, 0.5785)),
+    ("Fastformer, 2 seeds (v13)", (0.6426, 0.3000, 0.3289, 0.3927, 0.6623, 0.5869)),
+    ("Fastformer refit (v13)", (0.6550, 0.3097, 0.3387, 0.4033, 0.6767, 0.5883)),
+)
+EARLIER_BASELINES_POP = (("NRMS + pop (v7)", 0.4383), ("NAML + pop (v7)", 0.4366), ("Fastformer + pop (v13)", 0.4381))
+MIND_SMALL_TEST = 73_152
+
+DIRECTIONS = {
+    "H8-pooling": "late-interaction / top-k pooling over the frozen vectors",
+    "F-text": "more article fields in the text (category, entities, views), mean-pool", "F-text-lse": "more article fields in the text, late interaction",
+    "F-history": "longer history (100 / 200 clicks), mean-pool", "F-history-lse": "longer history, late interaction",
+    "H11-multi-interest": "zero-shot multi-interest (k-means interests)", "H10-user-model": "learned user model on the frozen vectors (+ multi-interest reader)",
+    "H5-LLM-user": "LLM as user encoder (LoRA tower)", "H2-adapt": "contrastive adaptation (head / LoRA)",
+    "H3-RAG": "retrieval-augmented article vectors (entity / kNN)", "H4-GraphRAG": "GraphRAG-lite (communities, similar users)",
+    "H4b-GraphRAG-LLM": "GraphRAG with LLM-written community summaries", "H6-LLM-aug": "LLM article expansion / reader profiles (KAR-style)",
+    "H7-SemanticID": "Semantic IDs + generative ranker", "H9-LLM-rerank": "zero-shot LLM judge re-ranking the top-k",
+    "H1-text-user": "history-as-text instruction query", "enc-sweep": "encoder sweep",
+}
+
+
+def f4(x):
+    return "-" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:.4f}"
+
+
+def ci(t):
+    return "-" if not t or np.isnan(t[0]) else f"{t[0]:+.4f} [{t[1]:+.4f}, {t[2]:+.4f}]"
+
+
+def _row(S, name):
+    return next((r for r in reversed(S.records) if r["name"] == name), None)
+
+
+def _metrics_line(label, r, extra=()):
+    return "| " + " | ".join([label, f"{r['n_test']:,}", f4(r["auc"]), f4(r["mrr"]), f4(r["ndcg@5"]), f4(r["ndcg@10"]), f4(r.get("cold_auc")), f4(r.get("warm_auc")), *extra]) + " |"
+
+
+def health(S, extra_suites=()):
+    out = ["## 0. Run health", ""]
+    checks = [(k, v, "this run") for k, v in (S.kv.get("checks") or {}).items()]
+    for X in extra_suites:                                        # e.g. the 1-2 minute BGE-small run that verifies the evaluator against V10
+        checks += [(k, v, f"protocol check with {os.path.basename(X.args.encoder.rstrip('/'))}") for k, v in (X.kv.get("checks") or {}).items()]
+    if checks:
+        out += ["| check | result | detail | run |", "|---|---|---|---|"] + [f"| {k} | {'MATCH' if v['ok'] else 'MISMATCH'} | {v['detail']} | {where} |" for k, v, where in checks] + [""]
+        if any(not v["ok"] for _k, v, _w in checks):
+            out += ["**A check MISMATCHES: do not trust any number below until it is explained.**", ""]
+    else:
+        out += ["No reproduction check against V10 was run for this encoder / dataset (V10 published numbers exist only for MIND-small and BGE-small).", ""]
+    status = S.kv.get("stage_status") or {}
+    bad = {k: v for k, v in status.items() if v != "done"}
+    out += [f"Stages: {sum(v == 'done' for v in status.values())} done" + (f"; **not done: {bad}**" if bad else "; none failed or skipped") + ".", ""]
+    tm = S.kv.get("timings")
+    if tm:
+        out += ["Stage timings (s): " + ", ".join(f"{k}={v}" for k, v in tm.items()) + f" (sum {sum(tm.values()) / 3600:.2f} h).", ""]
+    mem = S.kv.get("memory")
+    if mem:
+        out += ["Memory after each stage (cumulative: the GPU figure is the peak since the process started):", ""] + [f"* `{k}`: {v}" for k, v in mem.items()] + [""]
+    a = S.kv.get("data_audit")
+    if a:
+        out += [f"Data: {a['articles']:,} articles, {a['news_columns']} columns in news.tsv (no article body); abstract {a['abstract_words']:.0f} words on average; "
+                f"{a['categories']} categories; test readers have {a['test_history_mean']:.1f} clicks on average ({a['test_history_over_50']:.1%} more than 50).", ""]
+    caps = []                                                       # what was shrunk to fit a small machine (MIND-large on Kaggle)
+    if getattr(S.args, "lean_data", 0):
+        caps.append("memory-lean loader (same split / popularity / negatives as the V10 loader)")
+    if len(S.data.validation) < S.data.validation_impressions:
+        caps.append(f"validation {len(S.data.validation):,} of {S.data.validation_impressions:,} impressions (random, fixed seed)")
+    if len(S.data.test) < S.data.test_impressions:
+        caps.append(f"test {len(S.data.test):,} of {S.data.test_impressions:,} impressions (random, fixed seed)")
+    if getattr(S.data, "train_core_all", None) is not None:
+        caps.append(f"training samples of the learned stages {len(S.data.train_core):,} of {len(S.data.train_core_all):,}")
+    if getattr(S.args, "skip_user_rag", 0):
+        caps.append("row `user_rag` skipped")
+    if caps:
+        out += ["Scale settings: " + "; ".join(caps) + ".  The cold / warm definition and the day split are computed on the full data.", ""]
+    cf = S.cache["frozen"]["test"].get("cold_frac") if "frozen" in S.cache else None
+    out += [f"Test: {len(S.data.test):,} impressions" + (f"; {cf:.1%} of the clicked articles are cold (unseen in the training rows)." if cf else "."), ""]
+    return out
+
+
+def main_table(S):
+    sm = S.kv.get("supermodel") or {}
+    names = ["frozen", "popularity", "frozen+pop"] + [r["name"] for r in sm.get("rungs", [])]
+    out = ["## 1. The supermodel and its ladder", "",
+           "Content-only rows first, then the same rows fused with V10's online popularity (streaming feedback: not comparable with offline papers).  "
+           "Δ is paired over the common impressions against the row named in the last column.", "",
+           "| row | n test | AUC | MRR | nDCG@5 | nDCG@10 | cold AUC | warm AUC | Δ nDCG@10 vs reference [95% CI] | Δ cold AUC | reference |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    if not sm:
+        out += ["| (the supermodel stage did not run: see section 0) |"] + [""]
+    for name in names:
+        r = _row(S, name)
+        if r is None:
+            continue
+        ref = r["ref"] if name.startswith("super") else ("frozen+pop" if name.endswith("+pop") else "frozen")
+        if name in ("frozen", "frozen+pop"):
+            ref = name
+        d = R.compare(S.cache[name]["test"], S.cache[ref]["test"], "ndcg@10") if ref in S.cache and ref != name else None
+        dc = R.compare_slice(S.cache[name]["test"], S.cache[ref]["test"], "cold") if ref in S.cache and ref != name else None
+        out.append(_metrics_line(f"`{name}`", r, (ci(d), ci(dc), ref if d else "-")))
+    out += [""]
+    if sm:
+        out += [f"Base (the single LLM-side model with the best validation nDCG@10): `{sm['base']}`.  Groups added, in this order: "
+                f"zero-shot extras {sm['groups']['zs']}, learned readers {sm['groups']['reader']}"
+                + (f", trained baselines {sm['groups']['baseline']}" if sm["groups"]["baseline"] else "") + (f", LLM tower {sm['groups']['tower']} (its rows are on the subset it scored)" if sm["groups"]["tower"] else "") + ".", ""]
+        out += ["Weights fitted on validation (the base keeps 1; components with weight 0 are omitted):", "", "| rung | n val | n test | val nDCG@10 | test nDCG@10 | weights |", "|---|---|---|---|---|---|"]
+        for r in sm["rungs"]:
+            out.append(f"| `{r['name']}` | {r['n_val']:,} | {r['n_test']:,} | {r['val_ndcg10']:.4f} | {r['test_ndcg10']:.4f} | "
+                       + ", ".join(f"{k.split(':', 1)[-1]}={v:g}" for k, v in r["weights"].items() if v) + " |")
+        out += [""]
+        plain = [r["name"] for r in sm["rungs"] if not r["pop"]]
+        steps = list(zip(plain, plain[1:])) + [(r["name"][:-4], r["name"]) for r in sm["rungs"] if r["pop"]]       # each rung vs the one before; "+pop" vs the same rung without
+        full_cov = [n for n in plain if "apex" not in n]
+        if len(full_cov) > 2:
+            steps.append((full_cov[0], full_cov[-1]))                         # the whole ladder at once: the last full-coverage rung vs the base alone
+        pairs = [(a, b) for a, b in steps if a in S.cache and b in S.cache]
+        if pairs:
+            out += ["Rung-to-rung (paired on the common impressions):", "", "| from | to | Δ nDCG@10 [95% CI] | Δ cold AUC [95% CI] |", "|---|---|---|---|"]
+            for a, b in pairs:
+                out.append(f"| `{a}` | `{b}` | {ci(R.compare(S.cache[b]['test'], S.cache[a]['test'], 'ndcg@10'))} | {ci(R.compare_slice(S.cache[b]['test'], S.cache[a]['test'], 'cold'))} |")
+            out += [""]
+        if sm.get("loo"):
+            out += [f"Leave-one-group-out from `{sm['loo'][0]['of']}` (the other weights re-fitted on validation; test paired with the full model):", "",
+                    "| group removed | test nDCG@10 without it | full model | Δ [95% CI] |", "|---|---|---|---|"]
+            for l in sm["loo"]:
+                out.append(f"| {l['removed']} | {l['test_ndcg10']:.4f} | {l['full_test_ndcg10']:.4f} | {ci(l['d_vs_full'])} |")
+            out += [""]
+    return out
+
+
+def technique_table(S):
+    import suite
+    out = ["## 2. What each technique does on its own (one row per direction, chosen on validation, Bonferroni over the directions)", "",
+           "| direction | representative | n test | nDCG@10 | Δ vs its control [95% CI] | control | Bonferroni verdict | Δ cold AUC [95% CI] |", "|---|---|---|---|---|---|---|---|"]
+    reps = suite.representatives(S, pop=False)
+    for best, adj, m, n_rows in sorted(reps, key=lambda t: -t[0]["val_ndcg@10"]):
+        out.append(f"| {DIRECTIONS.get(best['family'], best['family'])} | `{best['name']}` | {best['n_test']:,} | {f4(best['ndcg@10'])} | {ci(best['d_ndcg@10'])} | {best['ref']} | "
+                   f"{best['verdict']} / {adj} (m={m}) | {ci(best.get('d_cold_auc'))} |")
+    if not reps:
+        out.append("| (no direction rows) |")
+    out += [""]
+    txt = [(n, _row(S, n)) for n in ("txt_t_lse", "pool_lse", "txt_cta_lse", "txt_ctae_lse", "txt_views_lse", "txt_ctr_lse")]
+    txt = [(n, r) for n, r in txt if r is not None]
+    if len(txt) > 1:
+        out += ["Which part of the text matters (late-interaction rows; Δ paired with `pool_lse`, the title + abstract text):", "", "| text | nDCG@10 | val nDCG@10 | Δ vs `pool_lse` [95% CI] |", "|---|---|---|---|"]
+        for n, r in txt:
+            d = R.compare(S.cache[n]["test"], S.cache["pool_lse"]["test"], "ndcg@10") if "pool_lse" in S.cache and n != "pool_lse" else None
+            out.append(f"| `{n}` | {f4(r['ndcg@10'])} | {f4(r['val_ndcg@10'])} | {ci(d)} |")
+        if _row(S, "txt_ctr_lse") and _row(S, "txt_cta_lse"):
+            d = R.compare(S.cache["txt_cta_lse"]["test"], S.cache["txt_ctr_lse"]["test"], "ndcg@10")
+            out += ["", f"`txt_ctr_lse` is the control: the same template with the category of a random article of ANOTHER category.  `txt_cta_lse - txt_ctr_lse` = {ci(d)}: "
+                        + ("the true category beats the wrong one, so the gain is not just the extra words." if d[1] > 0 else
+                           "not distinguishable from zero or negative: the gain may be the extra words / format rather than the topic.")]
+        out += [""]
+    return out
+
+
+def earlier_baselines(S, name="super_llm"):
+    if len(S.data.test) != MIND_SMALL_TEST:
+        return ["## 3. Reference baselines", "", "Not printed: the earlier NRMS / NAML / Fastformer numbers exist only for the MIND-small V10 split (73,152 test impressions); "
+                "this run's test split is a different one.  No baseline was trained in this notebook.", ""]
+    out = ["## 3. NRMS / NAML / Fastformer (measured earlier on this split, not trained here)", "",
+           "Same V10 split of MIND-small and the same evaluator, trained with the published recipe (GloVe-300, early stopping on validation; "
+           "`refit` = trained again on the validation days too).  They come from `RESULTS_v7.md` / `RESULTS_v13.md`, are NOT from this run, and one trained model moves by "
+           "about 0.007 nDCG@10 between seeds.", "",
+           "| baseline | AUC | MRR | nDCG@5 | nDCG@10 | cold AUC | warm AUC |", "|---|---|---|---|---|---|---|"]
+    for lab, v in EARLIER_BASELINES:
+        out.append(f"| {lab} | " + " | ".join(f"{x:.4f}" for x in v) + " |")
+    out += [""]
+    rows = [(n, _row(S, n)) for n in (name, name + "+pop")]
+    rows = [(n, r) for n, r in rows if r is not None and name in S.cache and r["n_test"] == MIND_SMALL_TEST]
+    if not rows:
+        return out + ["The supermodel row on the full test split is missing, so no comparison is printed.", ""]
+    out += ["Supermodel minus each baseline (raw difference of the means; the interval is the UN-paired normal one, ±1.96·sqrt(se_a² + se_b²), taking the "
+            "baseline's per-impression spread equal to the supermodel's -- wider than a paired interval, and it ignores the baseline's seed noise):", "",
+            "| supermodel row | baseline | Δ AUC | Δ MRR | Δ nDCG@5 | Δ nDCG@10 [≈95% CI] | Δ cold AUC | Δ warm AUC |", "|---|---|---|---|---|---|---|---|"]
+    for n, r in rows:
+        a = S.cache[n]["test"]["arr"]["ndcg@10"]
+        se = float(np.nanstd(a, ddof=1) / np.sqrt(np.sum(~np.isnan(a))))
+        half = 1.96 * np.sqrt(2) * se
+        pool = EARLIER_BASELINES if not n.endswith("+pop") else ()
+        for lab, v in pool:
+            d = [r["auc"] - v[0], r["mrr"] - v[1], r["ndcg@5"] - v[2], r["ndcg@10"] - v[3], r.get("cold_auc", np.nan) - v[4], r.get("warm_auc", np.nan) - v[5]]
+            out.append(f"| `{n}` | {lab} | " + " | ".join(f"{x:+.4f}" if i != 3 else f"{x:+.4f} [{x - half:+.4f}, {x + half:+.4f}]" for i, x in enumerate(d)) + " |")
+        if n.endswith("+pop"):
+            for lab, v in EARLIER_BASELINES_POP:
+                x = r["ndcg@10"] - v
+                out.append(f"| `{n}` | {lab} | - | - | - | {x:+.4f} [{x - half:+.4f}, {x + half:+.4f}] | - | - |")
+    out += [""]
+    return out
+
+
+def build(S, path=None, json_path=None, extra_suites=()):
+    """Write FINAL_REPORT.md (and a JSON with the supermodel facts) from a finished run; returns the markdown.
+    ``extra_suites``: finished runs whose V10 reproduction checks belong in section 0 (the protocol check of the notebook)."""
+    extra_suites = tuple(x for x in extra_suites if x is not None)
+    title = f"# Final report: one model ({os.path.basename(S.args.encoder.rstrip('/'))}) with every technique applied -- {len(S.data.test):,} test impressions"
+    parts = [[title, "", "Everything below is read from the finished run; nothing is measured again.  Confidence intervals are paired over the common impressions and "
+              "cover the sampling of the test impressions only, not the training randomness of the learned readers / tower (a seed ensemble is used for them).", ""]]
+    for fn in (lambda s: health(s, extra_suites), main_table, technique_table, earlier_baselines):
+        try:
+            parts.append(fn(S))
+        except Exception as e:                                  # a report section must never cost the run
+            parts.append([f"## (a report section failed: {repr(e)[:200]})", ""])
+    md = "\n".join(line for p in parts for line in p)
+    if path:
+        common.atomic_write(path, md)
+    if json_path:
+        checks = {**{f"run: {k}": v for k, v in (S.kv.get("checks") or {}).items()},
+                  **{f"{os.path.basename(x.args.encoder.rstrip('/'))}: {k}": v for x in extra_suites for k, v in (x.kv.get("checks") or {}).items()}}
+        common.atomic_write(json_path, json.dumps({"supermodel": S.kv.get("supermodel"), "stage_status": S.kv.get("stage_status"), "checks": checks},
+                                                  indent=1, default=str))
+    return md

@@ -1,5 +1,7 @@
 # V11 — bộ so sánh đầy đủ các hướng LLM cho news recommendation (MIND-small)
 
+> **Bản hiện hành: v14 (§0a)** — hai notebook một-mô-hình: `v14_supermodel.ipynb` (MIND-small) và `v14_mindlarge_hf_supermodel.ipynb` (MIND-large tải từ Hugging Face). Không huấn luyện baseline; các phần dưới (v13, v7) mô tả bộ so sánh nhiều hướng đã chạy trước đó.
+
 **Một lần Run All trên Kaggle (T4) — đã đo 7,52 giờ cho bản v7 đầy đủ (3,2 giờ cho bản v4 cũ; v13 đã đo 8,22 giờ, xem `RESULTS_v13.md`); ngân sách đồng hồ cứng 9.5 giờ** cho ~16 họ kỹ thuật / ~150 biến thể (đếm cả bản `+pop`)
 **và baseline huấn luyện đúng công thức đã công bố (v7: NRMS / NAML / Fastformer; v13: mặc định chỉ Fastformer)**, tất cả đo trên đúng giao thức V10, có khoảng tin cậy ghép cặp, lát cắt tin mới/tin cũ và hiệu chỉnh Bonferroni.
 Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM nào đáng làm luận văn, bằng bằng chứng có CI — và so với baseline huấn luyện đàng hoàng, không phải với baseline yếu**.
@@ -10,6 +12,34 @@ Bộ đo của V11 thì đúng (khớp `metrics.py`, khớp `bge_zeroshot` của
 
 > ⚠️ **Trạng thái trung thực.** Code được kiểm thử trên CPU với dữ liệu đúng định dạng MIND và các mô hình ngẫu nhiên tí hon; sandbox phát triển không có GPU/MIND/weight.
 > Các con số trên MIND thật (và thời gian) đến từ **các lần chạy Kaggle của bạn** (v4 đầy đủ trên Tesla T4: 3,2 giờ); README không chép lại kết quả — xem `results.md`, `leaderboard*.md`, `direct_comparisons.md` của lần chạy.
+
+## 0a. v14: Supermodel — MỘT mô hình, đủ kỹ thuật, không baseline; và bản thử MIND-large tải từ Hugging Face
+
+**Yêu cầu của bản này:** (1) ghép các kỹ thuật tốt nhất lên **một** mô hình tốt nhất và gọi là *supermodel*; (2) notebook chỉ chạy **một** mô hình, không huấn luyện / so baseline (đắt); (3) thử xem Kaggle có chạy nổi **MIND-large tải từ Hugging Face** không.
+Vẫn là một lần **Run All** (nhớ bật GPU và Internet). Hai notebook sinh ra từ cùng mã (`make_notebook.py`):
+
+| Notebook | Dữ liệu | Ước thời gian (chưa đo ở bản này) |
+|---|---|---|
+| `v14_supermodel.ipynb` | MIND-small từ Kaggle input (như v13) + bước kiểm tra giao thức 1–2 phút với BGE-small (`frozen`, `popularity`, `frozen+pop` phải khớp V10) | ~2 giờ trên T4 (v13 đo 8,2 giờ cho hai encoder + baseline) |
+| `v14_mindlarge_hf_supermodel.ipynb` | MIND-large tải từ Hugging Face dataset `Recommenders/MIND` (`hf_mind.py`); `data_lean.py` thay `data.py`; validation giữ ngẫu nhiên 60 000 impression, các stage huấn luyện dùng 600 000 mẫu train, `user_rag` bỏ qua, không ghi `test_arrays.npz`, làm việc ở `/kaggle/temp` | ~4 giờ (chưa đo; là điều notebook này sinh ra để đo), ngân sách cứng 10 giờ |
+
+**Mô hình.** `Qwen/Qwen3-Embedding-0.6B`. Chọn từ số đo v13 (`RESULTS_v13.md`): `txt_cta_lse` 0,4094 và `um_text` 0,4104 là hai hàng zero-shot / reader cao nhất. **Lưu ý trung thực:** validation xếp BGE `pool_lse` (0,3815) trên Qwen3 `txt_cta_lse` (0,3762) còn test thì ngược lại, nên việc chọn Qwen3 dựa trên số *test* của lần chạy trước, không phải validation; lần chạy MIND-large là phép thử độc lập hơn.
+
+**Mọi kỹ thuật chạy trên mô hình đó** (mỗi cái được đo riêng với đối chứng của nó trước khi ghép): text có category/subcategory (`cta`), 100 click, late-interaction, k-means interest, RAG (entity / kNN), reader học được (`um_*`, `mi1` / `mi4`, view `text`), tower LoRA, popularity (`+pop`). Không chạy: LoRA/DoRA cho encoder, SID, LLM judge, KAR, GraphRAG-LLM, baseline.
+Đối chứng mới (bật bằng `V11_CONTROLS=1`): `ctr` = cùng câu mẫu `cta` nhưng category của một bài **khác chuyên mục** — nếu `ctr` tăng ngang `cta` thì phần tăng là do thêm chữ chứ không do thông tin chủ đề (`txt_ctr*` thuộc họ `F-control`, không bao giờ là "hướng", không được đưa cho reader, không xuất điểm cho supermodel).
+
+**Supermodel (`supermodel.py`).** Mỗi kỹ thuật xuất điểm thô từng ứng viên (`<work>/scores/*.npz`; reader = trung bình z-score các seed). Supermodel: (1) z-score từng thành phần trong từng impression (công thức của `bge_zs_pop`); (2) **nền** = mô hình đơn tốt nhất trên *validation* trong phía LLM (zero-shot hoặc reader), trọng số 1; (3) thang `super_base` → `super_zs` (+4 scorer zero-shot tốt nhất) → `super_llm` (+3 reader) → [`super_hybrid`: + baseline đã huấn luyện, chỉ khi có xuất điểm và `--super-baselines` cho phép] → `super_apex` (+tower, trên tập con của tower); ở mỗi bậc trọng số khớp **trên validation** bằng coordinate ascent trên nDCG@10 (lưới 0 … 4, 3 lượt) và test chỉ chạm **một lần** mỗi bậc; các bậc `super_llm`, `super_hybrid`, `super_apex` có thêm bản `+pop`; (4) bảng **bỏ-một-nhóm** (zero-shot extras / reader / baseline / popularity; CI ghép cặp so với mô hình đủ). Hàng thuộc họ `SUPER`, không bao giờ là "hướng" trong DECISION SUMMARY.
+Các bậc LLM-only **không** chứa baseline đã huấn luyện, để "phía LLM hơn Fastformer" không lẫn với "một ensemble có Fastformer hơn Fastformer".
+
+**Cái notebook trả về:** `FINAL_REPORT.md` (sức khoẻ lần chạy + các kiểm tra V10; thang supermodel và trọng số; bỏ-một-nhóm; từng kỹ thuật; bảng NRMS / NAML / Fastformer **đã đo ở v7/v13, không huấn luyện lại**), `leaderboard*.md`, `direct_comparisons.md`, `forest*.png`, `noise.md` (độ lệch mẫu, n−1) và một file gộp `SUMMARY_v14.md`.
+
+**Dự đoán ghi trước khi chạy** (để lúc xem số không tự thuyết phục; đây là phỏng đoán, không phải kết quả):
+* MIND-small: `super_llm` hơn `super_base` khoảng +0,002 … +0,008 nDCG@10 (xác suất CI ghép cặp loại trừ 0 khoảng 60%); khoảng cách val → test của mỗi bậc ~0,002 (trọng số khớp quá mức nhẹ). `super_apex` ≈ `super_llm` ±0,003 trên tập con của tower (tower ở v13 chỉ ngang `pool_lse`). Hàng `+pop`: `super_llm+pop` hơn hàng `+pop` đơn tốt nhất khoảng +0,003 … +0,006.
+* So với baseline đã đo: `super_llm` không thua `txt_cta_lse` (0,4094) và nhiều khả năng ≈ NRMS refit (0,4078) ± nhiễu; việc "hơn hẳn mọi baseline" chỉ đáng tin nếu CI không ghép cặp ở bảng §3 của `FINAL_REPORT.md` loại trừ 0 *và* chênh lệch lớn hơn nhiễu seed của baseline (~0,007).
+* MIND-large: reader học được hưởng lợi từ nhiều dữ liệu train hơn nên nền của supermodel nhiều khả năng là một reader (`um_*`), không phải hàng zero-shot; tỉ lệ click "lạnh" thấp hơn nhiều so với MIND-small (85,9%) nên phần lợi của category / text giảm.
+* Khả thi trên Kaggle: ~3–5 giờ, RAM đỉnh 10–16 GB (nếu vượt ~30 GB thì chết ở bước nạp / stage `graph`); xác suất tải Hub chạy ngay lần đầu ~70% (bố cục repo chưa kiểm).
+
+**Giới hạn đã biết của thiết kế:** (i) điểm validation của reader lạc quan (epoch được chọn trên chính validation), nên trọng số có thể ưu ái reader hơn mức đáng; test không bị ảnh hưởng nên số test vẫn là ước lượng không thiên vị *của quy trình*; (ii) ~10 trọng số khớp trên validation: khoảng cách val–test của từng bậc được in ra; (iii) tower chỉ có điểm trên tập con (5 000 val / 30 000 test) nên bậc `apex` chỉ so được trên đúng tập con đó; (iv) bảng baseline là so *giữa các lần chạy* (CI không ghép cặp, rộng hơn; một baseline huấn luyện lệch ~0,007 nDCG@10 giữa các seed).
 
 ## 0. v13: thêm dữ liệu, multi-interest, baseline rút gọn còn Fastformer
 
@@ -160,6 +190,15 @@ reader Fastformer/NRMS/additive trên vector đóng băng: add/nrms bất biến
 ✅ **Đã kiểm trên Kaggle thật (lần chạy v7, Tesla T4, Python 3.13):** `frozen`, `popularity`, `frozen+pop`, `um_frozen` đều MATCH V10; guard pooling của Qwen3 (cos nhỏ nhất 0,9998); tải GloVe qua `huggingface:sentence-transformers/average_word_embeddings_glove.6B` chạy được (52 722 / 60 992 từ của kho có vector, 0,12% token title là UNK);
 mẫu huấn luyện dựng lại == `train_core` của V10 (kiểm từng mẫu); rung 0 của thang ablation khớp NRMS của V10 (0,6156 / 0,3694 vs 0,6181 / 0,3685); mask `bidir` và `soft` chạy được trên Qwen3 thật (probe OK); fp16/AMP + LoRA/DoRA + GradScaler; sinh văn bản Qwen3-1.7B (≈ 44 ms/prompt khi giám khảo); Louvain trên ~65k bài (26–36 s); không OOM ở tower và baseline; thời gian đo được ở §4.
 
+✅ **v14** (CPU, dữ liệu định dạng MIND; sandbox không có GPU / MIND thật / Hugging Face): `selftest.py` + `selftest_v14.py` — 45 kiểm tra qua trên đúng mã của hai notebook. Thêm so với v13: điểm thô được xuất ra **bằng** điểm mà hàng tương ứng đã được chấm (AUC / MRR / nDCG, cả hàng chạy trên tập con);
+mọi bậc của supermodel **bằng** phép tính lại độc lập từ các file xuất (không dùng mã supermodel), kể cả bậc tower trên tập con và bản `+pop`; hàm mục tiêu khi khớp trọng số **bằng** số evaluator báo (kể cả impression bị hoà điểm; lỗi này lộ ra ở phép thử quy mô bên dưới — hai số lệch 0,004 vì cách xử lý hoà điểm khác nhau — rồi được sửa và có test); khớp trọng số không bao giờ đọc test;
+trọng số ≥ 0 và nền giữ 1; đối chứng `ctr` không lọt vào hướng / view của reader / file xuất; bộ tải Hugging Face với Hub giả (zip, zip có thư mục lồng, thư mục đã giải nén, tên khác hoa-thường, không liệt kê được repo, archive nằm sẵn trong `/kaggle/input`, dev không nhãn bị từ chối, tên `../` trong zip không thoát được thư mục,
+HTTP tải tiếp khi bị ngắt, và **tải cụt không bao giờ được nhận** — test bắt được một lỗi thật: `http.client` trả `b""` khi kết nối đóng sớm thay vì báo lỗi); `data_lean.py` == `MindData.from_mind` từng trường; `--val-max` / `--test-max` / `--train-sub` xác định, giữ thứ tự, `train_core_all` giữ khớp mẫu V10; `--enc-variants` sai bị từ chối trước khi mã hoá; độ lệch chuẩn mẫu (n−1) ở mọi hàng nhiều seed.
+✅ Mô phỏng "Run All" của **cả hai** notebook v14 từ thư mục trống (CPU, mô hình tí hon; bản large qua một Hub giả phục vụ file zip cho đúng mã `hf_mind`, có cắt val / test / train): mã thoát 0, 0 stage lỗi, sinh `FINAL_REPORT.md` và `SUMMARY_v14.md`.
+✅ Thử quy mô (CPU 4 nhân, dữ liệu **tổng hợp** có hình dạng MIND-large: 800 000 impression train + 150 000 dev, 120 000 bài, encoder tí hon 64 chiều, bộ đọc lean, `--val-max 60000 --train-sub 600000`): `controls, pooling, moredata, graph, supermodel` xong trong 1 040 giây (chạy song song với một tiến trình khác), RAM đỉnh ~4,9 GB (lấy mẫu mỗi 15 giây), `state.pkl` 288 MB.
+Phép thử này chỉ cho thấy đường dữ liệu / evaluator / supermodel không có điểm nghẽn bậc hai; nó **không** thay cho một lần chạy trên Kaggle thật (GPU, vector 1024 chiều, 2,6 triệu impression).
+❌ **Chưa kiểm chứng (v14):** bố cục thật của repo `Recommenders/MIND` (sandbox chặn huggingface.co; bộ tải dò lúc chạy và in danh sách file nếu lỗi); chạy trên Kaggle thật (RAM / GPU / giờ của MIND-large); kết quả của supermodel.
+
 ❌ **Chưa kiểm chứng:** Fastformer cài lại có khớp mã chính thức về siêu tham số hay không; số bài báo ở §10 (lấy từ kết quả tìm kiếm, chưa mở PDF); kết luận có chuyển sang dataset khác (MIND-large, EB-NeRD) hay không; hầu hết hàng chỉ có **1 seed huấn luyện** (nhiễu seed đo được: 0,007 nDCG@10 giữa hai seed của NRMS, 0,010–0,012 giữa hai seed của tower — xem `RESULTS_v7.md`), nên chênh lệch nhỏ hơn mức đó giữa hai mô hình *đã huấn luyện* chưa phải kết luận.
 
 ## 6b. Sự cố môi trường đã gặp khi chạy thật
@@ -183,7 +222,7 @@ Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed**
 `data.py`/`metrics.py` (V10, nguyên văn) · `common.py` (đồng hồ ngân sách, fusion, `ScoreCache`, `HistQueries`) · `rep_eval.py` (evaluator vector hoá, CI ghép cặp, so sánh qua tập con) ·
 `semgraph.py` (RAG/GraphRAG-lite, tên entity) · `adapt.py` (head, LoRA/DoRA, MRL) · `fields.py` (F: biến thể text, ghép view, cache embedding khoá theo nội dung) · `pooling.py` (H8, bộ chấm k-means H11) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10, reader Fastformer/NRMS/additive, reader multi-interest `mi<K>`) ·
 `refdata.py` (token, GloVe, dựng lại mẫu huấn luyện V10 + negative bốc lại mỗi epoch) · `refmodels.py` (NRMS/NAML/Fastformer, trainer) · `stages_ref.py` (stage baseline + bảng ablation) ·
-`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v13_suite_moredata.ipynb` (notebook hiện hành) · `v11_full_suite_v7.ipynb` (đúng notebook đã tạo ra `RESULTS_v7.md`, tự chứa mã của nó; giữ nguyên để tái lập) · `RESULTS_v7.md` (kết quả đo thật của lần chạy đầy đủ v7: bảng, nhiễu seed, nhận định, giới hạn) · `RESULTS_v13.md` (kết quả đo thật của lần chạy đầy đủ v13 và bảng so sánh v7 ↔ v13).
+`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard, `--lean-data` / `--val-max` / `--test-max` / `--train-sub`) · `supermodel.py` (v14: ghép thành phần bằng trọng số khớp trên validation, thang, bỏ-một-nhóm) · `final_report.py` (v14: `FINAL_REPORT.md`) · `hf_mind.py` (v14: tải MIND từ Hugging Face) · `data_lean.py` (v14: bộ đọc MIND ít RAM, cùng split / popularity / negative với `data.py`) · `selftest.py` + `selftest_v14.py` (test (23)–(31) của v14) · `make_notebook.py` (sinh cả hai notebook v14) · `v14_supermodel.ipynb` và `v14_mindlarge_hf_supermodel.ipynb` (notebook hiện hành) · `v13_suite_moredata.ipynb` (notebook v13, đã đo) · `v11_full_suite_v7.ipynb` (đúng notebook đã tạo ra `RESULTS_v7.md`, tự chứa mã của nó; giữ nguyên để tái lập) · `RESULTS_v7.md` (kết quả đo thật của lần chạy đầy đủ v7: bảng, nhiễu seed, nhận định, giới hạn) · `RESULTS_v13.md` (kết quả đo thật của lần chạy đầy đủ v13 và bảng so sánh v7 ↔ v13).
 
 ## 9. Tài liệu
 

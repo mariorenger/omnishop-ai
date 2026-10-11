@@ -282,10 +282,11 @@ def read_train_core(train_dir, ids, data, dev_ratio=0.1):
 def check_train_alignment(ts, data):
     """The re-derived samples must be V10's: same clicked article and history in the same order, every negative V10 drew lies in the
     impression's pool (catches an article-id mapping that differs from ``MindData`` while the counts still agree)."""
-    if ts.n_samples != len(data.train_core):
-        raise ValueError(f"{ts.n_samples} re-derived samples vs {len(data.train_core)} in MindData.train_core")
+    rows = getattr(data, "train_core_all", None) or data.train_core                 # --train-sub keeps the full list here
+    if ts.n_samples != len(rows):
+        raise ValueError(f"{ts.n_samples} re-derived samples vs {len(rows)} in MindData.train_core")
     H = ts.hist.shape[1]
-    for k, (_u, hist, pos, negs) in enumerate(data.train_core):
+    for k, (_u, hist, pos, negs) in enumerate(rows):
         i = int(ts.samp_imp[k])
         h = list(hist)[-H:]
         pool = ts.neg_flat[ts.neg_off[i]:ts.neg_off[i] + ts.neg_cnt[i]]

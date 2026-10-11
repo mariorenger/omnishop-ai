@@ -10,7 +10,12 @@ regex tokens, padding mask, negatives re-drawn each epoch), ``ref_l2`` (+ publis
 Each model is its own stage, so a crash or an exhausted budget loses at most one model and a re-run resumes at the next one.
 
 Notebook v13 runs only Fastformer (``ref_ff`` with several seeds, then ``ref_ff_refit``); the NRMS / NAML / ladder stages stay available
-(``V11_REF_ALL=1``) and their measured numbers are in RESULTS_v7.md.
+(``V11_REF_ALL=1``) and their measured numbers are in RESULTS_v7.md.  The v14 notebooks train NO baseline (one model only, by request); the
+stages stay available (``--stages ref_ff,ref_ff_refit,...``; ``ref_naml_refit`` completes the refit family) and their exports can join the
+supermodel's hybrid rung through ``--super-dirs``.
+
+The raw validation / test scores of the seed-averaged baselines (``nrms_ref``, ``naml_ref``, ``fastformer_ref``) are kept under
+``<work>/scores`` (mean of the per-impression z-scores over the seeds) so that the supermodel can use a trained model as one component.
 """
 from __future__ import annotations
 
@@ -32,6 +37,7 @@ SPECS = {
     "ff": dict(name="fastformer_ref", family="ref-baseline", preset="fastformer", pop=True),
     "nrms_refit": dict(name="nrms_ref_refit", family="ref-baseline", preset="nrms", pop=False, refit="nrms_ref"),     # train_core + validation, epochs fixed by nrms_ref
     "ff_refit": dict(name="fastformer_ref_refit", family="ref-baseline", preset="fastformer", pop=False, refit="fastformer_ref"),   # same for Fastformer
+    "naml_refit": dict(name="naml_ref_refit", family="ref-baseline", preset="naml", pop=False, refit="naml_ref"),                    # same for NAML
     "nrms1": dict(name="nrms_ref@1", family="ref-baseline", preset="nrms", pop=False, seed0=1),       # same recipe, other seed: the training-noise floor
     "l0": dict(name="ladder0_v10recipe", family="ref-ladder", preset="v10", pop=False),
     "l1": dict(name="ladder1_data", family="ref-ladder", preset="data", pop=False),
@@ -141,14 +147,20 @@ def stage_ref(S, args, which):
         return stage_refit(S, args, spec, res, cfg, name)
     trainset = res["dyn"] if cfg.dyn_neg else res["static"]
     twin = spec["pop"] and S.want_pop("frozen")
-    vals, tests, pv, pt, infos = [], [], [], [], []
+    vals, tests, pv, pt, infos, vrag, trag = [], [], [], [], [], [], []
+    keep = bool(getattr(args, "export_scores", 1)) and name in ("nrms_ref", "naml_ref", "fastformer_ref")       # components the supermodel may use
     for sd in range(spec.get("seed0", 0), spec.get("seed0", 0) + args.ref_seeds):
         t0 = time.time()
         val_fn = lambda n: S.run(RM.make_scorer(n), "val")["mean"]["ndcg@10"]
         net, info = _fit_with_oom_fallback(S, cfg, trainset, val_fn, sd, S.deadline(0.45 / args.ref_seeds, cap_s=args.ref_model_minutes * 60 / args.ref_seeds), text)
         sc = RM.make_scorer(net)
-        vals.append(S.run(sc, "val"))
-        tests.append(S.run(sc, "test"))
+        if keep:
+            (v_, vr_), (t_, tr_) = S.run_rec(sc, "val"), S.run_rec(sc, "test")
+            vrag.append(vr_), trag.append(tr_)
+        else:
+            v_, t_ = S.run(sc, "val"), S.run(sc, "test")
+        vals.append(v_)
+        tests.append(t_)
         if twin:
             fz = common.fuse([(sc, 1.0), (common.pop_scorer, 1.0)])
             pv.append(S.run(fz, "val"))
@@ -164,8 +176,10 @@ def stage_ref(S, args, which):
              "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests],
              "partial": any(h["partial"] for i in infos for h in i["history"]), "bs_used": infos[0]["bs_used"]}
     if args.ref_seeds > 1:
-        extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"]))
+        extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"], ddof=1))
     row = S.record(name, spec["family"], {**{k: v for k, v in cfg.__dict__.items()}}, avg_results(vals), avg_results(tests), "frozen", extra)
+    if keep and vrag:
+        S.export_scores(name, common.ragged_mean_z(vrag), common.ragged_mean_z(trag), {"family": spec["family"], "seeds": len(vrag), "kind": "baseline", "init": extra["init"]})
     if twin:
         S.record(f"{name}+pop", f"{spec['family']}+pop", {"base": name}, avg_results(pv), avg_results(pt), "frozen+pop", extra)
     if which == "l0" and args.ref_repro:
@@ -209,5 +223,6 @@ def ladder_table(S, repro=None, path=None):
 STAGES = {"ref_nrms": lambda S, a: stage_ref(S, a, "nrms"), "ref_naml": lambda S, a: stage_ref(S, a, "naml"),
           "ref_ff": lambda S, a: stage_ref(S, a, "ff"), "ref_nrms_s1": lambda S, a: stage_ref(S, a, "nrms1"),
           "ref_nrms_refit": lambda S, a: stage_ref(S, a, "nrms_refit"), "ref_ff_refit": lambda S, a: stage_ref(S, a, "ff_refit"),
+          "ref_naml_refit": lambda S, a: stage_ref(S, a, "naml_refit"),
           "ref_l0": lambda S, a: stage_ref(S, a, "l0"),
           "ref_l1": lambda S, a: stage_ref(S, a, "l1"), "ref_l2": lambda S, a: stage_ref(S, a, "l2")}

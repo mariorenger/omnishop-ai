@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 
 import numpy as np
@@ -44,6 +45,23 @@ class Clock:
 
 
 CLOCK = Clock()
+
+
+def mem_note():
+    """One short string with this process's resident memory, the machine's, and the GPU's peak allocation (empty when nothing can be measured)."""
+    out = []
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        out.append(f"RAM process {psutil.Process().memory_info().rss / 1e9:.1f} GB, machine {vm.used / 1e9:.1f}/{vm.total / 1e9:.0f} GB")
+    except Exception:
+        pass
+    try:
+        if torch.cuda.is_available():
+            out.append(f"GPU peak {torch.cuda.max_memory_allocated() / 1e9:.1f} GB of {torch.cuda.get_device_properties(0).total_memory / 1e9:.0f} GB")
+    except Exception:
+        pass
+    return "; ".join(out)
 
 
 def time_left():
@@ -193,6 +211,93 @@ class ScoreCache:
             out = torch.from_numpy(out).to(device)
             return out if shift is None else out - shift(b)
         return f
+
+
+# ------------------------------------------------------------------ raw scores of a scorer, kept for the supermodel
+class ScoreRecorder:
+    """Wrap a scorer so that the raw per-candidate scores of an evaluation pass are kept without a second pass:
+    ``rec = ScoreRecorder(scorer, evalset.n)``; evaluate with ``rec`` in place of the scorer; ``rec.ragged(result["ids"])`` afterwards."""
+
+    def __init__(self, scorer, n):
+        self.f, self.rows = scorer, [None] * n
+
+    def __call__(self, b):
+        s = self.f(b)
+        arr = s.detach().float().cpu().numpy()
+        cm = b["cand_mask"].cpu().numpy()
+        for k, r in enumerate(b["rows"]):
+            self.rows[r] = arr[k, :int(cm[k].sum())].astype(np.float32, copy=True)
+        return s
+
+    def ragged(self, ids):
+        if any(r is None for r in self.rows):
+            raise ValueError("not every impression was scored")
+        return make_ragged(ids, self.rows)
+
+
+def make_ragged(ids, rows):
+    """``rows``: one 1-d float array per impression (candidate order of the data) -> ``{"ids", "ptr", "flat"}`` (CSR-like, float32)."""
+    lens = np.fromiter((len(r) for r in rows), np.int64, len(rows))
+    flat = np.concatenate(rows).astype(np.float32) if len(rows) else np.zeros(0, np.float32)
+    return {"ids": np.asarray(ids, np.int64), "ptr": np.concatenate([[0], np.cumsum(lens)]).astype(np.int64), "flat": flat}
+
+
+def ragged_rows(rag):
+    return [rag["flat"][rag["ptr"][i]:rag["ptr"][i + 1]] for i in range(len(rag["ptr"]) - 1)]
+
+
+def ragged_zscore(rag):
+    """Standardise every impression's scores (mean 0, sd 1 over its candidates; the same formula as ``zscore``)."""
+    ptr, flat = rag["ptr"], rag["flat"].astype(np.float64)
+    lens = np.diff(ptr)
+    seg = np.repeat(np.arange(len(lens)), lens)
+    n = np.maximum(lens, 1)
+    mu = np.bincount(seg, weights=flat, minlength=len(lens)) / n
+    sd = np.sqrt(np.bincount(seg, weights=(flat - mu[seg]) ** 2, minlength=len(lens)) / n)
+    return {"ids": rag["ids"], "ptr": ptr, "flat": ((flat - mu[seg]) / (sd[seg] + 1e-6)).astype(np.float32)}
+
+
+def ragged_mean_z(rags):
+    """Seed ensemble: the mean of the per-impression z-scored scores of several runs of the same model (all over the same impressions)."""
+    if len(rags) == 1:
+        return rags[0]
+    for r in rags[1:]:
+        if not (np.array_equal(r["ids"], rags[0]["ids"]) and np.array_equal(r["ptr"], rags[0]["ptr"])):
+            raise ValueError("runs scored different impressions / candidates")
+    zs = [ragged_zscore(r)["flat"] for r in rags]
+    return {"ids": rags[0]["ids"], "ptr": rags[0]["ptr"], "flat": np.mean(zs, axis=0).astype(np.float32)}
+
+
+EXPORT_RE = re.compile(r"^(pool_lse|pool_km5|lora\+hn|txt_(t|cta|ctae|views)_lse|hist\d+_lse|ut_causal(@\d+)?)$")
+
+
+def export_wanted(name):
+    """Rows whose raw scores the supermodel may use (the controls ``txt_ctr*`` are deliberately not among them)."""
+    return bool(EXPORT_RE.match(name))
+
+
+def _safe(name):
+    return re.sub(r"[^A-Za-z0-9_.+@-]", "_", name)
+
+
+def save_scores(dirpath, name, val, test, meta=None):
+    """One ``.npz`` per component: ragged scores of the validation and test impressions it was evaluated on."""
+    import json
+    os.makedirs(dirpath, exist_ok=True)
+    path = os.path.join(dirpath, _safe(name) + ".npz")
+    arrays = {f"{sp}_{k}": rag[k] for sp, rag in (("val", val), ("test", test)) for k in ("ids", "ptr", "flat")}
+    np.savez(path + ".tmp.npz", name=np.array(name), meta=np.array(json.dumps(meta or {}, default=str)), **arrays)
+    os.replace(path + ".tmp.npz", path)
+    return path
+
+
+def load_scores(path):
+    import json
+    z = np.load(path, allow_pickle=False)
+    out = {"name": str(z["name"]), "meta": json.loads(str(z["meta"]))}
+    for sp in ("val", "test"):
+        out[sp] = {k: z[f"{sp}_{k}"] for k in ("ids", "ptr", "flat")}
+    return out
 
 
 # ------------------------------------------------------------------ history-as-text queries

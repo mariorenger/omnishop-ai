@@ -12,6 +12,9 @@ variants so that each one can be measured on its own against the suite's text:
   ctae   cta + Entities: e1; e2; ...
   views  title, abstract and category phrase embedded *separately* and concatenated with weights (NAML-style view fusion with
          frozen vectors): <u, v> = sum_v w_v <u_v, v_v>, so mean-pooling and late interaction both work on the fused table.
+  ctr    CONTROL for ``cta``: the same sentence template, but the category / subcategory phrase belongs to a random article of a
+         *different* category.  If ``cta`` beats ``ta`` because the category is topical information, ``ctr`` must not; if ``ctr`` gains
+         about as much as ``cta``, the gain was the extra words / format, not the category.
 """
 from __future__ import annotations
 
@@ -25,7 +28,8 @@ import torch
 
 import adapt
 
-MODES = ("t", "ta", "cta", "ctae")
+MODES = ("t", "ta", "cta", "ctae", "ctr")
+CONTROL_MODES = ("ctr",)      # text variants that exist to be compared with, never to be picked as a candidate
 # (title, abstract, category) weights of the view fusion; they sum to 1, so the fused vector has unit norm
 VIEW_WEIGHTS = ((0.5, 0.5, 0.0), (0.4, 0.4, 0.2), (0.3, 0.5, 0.2), (0.5, 0.3, 0.2), (0.35, 0.35, 0.3))
 MAX_ENTITIES = 8
@@ -52,6 +56,23 @@ def _join(*parts):
     return " ".join(p for p in parts if p).strip()
 
 
+def wrong_category_phrases(meta, seed=0):
+    """Category phrases of *other* articles: article i receives the (category, subcategory) of a random article whose category differs
+    from its own (donors are drawn uniformly among the articles of the other categories).  Deterministic for a given ``seed``."""
+    cats = np.asarray(meta["cats"], dtype=object)
+    n = len(cats)
+    rng = np.random.default_rng(seed)
+    donor = np.arange(n)
+    uniq = sorted(set(cats.tolist()))
+    if len(uniq) < 2:                                                  # one category only: a plain shuffle is the best a control can do
+        donor = rng.permutation(n)
+    else:
+        for c in uniq:
+            idx = np.nonzero(cats == c)[0]
+            donor[idx] = rng.choice(np.nonzero(cats != c)[0], size=len(idx), replace=True)
+    return [category_phrase(meta["cats"][d], meta["subcats"][d]) for d in donor]
+
+
 def build_texts(meta, mode):
     """One string per article (same order as ``meta['ids']``)."""
     if mode == "t":
@@ -64,6 +85,8 @@ def build_texts(meta, mode):
         return cta
     if mode == "ctae":
         return [_join(x, entity_phrase(ls)) for x, ls in zip(cta, meta["ent_labels"])]
+    if mode == "ctr":
+        return [_join(c, text) for c, text in zip(wrong_category_phrases(meta), meta["text"])]
     raise ValueError(f"unknown text mode {mode!r}; choose from {MODES + ('views',)}")
 
 

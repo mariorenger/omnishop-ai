@@ -11,9 +11,12 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
   4. attention masks: causal ignores the future, bidirectional does not, soft interpolates; batched == single;
   5. Semantic-ID scoring: batched == per-sequence reference (empty history included); the model learns;
   6. generation / judging are batch-invariant and cached; subset comparisons equal manual slicing;
-  7. resume skips finished stages, a tiny wall-clock budget skips the rest without crashing.
+  7. resume skips finished stages, a tiny wall-clock budget skips the rest without crashing;
+  8. v14 (``selftest_v14.py``): exported component scores equal the scores the rows were evaluated with, every supermodel rung equals an independent
+     recomputation from the exported files (tower subset and +pop included), the weight fit never touches the test split, the Hugging Face loader
+     (fake Hub, nested / extracted / unlabelled archives, ../ member names, HTTP resume and truncation), the memory-lean MIND loader == V10's, scale caps.
 
-    python selftest.py            # ~25-30 min on a 4-core CPU
+    python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
 from __future__ import annotations
 
@@ -47,6 +50,7 @@ import stages_ext as X
 import stages_ref as SR
 import suite
 import usermodel as UM
+import selftest_v14 as T14
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -241,7 +245,7 @@ def test_popularity(S):
     ref = metrics.aggregate(imps)
     got = S.cache["popularity"]["test"]["mean"]
     assert all(abs(ref[k] - got[k]) < 1e-4 for k in ("auc", "mrr", "ndcg@5", "ndcg@10"))
-    twins = {r["name"] for r in S.records if r["family"].endswith("+pop")}
+    twins = {r["name"] for r in S.records if r["family"].endswith("+pop") and r["family"] != "SUPER+pop"}      # SUPER+pop rows are fitted combinations, not twins of one row
     need = {"pool_recency+pop", "pool_maxsim+pop", "pool_topk+pop", "pool_lse+pop", "entity_rag+pop", "knn_rag+pop", "head_lin+pop",
             "histq_instr+pop", "sid_profile+pop", "sid_profile+meanpool+pop", "sid_gpt+pop", "lora+mrl+hn+pop"}
     assert not (need - twins), f"missing popularity twins: {sorted(need - twins)}"
@@ -747,7 +751,7 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     glove = os.path.join(tmp, "glove_fixture.txt")
     build_fake_glove(glove, allw, 32, seed=3)
     small = ["--ref-dims", "32,4,8,32,1", "--ref-max-epochs", "3", "--ref-repro", "0.6,0.6"]
-    stages = "ref_nrms,ref_naml,ref_ff,ref_ff_refit,ref_nrms_refit,ref_nrms_s1,ref_l0,ref_l1,ref_l2"
+    stages = "ref_nrms,ref_naml,ref_naml_refit,ref_ff,ref_ff_refit,ref_nrms_refit,ref_nrms_s1,ref_l0,ref_l1,ref_l2"
     outR = os.path.join(tmp, "outR")
     args = [*mind, "--work", outR, "--encoder", enc_dir, "--cache-dir", cache_dir, "--stages", stages, *small, "--ref-glove-path", glove, *RUN_A[:-1]]
     buf = io.StringIO()
@@ -756,7 +760,7 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     text = buf.getvalue()
     names = {r["name"] for r in SR_.records}
     need = {"ladder0_v10recipe", "ladder1_data", "ladder2_recipe", "nrms_ref", "naml_ref", "fastformer_ref", "nrms_ref+pop", "naml_ref+pop", "fastformer_ref+pop",
-            "nrms_ref@1", "nrms_ref_refit", "fastformer_ref_refit"}
+            "nrms_ref@1", "nrms_ref_refit", "fastformer_ref_refit", "naml_ref_refit"}
     assert not (need - names), sorted(need - names)
     assert not any(n.startswith("ladder") and n.endswith("+pop") for n in names) and "nrms_ref@1+pop" not in names, "only the headline models get popularity twins"
     assert SR_.row("nrms_ref@1")["ndcg@10"] != SR_.row("nrms_ref")["ndcg@10"], "the second seed must not reproduce the first"
@@ -772,6 +776,8 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     rf = SR_.row("nrms_ref_refit")
     assert rf["cfg"]["refit_epochs"] == SR_.row("nrms_ref")["best_epochs"][0] and rf["refit_of"] == "nrms_ref" and rf["ndcg@10"] != SR_.row("nrms_ref")["ndcg@10"]
     assert abs(rf["val_ndcg@10"] - SR_.row("nrms_ref")["val_ndcg@10"]) < 1e-9, "the refit row must repeat the epoch-selection validation columns"
+    nr = SR_.row("naml_ref_refit")
+    assert nr["refit_of"] == "naml_ref" and nr["family"] == "ref-baseline" and nr["cfg"]["refit_epochs"] == max(SR_.row("naml_ref")["best_epochs"][0], 1)
     assert SR_.row("nrms_ref+pop")["ref"] == "frozen+pop" and SR_.row("ladder1_data")["cfg"]["dyn_neg"] and not SR_.row("ladder0_v10recipe")["cfg"]["dyn_neg"]
     rows = suite.leaderboard([S_A, SR_], ["A", "R"], ("A", "frozen"), os.path.join(tmp, "lb_ref.md"))
     assert {"nrms_ref", "fastformer_ref", "ladder0_v10recipe"} <= {x["name"] for x in rows if x["run"] == "R"}
@@ -784,13 +790,13 @@ def test_ref_stages(tmp, mind, enc_dir, cache_dir, S_A):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         suite.main([a for a in args if a != "--no-resume"])
-    assert buf.getvalue().count("already finished (resume), skipped") >= 9 and "== reference baseline" not in buf.getvalue()
+    assert buf.getvalue().count("already finished (resume), skipped") >= 10 and "== reference baseline" not in buf.getvalue()
     # changing a reference-model setting re-runs only the reference stages; every other saved row stays
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         SR2 = suite.main([a for a in args if a != "--no-resume"] + ["--ref-seeds", "2"])
     t2 = buf.getvalue()
-    assert "reference-baseline settings changed" in t2 and t2.count("== reference baseline") == 9 and "stage 'controls' already finished" in t2
+    assert "reference-baseline settings changed" in t2 and t2.count("== reference baseline") == 10 and "stage 'controls' already finished" in t2
     assert SR2.row("nrms_ref")["seeds"] == 2 and len(SR2.row("nrms_ref")["ndcg10_per_seed"]) == 2 and SR2.row("nrms_ref")["ndcg10_std"] >= 0
     ff2, ffr = SR2.row("fastformer_ref"), SR2.row("fastformer_ref_refit")
     assert len(ff2["best_epochs"]) == 2 and ffr["cfg"]["refit_epochs"] == max(int(round(float(np.mean(ff2["best_epochs"])))), 1) and ffr["refit_of"] == "fastformer_ref"
@@ -993,7 +999,7 @@ RUN_A = ["--max-len", "32", "--q-max-len", "64", "--seeds", "2", "--pairs", "300
          "--betas", "0.5", "1.0", "--knn-k", "5", "10", "--lams", "0.5", "1.0", "--gammas", "0.5", "--sid-k", "8", "--sid-d", "64",
          "--sid-layers", "2", "--sid-heads", "2", "--sid-epochs", "12", "--sid-lr", "3e-3", "--sid-val-n", "100", "--sid-bs", "64",
          "--um-epochs", "4", "--um-seeds", "1", "--lsa-dim", "32", "--llm-user-steps", "40", "--llm-user-bs", "8", "--llm-user-r", "4",
-         "--llm-user-lr", "3e-3", "--llm-val-n", "100", "--llm-test-n", "150", "--text-modes", "t,cta,ctae,views", "--hist-lens", "100",
+         "--llm-user-lr", "3e-3", "--llm-val-n", "100", "--llm-test-n", "150", "--text-modes", "t,cta,ctae,views,ctr", "--hist-lens", "100",
          "--km-ks", "2", "3", "--um-seeds-focus", "2", "--no-resume"]
 
 
@@ -1026,7 +1032,7 @@ def main():
     text1 = buf1.getvalue()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        S = suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", f"{part1},encoder,llm_user,usermodel,sweep", "--sweep-encoders", dec_dir,
+        S = suite.main([*mind, "--work", out, "--encoder", enc_dir, "--stages", f"{part1},encoder,llm_user,usermodel,sweep,supermodel", "--sweep-encoders", dec_dir,
                         *RUN_A[:-1]])                                                       # no --no-resume: must pick up state.pkl
     text = buf.getvalue()
     print(text[-3500:])
@@ -1115,7 +1121,7 @@ def main():
     test_fields(tmp, enc_dir, S)
     test_multi_interest(S.data, S.E0)
     test_moredata_rows(S, text1, text)
-    test_ref_stages(tmp, mind, enc_dir, os.path.join(out, "cache"), S)
+    SR_ = test_ref_stages(tmp, mind, enc_dir, os.path.join(out, "cache"), S)
 
     # (8) direction-vs-direction comparison and per-impression arrays
     n_h = min(5, len([r for r in S.reps if r["family"] not in suite.TECHNIQUE_FAMILIES_EXCLUDED]))
@@ -1132,6 +1138,23 @@ def main():
     ok(f"(4) outputs written; cold-click share in the fixture = {cold:.1%}")
     test_text_view(S)
 
+    # ---------------- v14: exported scores, the category-swap control, the supermodel, the final report, the Hugging Face and lean loaders, the scale caps
+    cache_a = os.path.join(out, "cache")
+    T14.test_ragged_and_export(tmp)
+    T14.test_exports(S)
+    T14.test_ctr_control(S)
+    T14.test_fusion_units(S)
+    T14.test_supermodel(S, expect_tower=False)
+    T14.test_supermodel_paths(S, tmp)
+    T14.test_hybrid(tmp, mind, enc_dir, cache_a, RUN_A[:-1], os.path.join(tmp, "outR"))
+    T14.test_tower_math(tmp, mind, enc_dir, cache_a, RUN_A[:-1])
+    S_chk, _ = T14.quiet(suite.main, [*mind, "--work", os.path.join(tmp, "outChk"), "--encoder", enc_dir, "--cache-dir", cache_a, "--stages", "controls",
+                                      "--repro", "0.6241,0.3909", "--repro-pop", "0.6533,0.4026,0.6769,0.4330", *RUN_A[:-1]])
+    T14.test_final_report(tmp, S, SR_, S_chk)
+    T14.test_hf_mind(tmp, f"{tmp}/train", f"{tmp}/dev")
+    T14.test_lean_loader(S, f"{tmp}/train", f"{tmp}/dev")
+    T14.test_caps_and_flags(S, f"{tmp}/train", tmp, mind, enc_dir, cache_a, RUN_A[:-1])
+
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")
     ref_dec = adapt.HFEncoder(dec_dir, max_len=48, device="cpu")
@@ -1144,7 +1167,7 @@ def main():
                      "--gen-model", dec_dir, "--gen-bs", "8", "--gen-new-tokens", "8", "--gen-val-n", "40", "--gen-test-n", "80",
                      "--augment-minutes", "5", "--rerank-k", "5", "--rerank-val-n", "40", "--rerank-test-n", "80", "--rerank-minutes", "5",
                      "--gr-max-comm", "10", "--gr-titles", "4", "--no-resume",
-                     "--stages", "controls,histquery,llm_user,rerank,augment,graphrag_llm,pooling,graph,head,usermodel"])
+                     "--stages", "controls,histquery,llm_user,rerank,augment,graphrag_llm,pooling,graph,head,usermodel,supermodel"])
     nb = {r["name"] for r in SB.records}
     exp_b = {"frozen", "histq_instr", "histq_instr+meanpool", "ut_causal", "ut_bidir", "ut_soft", "ut_causal+meanpool", "ut_soft+meanpool", "ut_causal@1",
              "rerank_llm", "rerank_fused", "kar_item", "kar_user", "kar_user+meanpool", "kar_item+user", "community_llm", "community_llm_ctx",
@@ -1167,6 +1190,8 @@ def main():
     assert len(cc) == 4 and all(np.isfinite(x["d_ndcg@10"][0]) for x in cc) and cc[0]["n"] > 50      # the unknown row is skipped, not fatal
     ok("(15) direct paired comparison across runs/subsets works (unknown rows are skipped)")
     test_masks_and_tower(dec_dir, SB.data, SB.E0, SB.titles)
+    T14.test_supermodel(SB, expect_tower=True)
+    ok("(26) supermodel with a tower: the apex rung is evaluated on the tower's subset and still equals an independent recomputation from the exported files")
 
     # ---------------- wall-clock budget: a (practically) zero budget skips every optional stage but still writes outputs
     common.CLOCK.reset()
@@ -1177,6 +1202,7 @@ def main():
         SC = suite.main([*mind, "--work", outC, "--encoder", enc_dir, "--stages", "controls,pooling,graph,sid", "--budget-hours", "1e-9", *RUN_A])
     text = buf.getvalue()
     assert text.count("SKIPPED: wall-clock budget exhausted") == 3 and {r["name"] for r in SC.records} >= {"frozen", "random_vec"}
+    assert SC.kv["stage_status"]["controls"] == "done" and all(SC.kv["stage_status"][k] == "skipped: wall-clock budget" for k in ("pooling", "graph", "sid"))
     assert os.path.getsize(os.path.join(outC, "results.md")) > 0
     common.CLOCK.reset()
     ok("(7b) wall-clock budget: optional stages skipped, controls and outputs still written")

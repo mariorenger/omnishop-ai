@@ -22,6 +22,7 @@ import time
 import numpy as np
 import torch
 
+import common
 import fields as FD
 import llm_gen
 import pooling as P
@@ -120,9 +121,12 @@ def stage_moredata(S, args):
         t0 = time.time()
         T = S.tensor(text_table(S, args, {"mode": mode}))
         log(f"  text '{mode}': {T.shape[1]}-d vectors ready ({time.time() - t0:.0f}s)")
-        S.select(f"txt_{mode}", "F-text", [{"text": mode}], lambda c, sp: R.mean_pool_scorer(T), "frozen")
-        consider(S.select(f"txt_{mode}_lse", "F-text-lse", [{"text": mode, **t} for t in taus], lambda c, sp: P.late_scorer(T, "lse", c["tau"]), "pool_lse"),
-                 {"mode": mode})
+        control = mode in FD.CONTROL_MODES                                     # a control exists to be compared with: own families, never the view fed to the readers
+        fam, fam_lse = ("F-control", "F-control-lse") if control else ("F-text", "F-text-lse")
+        S.select(f"txt_{mode}", fam, [{"text": mode}], lambda c, sp: R.mean_pool_scorer(T), "frozen")
+        row = S.select(f"txt_{mode}_lse", fam_lse, [{"text": mode, **t} for t in taus], lambda c, sp: P.late_scorer(T, "lse", c["tau"]), "pool_lse")
+        if not control:
+            consider(row, {"mode": mode})
 
     def view_fusion():
         t0 = time.time()
@@ -353,7 +357,9 @@ def stage_usermodel(S, args):
         return max(args.um_seeds_focus, args.um_seeds) if vname in ("frozen", "text") else args.um_seeds
 
     def fit(kind, vname, V):
-        vals, tests, infos = [], [], []
+        """-> (validation results, test results, infos, raw scores averaged over the seeds as z-scores or None)"""
+        vals, tests, infos, vrag, trag = [], [], [], [], []
+        keep = bool(getattr(args, "export_scores", 1))
         for sd in range(seeds_for(vname)):
             t0 = time.time()
 
@@ -362,30 +368,38 @@ def stage_usermodel(S, args):
 
             model, info = UM.train_user_model(V["val"], pack, val_fn, seed=sd, max_epochs=args.um_epochs, device=S.device,
                                               deadline=S.deadline(0.2), log=lambda *a: None, kind=kind)
-            vals.append(S.run(UM.scorer(model, V["val"]), "val"))
-            tests.append(S.run(UM.scorer(model, V["test"]), "test"))
+            if keep:
+                (v_, vr_), (t_, tr_) = S.run_rec(UM.scorer(model, V["val"]), "val"), S.run_rec(UM.scorer(model, V["test"]), "test")
+                vrag.append(vr_), trag.append(tr_)
+            else:
+                v_, t_ = S.run(UM.scorer(model, V["val"]), "val"), S.run(UM.scorer(model, V["test"]), "test")
+            vals.append(v_)
+            tests.append(t_)
             if isinstance(model, UM.LLMEncMI) and model.K > 1:                  # are the K interests different at all?
                 b = next(iter(S.es["val"]))
                 info.update(model.diversity(b["hist"], b["hist_mask"]))
             infos.append(info)
             log(f"    {kind}/{vname} seed {sd}: {info['epochs']} epochs, val nDCG@10={info['best_val']:.4f}"
                 + (f", interests: cosine {info['interest_cos']:.2f}, attention TV {info['attn_tv']:.2f}" if "interest_cos" in info else "") + f" ({time.time() - t0:.0f}s)")
-        return vals, tests, infos
+        return vals, tests, infos, ((common.ragged_mean_z(vrag), common.ragged_mean_z(trag)) if keep else None)
 
     for vname, V in views.items():
         if S.time_left() < 900:
             log(f"  {vname}: skipped (wall-clock budget)")
             continue
-        vals, tests, infos = fit("ca", vname, V)
+        vals, tests, infos, rag = fit("ca", vname, V)
         per_seed = [t["mean"]["ndcg@10"] for t in tests]
         row = S.record(f"um_{vname}", fam, {"view": vname, "seeds": seeds_for(vname), "reader": "ca"}, avg_results(vals), avg_results(tests),
                        ref if ref in S.cache else f"um_{vname}",
-                       {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": per_seed, **({"ndcg10_std": float(np.std(per_seed))} if len(per_seed) > 1 else {})})
+                       {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": per_seed, **({"ndcg10_std": float(np.std(per_seed, ddof=1))} if len(per_seed) > 1 else {})})
+        if rag:
+            S.export_scores(f"um_{vname}", *rag, {"family": fam, "seeds": len(per_seed), "kind": "reader"})
         if vname == "frozen" and args.um_repro:
             auc_ref, nd_ref = (float(x) for x in args.um_repro.split(","))
             ok = abs(row["auc"] - auc_ref) < 0.01 and abs(row["ndcg@10"] - nd_ref) < 0.01
             log(f"  reproduction check vs V10 llmenc_ca (AUC {auc_ref}, nDCG@10 {nd_ref}): "
                 f"{'MATCH (within 0.01)' if ok else 'DIFFERS - single V10 seed, our seeds average; inspect if the gap is > 0.01'}")
+            S.note_check("um_frozen ~ V10 llmenc_ca", ok, f"AUC {row['auc']:.4f} / nDCG@10 {row['ndcg@10']:.4f} vs {auc_ref} / {nd_ref} (tolerance 0.01)")
         if S.device == "cuda":
             torch.cuda.empty_cache()
     for item in [x for x in args.um_extra.split(",") if x]:                           # "reader:view", e.g. ff:frozen
@@ -397,16 +411,18 @@ def stage_usermodel(S, args):
         if S.time_left() < 900:
             log(f"  {item}: skipped (wall-clock budget)")
             continue
-        vals, tests, infos = fit(kind, vname, V)
+        vals, tests, infos, rag = fit(kind, vname, V)
         name = f"um_{kind}_{vname}"
         extra = {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]}
         if len(tests) > 1:
-            extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"]))
+            extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"], ddof=1))
         if any("interest_cos" in i for i in infos):
             extra["interest_cos"] = [i.get("interest_cos") for i in infos]
             extra["attn_tv"] = [i.get("attn_tv") for i in infos]
         S.record(name, fam, {"view": vname, "seeds": seeds_for(vname), "reader": kind}, avg_results(vals), avg_results(tests),
                  ref if ref in S.cache else name, extra)
+        if rag:
+            S.export_scores(name, *rag, {"family": fam, "seeds": len(tests), "kind": "reader"})
         if S.device == "cuda":
             torch.cuda.empty_cache()
 

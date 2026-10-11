@@ -18,6 +18,7 @@ Hypotheses (see README):
   H11 multi-interest: zero-shot k-means interests (pooling stage) and a learned K-interest reader (user-model stage), K=1 as its control
   F   more of the data: category / entity names in the text an encoder reads, view fusion, a longer history (moredata stage)
   +   encoder sweep (TF-IDF/LSA, BGE small/base/large, Qwen3-Embedding)
+  S   supermodel: the best single model plus every technique that helps, fused with weights fitted on validation (``supermodel.py``)
 """
 from __future__ import annotations
 
@@ -38,13 +39,14 @@ import rep_eval as R
 import semgraph as G
 import stages_ext as X
 import stages_ref as SR
+import supermodel as SM
 from common import HistQueries, avg_results, fuse, log, query_prefix  # noqa: F401  (re-exported for callers)
 from data import MindData
 
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
 DEFAULT_STAGES = "controls,pooling,moredata,graph,head,histquery,sid,encoder,usermodel,sweep"
-REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder"}                             # trained baselines: comparators, not candidate directions
+REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder"}   # comparators, controls and the combined model: not candidate directions
 TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
 
 
@@ -76,6 +78,22 @@ class Suite:
 
     def run(self, scorer, split, es=None):
         return R.evaluate(scorer, (es or self.es)[split], self.seen_tr)
+
+    def run_rec(self, scorer, split, es=None):
+        """Like ``run`` but also keeps the raw scores of the pass: ``(result, ragged scores)``."""
+        esx = (es or self.es)[split]
+        rec = common.ScoreRecorder(scorer, esx.n)
+        res = R.evaluate(rec, esx, self.seen_tr)
+        return res, rec.ragged(res["ids"])
+
+    def export_scores(self, name, val_rag, test_rag, meta=None):
+        """Keep the raw validation / test scores of a component on disk (``<work>/scores``) for the supermodel."""
+        if not getattr(self.args, "export_scores", 1):
+            return None
+        return common.save_scores(os.path.join(self.work, "scores"), name, val_rag, test_rag, {"run": os.path.basename(self.work.rstrip("/")), **(meta or {})})
+
+    def note_check(self, name, ok, detail):
+        self.kv.setdefault("checks", {})[name] = {"ok": bool(ok), "detail": detail}
 
     def val_ndcg(self, E):
         return self.run(R.mean_pool_scorer(self.tensor(E)), "val")["mean"]["ndcg@10"]
@@ -196,8 +214,9 @@ class Suite:
         """A popularity twin is reported when the row it would be compared with has one (``frozen`` always does, ``pool_lse`` after the pooling stage)."""
         return bool(getattr(self.args, "with_pop", 0)) and f"{ref_name}+pop" in self.cache
 
-    def select(self, name, family, configs, make, ref_name, extra=None, es=None, pop=None):
-        """Generic grid: choose the config on validation, report it on test once (plus its popularity twin)."""
+    def select(self, name, family, configs, make, ref_name, extra=None, es=None, pop=None, export=None):
+        """Generic grid: choose the config on validation, report it on test once (plus its popularity twin).  ``export`` (default: the rows
+        ``common.export_wanted`` names): also keep the raw scores of the chosen config for the supermodel."""
         best = None
         for cfg in configs:
             v = self.run(make(cfg, "val"), "val", es=es)
@@ -206,7 +225,12 @@ class Suite:
             if best is None or v["mean"]["ndcg@10"] > best[0]["mean"]["ndcg@10"]:
                 best = (v, cfg)
         v, cfg = best
-        t = self.run(make(cfg, "test"), "test", es=es)
+        if (common.export_wanted(name) if export is None else export) and getattr(self.args, "export_scores", 1):
+            _, vr = self.run_rec(make(cfg, "val"), "val", es=es)                # one more validation pass for the chosen config only
+            t, tr = self.run_rec(make(cfg, "test"), "test", es=es)
+            self.export_scores(name, vr, tr, {"cfg": cfg, "family": family})
+        else:
+            t = self.run(make(cfg, "test"), "test", es=es)
         row = self.record(name, family, cfg, v, t, ref_name, extra)
         if self.want_pop(ref_name) if pop is None else pop:
             self.pop_twin(name, family, cfg, make, es, extra, ref_pop=f"{ref_name}+pop" if f"{ref_name}+pop" in self.cache else "frozen+pop")
@@ -218,7 +242,8 @@ class Suite:
         return path
 
     # ---- resume
-    SIG_IGNORED = {"stages", "budget_hours", "min_stage_s", "no_resume", "work", "cache_dir", "device", "mind_train", "mind_dev"}
+    SIG_IGNORED = {"stages", "budget_hours", "min_stage_s", "no_resume", "work", "cache_dir", "device", "mind_train", "mind_dev",
+                   "export_scores", "super_dirs", "super_baselines", "save_arrays"}
 
     def signature(self):
         """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
@@ -261,6 +286,7 @@ def stage_controls(S, args):
         ok = abs(t["mean"]["auc"] - auc_ref) < 0.003 and abs(t["mean"]["ndcg@10"] - nd_ref) < 0.003
         log(f"  reproduction check vs V10 bge_zeroshot (AUC {auc_ref}, nDCG@10 {nd_ref}): "
             f"{'MATCH' if ok else 'MISMATCH - check input text / truncation / embedding file'}")
+        S.note_check("frozen == V10 bge_zeroshot", ok, f"AUC {t['mean']['auc']:.4f} / nDCG@10 {t['mean']['ndcg@10']:.4f} vs {auc_ref} / {nd_ref}")
     if t.get("cold_frac") is not None:
         log(f"  clicked articles that are cold (unseen in training rows): {t['cold_frac']:.1%}")
     mp = R.mean_pool_scorer(E)
@@ -273,6 +299,7 @@ def stage_controls(S, args):
         ok = (abs(rp["auc"] - a1) < 0.003 and abs(rp["ndcg@10"] - n1) < 0.003 and abs(rf["auc"] - a2) < 0.003 and abs(rf["ndcg@10"] - n2) < 0.003)
         log(f"  reproduction check vs V10 popularity (AUC {a1}, nDCG@10 {n1}) and bge_zs_pop (AUC {a2}, nDCG@10 {n2}): "
             f"{'MATCH' if ok else 'MISMATCH - popularity plumbing differs from V10'}")
+        S.note_check("popularity and frozen+pop == V10", ok, f"popularity {rp['auc']:.4f} / {rp['ndcg@10']:.4f}, frozen+pop {rf['auc']:.4f} / {rf['ndcg@10']:.4f}")
     Er = np.random.default_rng(0).standard_normal(S.E0.shape).astype(np.float32)
     Er[0] = 0
     Er[1:] /= np.linalg.norm(Er[1:], axis=1, keepdims=True)
@@ -308,6 +335,9 @@ def stage_graph(S, args):
     comm = S.communities()
     S.select("community_graphrag", "H4-GraphRAG", [{"lam": l} for l in args.lams],
              lambda c, sp: G.community_scorer(S.E0, comm[sp][0], comm[sp][1], c["lam"], S.device), "frozen")
+    if getattr(args, "skip_user_rag", 0):                          # UserMemory keeps [users x dim] float32 twice (750k x 1024 on MIND-large: ~6 GB)
+        log("  user_rag skipped (--skip-user-rag 1): it needs a [users x dim] matrix per split")
+        return
     um = G.UserMemory(S.data, S.E0, S.device)
     S.select("user_rag", "H4-GraphRAG", [{"gamma": g} for g in args.gammas],
              lambda c, sp: G.user_rag_scorer(S.E0, um, c["gamma"], S.device), "frozen")
@@ -325,7 +355,7 @@ def _seed_runs(S, name, family, cfg, train_fn, ref, seeds, trunc=None):
     extra = {"seeds": seeds, "best_epochs": [i["best_epoch"] for i in infos],
              "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]}
     if seeds > 1:
-        extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"]))
+        extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"], ddof=1))
     for m in (trunc or []):
         Em = Es[0][:, :m].copy()
         Em = Em / (np.linalg.norm(Em, axis=1, keepdims=True) + 1e-8)
@@ -368,6 +398,11 @@ def stage_head(S, args):
 
 def stage_encoder(S, args):
     log("\n== H2 contrastive co-click adaptation: LoRA / DoRA with the encoder in the loop ==")
+    known = {"lora+mrl+hn": ("lora", True), "dora+mrl+hn": ("dora", True), "lora+hn": ("lora", False)}
+    wanted_v = [v for v in args.enc_variants.split(",") if v]
+    if not wanted_v or any(v not in known for v in wanted_v):                       # before any encoding: a typo must not cost minutes
+        raise ValueError(f"--enc-variants: choose from {sorted(known)}, got {args.enc_variants!r}")
+    variants = tuple(known[v] for v in wanted_v)
     texts = [""] + S.meta["text"]
     val_ids = np.unique(np.concatenate([np.asarray(r[2], np.int64).ravel() for r in S.data.validation]
                                         + [np.asarray(r[3], np.int64) for r in S.data.validation]))
@@ -380,7 +415,6 @@ def stage_encoder(S, args):
     S.record("frozen_hf", "control", {"max_len": args.max_len}, S.run(R.mean_pool_scorer(Et), "val"),
              S.run(R.mean_pool_scorer(Et), "test"), "frozen_hf")
     del enc0
-    variants = (("lora", True), ("dora", True), ("lora", False))
     for i, (mode, mrl) in enumerate(variants):
         if S.time_left() < 1800:
             log(f"  {mode}: skipped (wall-clock budget)")
@@ -392,8 +426,12 @@ def stage_encoder(S, args):
                                       epochs=args.epochs_enc, bs=args.bs_enc, r=args.lora_r, val_ids=val_ids,
                                       val_fn=S.val_ndcg, max_steps=args.enc_steps, deadline=S.deadline(0.45 / (len(variants) - i)), log=log)
         Et = S.tensor(E)
-        S.record(name, "H2-adapt", {"mode": mode, "mrl": mrl, "r": args.lora_r}, S.run(R.mean_pool_scorer(Et), "val"),
-                 S.run(R.mean_pool_scorer(Et), "test"), "frozen_hf",
+        if common.export_wanted(name) and getattr(args, "export_scores", 1):
+            (vres, vr), (tres, tr) = S.run_rec(R.mean_pool_scorer(Et), "val"), S.run_rec(R.mean_pool_scorer(Et), "test")
+            S.export_scores(name, vr, tr, {"family": "H2-adapt"})
+        else:
+            vres, tres = S.run(R.mean_pool_scorer(Et), "val"), S.run(R.mean_pool_scorer(Et), "test")
+        S.record(name, "H2-adapt", {"mode": mode, "mrl": mrl, "r": args.lora_r}, vres, tres, "frozen_hf",
                  {"trainable": info["trainable"], "steps": info["steps"], "train_s": time.time() - t0,
                   "truncated": bool(info["steps"] < min(args.enc_steps, args.epochs_enc * (len(pairs[0]) // args.bs_enc)))})
         S.export(name, E, args.encoder)
@@ -440,7 +478,7 @@ def stage_histquery(S, args):
 STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "moredata": X.stage_moredata, "graph": stage_graph, "head": stage_head,
           "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
           "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
-          "augment": X.stage_augment, "rerank": X.stage_rerank, **SR.STAGES}
+          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, **SR.STAGES}
 
 
 # --------------------------------------------------------------------- output
@@ -471,13 +509,10 @@ def _val_key(r):
     return r.get("val_delta", r["val_ndcg@10"])
 
 
-def summarize(S, pop=False):
-    """One representative per family, chosen on VALIDATION (never on test), then compared with its control.  The verdict is also
-    Bonferroni-adjusted for the number of families, because picking 'the best of m directions' is a multiple-comparison decision.
-    ``pop=False``: content-only variants vs ``frozen``;  ``pop=True``: the same variants fused with popularity vs ``frozen+pop`` (= V10 ``bge_zs_pop``)."""
+def representatives(S, pop=False):
+    """One representative per family, chosen on VALIDATION, with the verdict Bonferroni-adjusted for the number of families:
+    ``[(row, adjusted verdict, number of families, rows in the family)]``.  ``pop`` selects the popularity-fused rows."""
     from statistics import NormalDist
-    log("\n================ DECISION SUMMARY WITH POPULARITY (control = frozen+pop = V10 bge_zs_pop) ================" if pop
-        else "\n================ DECISION SUMMARY (content only; control = frozen) ================")
     by_h = {}
     for r in S.records:
         if r["family"] != "control" and "verdict" in r and r["family"].endswith("+pop") == pop and r["family"].replace("+pop", "") not in REFERENCE_FAMILIES:
@@ -485,16 +520,30 @@ def summarize(S, pop=False):
     if not by_h:
         return []
     z_adj = NormalDist().inv_cdf(1 - 0.05 / (2 * max(len(by_h), 1)))
-    reps = []
+    out = []
     for fam, rs in by_h.items():
         best = max(rs, key=_val_key)                                # selection on validation only
-        d, c = best["d_ndcg@10"], best.get("d_cold_auc")
+        d = best["d_ndcg@10"]
         se = (d[2] - d[1]) / (2 * 1.96)
-        adj = R.verdict(d[0] - z_adj * se, d[0] + z_adj * se)
+        out.append((best, R.verdict(d[0] - z_adj * se, d[0] + z_adj * se), len(by_h), len(rs)))
+    return out
+
+
+def summarize(S, pop=False):
+    """One representative per family, chosen on VALIDATION (never on test), then compared with its control.  The verdict is also
+    Bonferroni-adjusted for the number of families, because picking 'the best of m directions' is a multiple-comparison decision.
+    ``pop=False``: content-only variants vs ``frozen``;  ``pop=True``: the same variants fused with popularity vs ``frozen+pop`` (= V10 ``bge_zs_pop``)."""
+    log("\n================ DECISION SUMMARY WITH POPULARITY (control = frozen+pop = V10 bge_zs_pop) ================" if pop
+        else "\n================ DECISION SUMMARY (content only; control = frozen) ================")
+    reps = []
+    for best, adj, m, n_rows in representatives(S, pop):
+        d, c = best["d_ndcg@10"], best.get("d_cold_auc")
         reps.append(best)
         kept = " [adapter = frozen: no epoch beat epoch 0 on validation]" if best.get("best_epochs") and not any(best["best_epochs"]) else ""
-        log(f"{fam:18s} rep={best['name']:24s} (best of {len(rs):2d} by val, n={best['n_test']:,}, vs {best['ref']}) Δ nDCG@10 {fmt_ci(d)} -> {best['verdict']}"
-            f" | Bonferroni(m={len(by_h)}): {adj}" + (f" | Δ cold AUC {fmt_ci(c)}" if c and not np.isnan(c[0]) else "") + kept)
+        log(f"{best['family']:18s} rep={best['name']:24s} (best of {n_rows:2d} by val, n={best['n_test']:,}, vs {best['ref']}) Δ nDCG@10 {fmt_ci(d)} -> {best['verdict']}"
+            f" | Bonferroni(m={m}): {adj}" + (f" | Δ cold AUC {fmt_ci(c)}" if c and not np.isnan(c[0]) else "") + kept)
+    if not reps:
+        return []
     log("Rule: pursue a direction only if its Bonferroni-adjusted verdict is BETTER; prefer the ones that also win on the "
         "cold slice (where LLM embeddings should matter) and whose gain is practically meaningful (>~0.005 nDCG@10).\n"
         "Unadjusted 'BETTER' on one of many rows can be chance: with all effects null, about 1 in 20 rows would still pass.")
@@ -634,6 +683,26 @@ def leaderboard(suites, tags, ref, path=None, top=None, plot=None, pop=False):
 
 
 # ------------------------------------------------------------------------ main
+def cap_data(data, args):
+    """Scale knobs for MIND-large (all random, fixed seeds, original order kept): ``--val-max`` / ``--test-max`` keep that many validation / test
+    impressions, ``--train-sub`` that many training samples for the stages that train something.  The 'seen in training' masks and the day split
+    are computed BEFORE this, on everything, so the cold / warm definition does not move.  ``data.train_core_all`` keeps the full list."""
+    def sub(items, n, seed):
+        if not n or len(items) <= n:
+            return items
+        return [items[i] for i in np.sort(np.random.default_rng(seed).permutation(len(items))[:n])]
+    before = (len(data.validation), len(data.test), len(data.train_core))
+    data.validation = sub(data.validation, args.val_max, 11)
+    data.test = sub(data.test, args.test_max, 12)
+    if args.train_sub and len(data.train_core) > args.train_sub:
+        data.train_core_all = data.train_core
+        data.train_core = sub(data.train_core, args.train_sub, 13)
+    after = (len(data.validation), len(data.test), len(data.train_core))
+    if after != before:
+        log(f"scale caps: validation {before[0]:,} -> {after[0]:,}, test {before[1]:,} -> {after[1]:,}, training samples {before[2]:,} -> {after[2]:,}")
+    return data
+
+
 def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mind-train", required=True)
@@ -647,18 +716,27 @@ def build_parser():
     ap.add_argument("--max-len", type=int, default=256)
     ap.add_argument("--q-max-len", type=int, default=384)
     ap.add_argument("--stages", default=DEFAULT_STAGES)
+    ap.add_argument("--lean-data", type=int, default=0, help="memory-lean loader (data_lean.py, same split / popularity / negatives) for MIND-large")
+    ap.add_argument("--val-max", type=int, default=0, help="keep at most this many validation impressions (0 = all)")
+    ap.add_argument("--test-max", type=int, default=0, help="keep at most this many test impressions (0 = all)")
+    ap.add_argument("--train-sub", type=int, default=0, help="train the learned stages on at most this many training samples (0 = all)")
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--repro", default=None, help='published V10 control "auc,ndcg10" (bge_zeroshot: 0.6241,0.3909)')
     ap.add_argument("--budget-hours", type=float, default=0.0, help="shared wall-clock budget; long loops stop gracefully (0 = unlimited)")
     ap.add_argument("--min-stage-s", type=float, default=300.0, help="do not start a stage with less than this left")
     ap.add_argument("--no-resume", action="store_true")
+    ap.add_argument("--export-scores", type=int, default=1, help="keep the raw scores of the supermodel's candidate components under <work>/scores")
+    ap.add_argument("--super-dirs", default="", help="comma-separated work dirs of the other runs whose exported scores the supermodel may use")
+    ap.add_argument("--super-baselines", default="fastformer_ref", help="trained baselines the supermodel's hybrid rung may add (names, prefix match)")
+    ap.add_argument("--save-arrays", type=int, default=1, help="write test_arrays.npz (per-impression metrics of every row; several GB on MIND-large)")
     ap.add_argument("--with-pop", type=int, default=1, help="also report every zero-shot variant fused with V10's online popularity (rows '+pop')")
     ap.add_argument("--repro-pop", default=None, help='V10 "popularity_auc,popularity_ndcg10,bge_zs_pop_auc,bge_zs_pop_ndcg10" (0.6533,0.4026,0.6769,0.4330)')
     ap.add_argument("--pairs", type=int, default=200_000)
     ap.add_argument("--pairs-enc", type=int, default=100_000)
     ap.add_argument("--epochs-head", type=int, default=3)
     ap.add_argument("--epochs-enc", type=int, default=1)
+    ap.add_argument("--enc-variants", default="lora+mrl+hn,dora+mrl+hn,lora+hn", help="LoRA / DoRA encoder variants of the 'encoder' stage")
     ap.add_argument("--bs-enc", type=int, default=32)
     ap.add_argument("--enc-steps", type=int, default=1500)
     ap.add_argument("--enc-bs", type=int, default=128)
@@ -666,6 +744,7 @@ def build_parser():
     ap.add_argument("--hist-k", type=int, default=10)
     ap.add_argument("--hq-plain", type=int, default=1, help="also run the history query without the instruction")
     ap.add_argument("--hq-subset", type=int, default=0, help="evaluate H1 on the same nested subsets as H5")
+    ap.add_argument("--skip-user-rag", type=int, default=0, help="skip the collaborative 'user_rag' row (its user-memory matrices do not fit on MIND-large)")
     ap.add_argument("--louvain-res", type=float, default=1.0)
     ap.add_argument("--betas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
     ap.add_argument("--knn-k", type=int, nargs="+", default=[5, 20])
@@ -780,9 +859,14 @@ def main(argv=None):
             guard_embeddings(vecs, meta, EQUIV_REFERENCE)
         log(f"E0 {'loaded from cache' if not secs else f'encoded with {args.encoder} in {secs:.0f}s'} ({vecs.shape[0]:,} x {vecs.shape[1]})")
         emb = dict(zip(meta["ids"], vecs))
-    data = MindData.from_mind(args.mind_train, args.mind_dev, llm_embeddings=emb)
+    if args.lean_data:
+        import data_lean
+        data = data_lean.from_mind_lean(args.mind_train, args.mind_dev, llm_embeddings=emb, log=log)
+    else:
+        data = MindData.from_mind(args.mind_train, args.mind_dev, llm_embeddings=emb)
     assert data.n_news - 1 == len(meta["ids"]), "article order mismatch between loader and metadata"
     seen_tr, seen_va = G.observed_masks(data)
+    cap_data(data, args)
     S = Suite(data, meta, data.llm_emb, device, args.work, seen_tr, seen_va, args)
     done = set() if args.no_resume else S.load_state()
     ref_sig = hashlib.sha1(json.dumps({k: v for k, v in sorted(vars(args).items()) if k.startswith("ref_")}, default=str).encode()).hexdigest()
@@ -801,12 +885,15 @@ def main(argv=None):
     unknown = [s for s in wanted if s not in STAGES]
     if unknown:
         raise SystemExit(f"unknown stages {unknown}; choose from {sorted(STAGES)}")
+    status = S.kv.setdefault("stage_status", {})                                   # what happened to every stage asked for, kept across resumes
     for s in wanted:
         if s in done:
             log(f"-- stage '{s}' already finished (resume), skipped")
+            status.setdefault(s, "done")
             continue
         if s != "controls" and common.out_of_time(args.min_stage_s):               # controls are the reference: always run
             log(f"-- stage '{s}' SKIPPED: wall-clock budget exhausted ({common.CLOCK.elapsed() / 3600:.1f}h used)")
+            status[s] = "skipped: wall-clock budget"
             continue
         S.records = [r for r in S.records if r.get("stage") != s]                  # a retried stage must not duplicate its rows
         t_stage = time.time()
@@ -814,12 +901,18 @@ def main(argv=None):
         try:
             if STAGES[s](S, args) is False:                                        # the stage declined to run (budget, missing prerequisite): retry on resume
                 log(f"-- stage '{s}' did not run (reason above); not marked finished")
+                status[s] = "declined (see the log)"
             else:
                 done.add(s)
+                status[s] = "done"
                 S.kv.setdefault("timings", {})[s] = round(time.time() - t_stage)
-                log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s (total {common.CLOCK.elapsed() / 3600:.2f}h)")
+                mem = common.mem_note()
+                if mem:
+                    S.kv.setdefault("memory", {})[s] = mem
+                log(f"-- stage '{s}' finished in {time.time() - t_stage:.0f}s (total {common.CLOCK.elapsed() / 3600:.2f}h)" + (f" | {mem}" if mem else ""))
         except Exception:  # one failing stage must not discard the others
             log(f"\n!! stage '{s}' failed:\n{traceback.format_exc()}")
+            status[s] = "FAILED (see the log)"
         if device == "cuda":
             torch.cuda.empty_cache()
         write_table(S, args.work)
@@ -843,7 +936,7 @@ def main(argv=None):
         SR.ladder_table(S, args.ref_repro, os.path.join(args.work, "ladder.md"))
     except Exception:
         log(f"ladder table failed:\n{traceback.format_exc()}")
-    log(f"per-impression arrays -> {save_arrays(S)}")
+    log(f"per-impression arrays -> {save_arrays(S) if getattr(args, 'save_arrays', 1) else 'skipped (--save-arrays 0)'}")
     return S
 
 
