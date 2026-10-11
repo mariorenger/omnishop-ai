@@ -1,7 +1,11 @@
-"""Build the two self-contained notebooks of v16 from the module files (they run on Google Colab as well as on Kaggle):
+"""Build the two self-contained notebooks of v16b from the module files (they run on Google Colab as well as on Kaggle):
 
-  v16_stacker_honest.ipynb              MIND-small (a Kaggle input dataset when there is one, otherwise Hugging Face)
-  v16_mindlarge_hf_stacker_honest.ipynb the same pipeline on MIND-large downloaded from Hugging Face
+  v16b_stacker_honest.ipynb              MIND-small (a Kaggle input dataset when there is one, otherwise Hugging Face)
+  v16b_mindlarge_hf_stacker_honest.ipynb the same pipeline on MIND-large downloaded from Hugging Face
+
+v16b = v16 + the fix of the crash its first real run met (the kernel died at the start of the learned readers on the 2048-d vectors: ``semgraph.Memory.knn_view`` built
+two [104k articles, 20, d] arrays at once, 2 x 17 GB), the true peak RAM of every stage in the log, and the same 128-wide reader head for all three encoders.
+The v16 notebooks (``v16_*.ipynb``) were removed: they cannot finish on the vector-concatenation run.
 
 Compared with v15 (``make_notebook_v15.py``): the learned readers and the retrieval (RAG) views also run on BGE-large and on the Qwen3 + BGE-large vectors side by side
 (a wider head), the stacker is chosen and stopped on what the test day looks like (time-block folds, impressions whose clicked article is new, a forward holdout over
@@ -16,7 +20,7 @@ import make_notebook as V14
 from make_notebook import code, md, writefile  # re-used cell helpers
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOKS = {"small": "v16_stacker_honest.ipynb", "large": "v16_mindlarge_hf_stacker_honest.ipynb"}
+NOTEBOOKS = {"small": "v16b_stacker_honest.ipynb", "large": "v16b_mindlarge_hf_stacker_honest.ipynb"}
 MODULES = ["data.py", "metrics.py", "common.py", "rep_eval.py", "semgraph.py", "adapt.py", "fields.py", "pooling.py", "sid.py", "llm_user.py", "llm_gen.py",
            "refdata.py", "refmodels.py", "usermodel.py", "stages_ext.py", "stages_ref.py", "supermodel.py", "featscore.py", "stacker.py", "final_report.py", "data_lean.py",
            "hf_mind.py", "suite.py"]
@@ -29,7 +33,7 @@ WHY = """**Vì sao có bản này (số đo thật của v15 trên MIND-large, `
 
 WHAT = """**Bản này thay đổi gì so với v15 (năm hướng, theo thứ tự trong `RESULTS_v15_large.md` §5):**
 1. **Lưu và chạy lại.** Thư mục làm việc giữ `scores/*.npz`, cache vector và `state.pkl`; chạy lại notebook thì mọi stage đã xong được bỏ qua, và **đổi một thiết lập `--stack-*` (hoặc đặt `V11_RESTACK=1`) chỉ chạy lại stage `stack`** trên điểm đã lưu. Trên Colab đặt `V11_DRIVE=1` để thư mục làm việc nằm trên Google Drive và sống sót qua mất kết nối.
-2. **Reader và RAG trên BGE-large, và trên vector nối Qwen3 ⊕ BGE-large** (đầu đọc rộng 128 chiều thay vì 64; vector nối là 2 × 1024 chiều, mỗi nửa chuẩn hoá và chia √2 nên tích vô hướng là *trung bình* hai tích vô hướng — zero-shot trên nó chỉ là trung bình hai điểm, chỉ reader và RAG mới được lợi). Cả hai chạy trước encoder chính và được **giải phóng khỏi RAM** khi xong (v15 giữ run đầu sống, RAM đỉnh 16,2 GB).
+2. **Reader và RAG trên BGE-large, và trên vector nối Qwen3 ⊕ BGE-large** (đầu đọc rộng 128 chiều thay vì 64 — **ở cả ba encoder, kể cả Qwen3 chính**, để so được với nhau; v15 dùng 64; vector nối là 2 × 1024 chiều, mỗi nửa chuẩn hoá và chia √2 nên tích vô hướng là *trung bình* hai tích vô hướng — zero-shot trên nó chỉ là trung bình hai điểm, chỉ reader và RAG mới được lợi). Cả hai chạy trước encoder chính và được **giải phóng khỏi RAM** khi xong (v15 giữ run đầu sống).
 3. **Stacker bớt "học thuộc ngày validation".** Fold là các **khối thời gian** của ngày validation (có đệm hai bên), không chia theo người dùng; dừng sớm và **chọn cấu hình** theo nDCG@10 trên các impression có click vào bài **mới với mô hình** (chưa xuất hiện trong slate huấn luyện) — đúng tình huống của 82% click ở test; cấu hình (cây sâu như v15 / bỏ cột hằng-trong-impression và làm thô cột gần-định-danh-bài / cây nông hơn / bỏ prior) so một lần trên **holdout tiến theo thời gian**, hai cấu hình tốt nhất được huấn luyện ở mọi fold rồi lấy trung bình. Công thức v15 cũng được huấn luyện trên đúng các thành phần đó làm **đối chứng** (`stack_meta_v15cfg`).
 4. **Chọn nền và trọng số của supermodel theo nDCG@10 có trọng số bài lạnh** (validation được gán lại trọng số để tỉ lệ click lạnh là 80%, `--cold-target`; test của MIND-large có 82%).
 5. **Đặc trưng mới:** trùng entity (IDF) giữa ứng viên và click của người đọc (toàn bộ / ba click gần nhất); với `stack_pop` thêm CTR theo cửa sổ 1 / 6 / 24 giờ vừa qua (đếm click của các giờ *đã hoàn tất* — khung streaming như popularity).
@@ -46,10 +50,11 @@ HOW = """**Stacker làm thế nào — không nhìn nhãn test để chọn gì:
 5. Các kiểm tra tự động (selftest): bảng đặc trưng == tính lại độc lập; chạy lại **toàn bộ** với nhãn test bị xáo → điểm test của `stack_llm`/`stack_meta` **giống hệt**; điểm out-of-fold của một fold không đổi khi chỉ lật nhãn của chính fold đó;
    CTR theo cửa sổ không bao giờ thấy nhãn của giờ hiện tại hay sau đó; một ca nhân tạo "học thuộc bài trong ngày": fold theo người dùng báo kết quả lạc quan, còn fold theo thời gian và lát cắt "bài mới" của nó thì không."""
 
-COLAB = """**Chạy trên Colab:** Runtime → *Change runtime type* → **T4 GPU** (nếu có thì chọn thêm **High-RAM**) → *Run all*. MIND-large cần RAM: v15 đo đỉnh **16,2 GB** (máy 34 GB); bản này giải phóng run đã xong nên đỉnh thấp hơn, nhưng **Colab miễn phí chỉ có ~12,7 GB**. Notebook đọc RAM của máy và tự giảm quy mô: từ 24 GB trở lên giữ như v15 (validation 150 000 impression, 1,2 triệu mẫu train), 16–24 GB: 100 000 / 800 000, dưới 16 GB (Colab miễn phí): 50 000 / 400 000 —
-và in cảnh báo; khi đó số **không so thẳng** với v15 và **vẫn chưa chắc đủ RAM** (các ngưỡng này là ước tính từ số đo trên máy 34 GB, chưa thử trên máy nhỏ). Muốn sống sót qua mất kết nối: đặt `V11_DRIVE=1` (hỏi quyền Google Drive một lần; thư mục làm việc và cache vector lên Drive, cần khoảng 10 GB trống; dữ liệu MIND vẫn tải về đĩa của máy). Cuối cùng notebook tạo `SUMMARY_v16.md`; trên Colab nó tự tải về trình duyệt (nếu bị chặn, mở ngăn *Files* bên trái)."""
+COLAB = """**Chạy trên Colab:** Runtime → *Change runtime type* → **T4 GPU** (nếu có thì chọn thêm **High-RAM**) → *Run all*. MIND-large cần RAM. Con số "đỉnh 16,2 GB" của v15 chỉ là ảnh chụp **cuối** mỗi stage nên bỏ sót đỉnh tạm thời bên trong stage (view kNN của reader cần thêm ~17 GB ở 1024 chiều, ~34 GB ở 2048 chiều — chính nó làm chết v16); v16b xử lý phần đó theo khối và in **đỉnh thật** của từng stage (`stage peak`, `run peak`) cùng cảnh báo kèm dòng mã đang chạy khi RAM vượt 70% giới hạn của container. Vẫn **chưa có số đỉnh thật cho cả pipeline** nên **Colab miễn phí (~12,7 GB) rất có thể không đủ**. Notebook đọc RAM (kể cả giới hạn cgroup của container) và tự giảm quy mô: từ 24 GB trở lên giữ như v15 (validation 150 000 impression, 1,2 triệu mẫu train), 16–24 GB: 100 000 / 800 000, dưới 16 GB: 50 000 / 400 000 —
+và in cảnh báo; khi đó số **không so thẳng** với v15 và các ngưỡng này là ước tính chưa thử trên máy nhỏ. Muốn sống sót qua mất kết nối: đặt `V11_DRIVE=1` (hỏi quyền Google Drive một lần; thư mục làm việc và cache vector lên Drive, cần khoảng 10 GB trống; dữ liệu MIND vẫn tải về đĩa của máy). Cuối cùng notebook tạo `SUMMARY_v16b.md`; trên Colab nó tự tải về trình duyệt (nếu bị chặn, mở ngăn *Files* bên trái).
+**Chạy lại sau khi chết giữa chừng:** nếu máy còn giữ thư mục làm việc (`/content/v16_large_out`, hoặc Drive khi `V11_DRIVE=1`), Run all lại sẽ **bỏ qua các stage đã xong** (kể cả toàn bộ run BGE-large) và cache vector; nếu máy đã bị xoá thì phải chạy lại từ đầu."""
 
-SMALL_INTRO = f"""# V16 — Stacker chọn trên ngày "mới" + reader BGE-large / vector nối · MIND-small · Qwen3-Embedding-0.6B + BGE-large (ước ~3 giờ trên T4, chưa đo)
+SMALL_INTRO = f"""# V16b — Stacker chọn trên ngày "mới" + reader BGE-large / vector nối · MIND-small · Qwen3-Embedding-0.6B + BGE-large (ước ~3 giờ trên T4, chưa đo)
 
 Cùng giao thức V10 (validation theo ngày, `MINDsmall_dev` chỉ là test, CI 95% ghép cặp, lát cold/warm) và cùng supermodel tuyến tính của v14, **cộng** bộ xếp hạng ở dưới. Không huấn luyện NRMS / NAML / Fastformer.
 
@@ -68,11 +73,13 @@ Cùng giao thức V10 (validation theo ngày, `MINDsmall_dev` chỉ là test, CI
 {COLAB}
 
 **Thời gian:** *ước tính* từ số đo thật v13/v15, chưa đo ở bản này. `BUDGET_H` (mặc định 6) là ngân sách đồng hồ chung; stage nào không còn thời gian thì bị bỏ qua và chạy lại cell sẽ resume.
-**Nhận lại:** `SUMMARY_v16.md` (FINAL_REPORT mục 1b là bảng stacker) + log nếu có lỗi."""
+**Nhận lại:** `SUMMARY_v16b.md` (FINAL_REPORT mục 1b là bảng stacker) + log nếu có lỗi."""
 
-LARGE_INTRO = f"""# V16 — Stacker chọn trên ngày "mới" + reader BGE-large / vector nối · MIND-large từ Hugging Face · chạy được trên Colab và Kaggle (ước ~4–5 giờ trên T4, chưa đo)
+LARGE_INTRO = f"""# V16b — Stacker chọn trên ngày "mới" + reader BGE-large / vector nối · MIND-large từ Hugging Face · chạy được trên Colab và Kaggle (ước ~5 giờ trên T4; run BGE-large đã đo thật 1,07 giờ)
 
-Tiếp theo lần chạy thật của v15 (2,73 giờ trên Kaggle, RAM đỉnh 16,2 GB, mọi stage xong). Cùng giao thức V10 trên `MINDlarge_dev` (376 471 impression, chạm một lần), cùng supermodel tuyến tính của v14, **cộng** bộ xếp hạng. Không huấn luyện NRMS / NAML / Fastformer, không tower LoRA, không fine-tune encoder.
+**Sửa so với v16 (lần chạy thật đầu tiên của v16 chết giữa chừng):** trên máy 34 GB, run BGE-large xong (1,07 giờ) nhưng kernel chết ở đầu stage `usermodel` của run vector nối (2048 chiều). Nguyên nhân: `Memory.knn_view` (view kNN-RAG mà reader dùng) dựng cả mảng [104 151 bài × 20 láng giềng × d] **hai lần** — 2 × 8,5 GB ở 1024 chiều (run BGE-large chạy sát ngưỡng và sống sót), 2 × 17 GB ở 2048 chiều, chồng lên ~12 GB đã dùng. v16b xử lý theo khối (kết quả y hệt, có test), in RAM đỉnh thật của từng stage, và dùng đầu đọc 128 chiều cho cả ba encoder. Số đo của run BGE-large nằm ở `RESULTS_v16_partial.md`.
+
+Tiếp theo lần chạy thật của v15 (2,73 giờ trên Kaggle, mọi stage xong). Cùng giao thức V10 trên `MINDlarge_dev` (376 471 impression, chạm một lần), cùng supermodel tuyến tính của v14, **cộng** bộ xếp hạng. Không huấn luyện NRMS / NAML / Fastformer, không tower LoRA, không fine-tune encoder.
 
 {WHY}
 
@@ -84,20 +91,19 @@ Tiếp theo lần chạy thật của v15 (2,73 giờ trên Kaggle, RAM đỉnh 
 Khác bản small (đều ghi vào log và `FINAL_REPORT.md`): bộ đọc `data_lean.py` (cùng split / popularity / negative với `MindData.from_mind`; thêm đặc trưng phơi nhiễm, đếm theo bài, CTR theo cửa sổ giờ và thời điểm của impression); validation giữ ngẫu nhiên **150 000** impression (RAM dưới 24 GB: 100 000 hoặc 50 000);
 các stage có huấn luyện dùng **1,2 triệu** mẫu train (RAM dưới 24 GB: 800 000 hoặc 400 000), `--um-epochs 5`; `user_rag` bỏ qua; không ghi `test_arrays.npz`.
 
-**Thời gian (ước tính từ số đo thật v15: Qwen3 E0 944 s, text `cta` 1 056 s, controls + pooling + graph ≈ 600 s, usermodel 2 958 s cho 10 lần huấn luyện reader, supermodel 256 s, stack 1 535 s; BGE-large E0 386 s, text `cta` 452 s):**
-BGE-large ≈ 0,45 giờ + graph 0,07 + reader (6 lần huấn luyện, đầu 128 chiều) ≈ 0,5 giờ · vector nối: graph 0,07 + reader (6 lần, đầu 128 chiều trên 2048 chiều) ≈ 0,6 giờ (mã hoá Qwen3 ≈ 0,26 giờ chuyển từ run chính sang đây, không thêm) ·
-Qwen3 chính ≈ 2,2 giờ như v15 · supermodel ≈ 0,1 · **stacker** ≈ 0,7 giờ (v15: 0,43; thêm quét cấu hình, đối chứng v15 và hai thành viên × 3 biến thể). Tổng ≈ 4–5 giờ (ước tính, chưa đo); `BUDGET_H=10` là trần.
+**Thời gian:** run BGE-large **đo thật 1,07 giờ** trên T4 (đọc dữ liệu ≈ 4,5 phút · E0 421 s · controls 57 s · pooling 301 s · moredata 701 s · graph 277 s · usermodel 1 757 s) · vector nối: mã hoá Qwen3 đo thật 1 027 s (phần BGE lấy từ cache của run trước) + controls 68 s + graph 438 s (đo thật) + reader ≈ 0,5–0,6 giờ (ước tính) ·
+Qwen3 chính ≈ 2,5 giờ (v15: 2,73 giờ gồm 0,26 giờ mã hoá, nay đã nằm trong cache) · supermodel ≈ 0,1 · **stacker** ≈ 0,7 giờ (v15: 0,43; thêm quét cấu hình, đối chứng v15 và hai thành viên × 3 biến thể; chưa đo). Tổng ≈ 5 giờ (phần chưa đo là ước tính); `BUDGET_H=10` là trần.
 
 {COLAB}
 
 **Cách chạy:** (Kaggle) Settings → GPU, Internet **On** → **Run All**. (Colab) xem trên. Kiểm tra môi trường trước bằng notebook small (xem ở đó); `QUICK = ...` → `"1"` trên notebook large vẫn tải MIND-large và mã hoá cả catalogue (~40 phút). Hết RAM/thời gian: giảm `V11_TRAIN_SUB`, `V11_VAL_MAX`, hoặc đặt `V11_ENCODER2=` (bỏ BGE-large và vector nối), `V11_CONCAT=0`, `V11_BGE_READERS=0`.
 **Chạy lại chỉ stacker** (sau khi một lần chạy đã xong, cùng thư mục làm việc): đặt `V11_RESTACK=1`, hoặc đổi một trong `V11_STACK_CV` / `V11_STACK_CONFIGS` / `V11_STACK_BLEND` / `V11_STACK_FOLDS` / `V11_STACK_BACKEND` ở ô Cấu hình, rồi Run All — các stage khác được resume, chỉ `stack` chạy lại (vài chục phút cộng thời gian đọc dữ liệu).
-**Nhận lại:** `SUMMARY_v16.md` (mục 1b của FINAL_REPORT là bảng stacker, mục 4 là số công bố — thứ cấp) + log."""
+**Nhận lại:** `SUMMARY_v16b.md` (mục 1b của FINAL_REPORT là bảng stacker, mục 4 là số công bố — thứ cấp) + log (dòng `-- stage ... finished` có RAM đỉnh thật; dòng `!! RAM` là cảnh báo kèm vị trí mã)."""
 
 CONFIG_HEAD = """import os, glob, sys, gc, time, json, shutil
 T_NB = time.time()                                                    # giờ bắt đầu của notebook: ngân sách BUDGET_H tính từ đây cho CẢ ba run
-IN_COLAB = ("google.colab" in sys.modules) or bool(os.environ.get("COLAB_GPU")) or os.path.isdir("/content/sample_data")
 IN_KAGGLE = os.path.isdir("/kaggle/working")
+IN_COLAB = (not IN_KAGGLE) and (("google.colab" in sys.modules) or bool(os.environ.get("COLAB_GPU")) or os.path.isdir("/content/sample_data"))
 QUICK = bool(int(os.environ.get("V11_QUICK", "0")))                  # True: cỡ đồ chơi để bắt lỗi môi trường
 BUDGET_H = float(os.environ.get("V11_BUDGET_H", "@BUDGET@"))          # ngân sách đồng hồ chung (giờ)@BUDGET_NOTE@
 ENCODER = os.environ.get("V11_ENCODER", "Qwen/Qwen3-Embedding-0.6B")  # encoder chính: mọi kỹ thuật, reader, RAG
@@ -125,13 +131,11 @@ if USE_DRIVE and IN_COLAB:
     drive.mount("/content/drive")
     DRIVE_DIR = "/content/drive/MyDrive/recsys_v16"
     os.makedirs(DRIVE_DIR, exist_ok=True)
-try:
-    import psutil
-    RAM_GB = psutil.virtual_memory().total / 1e9
-except Exception:
-    RAM_GB = 0.0
+sys.path.insert(0, os.getcwd())
+import common                                                        # đã được ghi ra ở bước 1
+RAM_GB = common.ram_total_gb()                                       # RAM máy, hoặc giới hạn cgroup của container nếu thấp hơn (psutil báo RAM của máy chủ)
 RAM_TIER = "high" if (RAM_GB == 0 or RAM_GB >= 24) else ("mid" if RAM_GB >= 16 else "low")     # 0 = không đọc được RAM: coi như máy lớn
-LOW_RAM = RAM_TIER != "high"                                          # Colab miễn phí ~12,7 GB ("low"): MIND-large ở quy mô v15 (đỉnh 16,2 GB) sẽ hết RAM
+LOW_RAM = RAM_TIER != "high"                                          # Colab miễn phí ~12,7 GB ("low"): MIND-large ở quy mô v15 rất có thể hết RAM
 HF_REPO = os.environ.get("V11_HF_REPO", "Recommenders/MIND")
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("V11_HF_TOKEN") or None
 if HF_TOKEN is None:                                                  # chỉ cần nếu repo trên Hub đòi đăng nhập: Kaggle secret hoặc Colab secret tên HF_TOKEN
@@ -212,7 +216,9 @@ os.makedirs(WORK, exist_ok=True)
 
 DATA_LARGE = '''import hf_mind
 try:
-    print(f"RAM: {psutil.virtual_memory().total / 1e9:.0f} GB total, {psutil.virtual_memory().available / 1e9:.0f} GB free")
+    import psutil
+    vm = psutil.virtual_memory()
+    print(f"RAM: {vm.total / 1e9:.0f} GB total, {vm.available / 1e9:.0f} GB free; this notebook may use {RAM_GB:.0f} GB (the container limit when it is lower)")
 except Exception:
     pass
 print(f"disk free at {LOCAL_BASE}: {shutil.disk_usage(LOCAL_BASE).free / 1e9:.0f} GB")
@@ -262,7 +268,7 @@ STAGES3 = "controls,graph,usermodel"
 # run 3: the main encoder -- every technique, then the linear supermodel and the stacker (which reads the exported scores of the runs above)
 ARGS = [*COMMON, *SCALE, "--encoder", ENCODER, "--work", WORK + "/" + TAG, "--max-len", "256", "--q-max-len", "384", "--hist-k", "10", "--seeds", "1",
         "--text-modes", TEXT_MODES, "--hist-lens", "100", "--km-ks", "5", "--hq-subset", "1",
-        "--um-views", "frozen,text,knn_rag", "--um-seeds", "2", "--um-seeds-focus", "2", "--um-extra", "prior:frozen,prior:text",
+        "--um-views", "frozen,text,knn_rag", "--um-seeds", "2", "--um-seeds-focus", "2", "--um-extra", "prior:frozen,prior:text", "--um-dim", "128",
         "--stack-folds", str(STACK_FOLDS), "--stack-backend", STACK_BACKEND, "--stack-save-scores", str(SAVE_SCORES), "--stack-free-memory", "1", "--restack", str(RESTACK),
         "--stack-cv", STACK_CV, "--stack-configs", STACK_CONFIGS, "--stack-blend", str(STACK_BLEND)]
 STAGES = "controls,pooling,moredata,graph,usermodel,supermodel,stack"       # rẻ và quan trọng trước; supermodel và stacker dùng những gì đã có
@@ -411,9 +417,9 @@ open(os.path.join(WORK, "noise.md"), "w", encoding="utf-8").write("\\n".join(noi
 print("\\n".join(noise))
 print("tổng thời gian của notebook: %.2f h" % ((time.time() - T_NB) / 3600))
 parts = [("HEADLINE.md", WORK), ("FINAL_REPORT.md", WORK), ("leaderboard.md", WORK), ("leaderboard_pop.md", WORK), ("direct_comparisons.md", WORK), ("noise.md", WORK),
-         ("timings.json", WORK + "/" + TAG), ("results.md", WORK + "/" + TAG)] + [(f, WORK + "/" + t) for t, s in ((TAG2, S2), (TAG3, S3)) if s is not None for f in ("timings.json", "results.md")]
+         ("timings.json", WORK + "/" + TAG), ("memory.json", WORK + "/" + TAG), ("results.md", WORK + "/" + TAG)] + [(f, WORK + "/" + t) for t, s in ((TAG2, S2), (TAG3, S3)) if s is not None for f in ("timings.json", "memory.json", "results.md")]
 os.makedirs(RESULTS, exist_ok=True)
-SUMMARY = os.path.join(RESULTS, "SUMMARY_v16.md")
+SUMMARY = os.path.join(RESULTS, "SUMMARY_v16b.md")
 with open(SUMMARY, "w", encoding="utf-8") as out:
     for fn, d in parts:
         p = os.path.join(d, fn)
@@ -444,7 +450,7 @@ if IN_COLAB:
 | `stack_llm` > `super_llm` (hoặc `super_zs`) với CI loại trừ 0 | bộ xếp hạng học được **hơn** ghép tuyến tính trên cùng các thành phần (cả hai chỉ dùng nội dung + lịch sử) |
 | `stack_meta` > `stack_llm` | độ phơi nhiễm / đếm theo bài (vẫn offline) có thêm thông tin; nhớ rằng đặc trưng phơi nhiễm đọc danh sách ứng viên của chính impression test |
 | `stack_pop` > `stack_meta` | popularity online (streaming) thêm giá trị; không so được với số offline của bài báo |
-| `bge/um_frozen` > `qwen3/um_frozen`, `cat/um_*` > `bge/um_*` | reader học trên encoder thứ hai / vector nối có thêm thông tin so với Qwen3 một mình (đầu 128 chiều khác đầu 64 chiều của Qwen3: không tách được hai yếu tố) |
+| `bge/um_frozen` > `qwen3/um_frozen`, `cat/um_*` > `bge/um_*` | reader học trên encoder thứ hai / vector nối có thêm thông tin so với Qwen3 một mình (cùng đầu 128 chiều ở cả ba, nên chênh lệch là của encoder; so `qwen3/um_frozen` với 0,4006 của v15 — đầu 64 chiều — để thấy riêng tác động của độ rộng đầu) |
 | mục 1b: bảng configuration | cấu hình nào thắng trên holdout tiến theo thời gian (bài mới); các cấu hình cách nhau vài phần nghìn thì chỉ là nhiễu của một lần huấn luyện |
 | mục 1b: val (out-of-fold) cao hơn test nhiều | stacker vẫn khớp ngày validation; tin cột test và các Δ ghép cặp |
 

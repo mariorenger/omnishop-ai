@@ -152,14 +152,22 @@ class Memory:
             sim.append(v.cpu().numpy())
         return np.concatenate(nbr), np.concatenate(sim)
 
-    def knn_view(self, beta, k, rows=None):
+    def knn_view(self, beta, k, rows=None, budget=1.5e8):
+        """Every article of ``rows`` (default: all) plus ``beta`` x the similarity-weighted mean of its k nearest admissible articles.
+
+        The gather ``E[nbr]`` is ``[rows, k, d]`` float32 and the product with the weights is a second one: on MIND-large (104k articles, k=20) that is
+        2 x 8.5 GB at d=1024 and 2 x 17 GB at d=2048.  v16 was killed by exactly this on the Qwen3 + BGE-large vectors (34 GB on top of 12 GB), so the
+        rows are processed in blocks of at most ``budget`` float32 elements per temporary array (600 MB; the result is unchanged)."""
         rows = np.arange(1, self.n) if rows is None else np.asarray(rows)
         nbr, sim = self.neighbours(rows, k)
         w = np.clip(sim, 0, None)
         w = w / (w.sum(1, keepdims=True) + 1e-8)
-        agg = (self.E[nbr] * w[:, :, None]).sum(1)
         out = self.E.copy()
-        out[rows] = _norm(self.E[rows] + beta * _norm(agg))
+        step = max(64, int(budget // max(nbr.shape[1] * self.E.shape[1], 1)))
+        for s in range(0, len(rows), step):
+            sl = slice(s, s + step)
+            agg = (self.E[nbr[sl]] * w[sl, :, None]).sum(1)
+            out[rows[sl]] = _norm(self.E[rows[sl]] + beta * _norm(agg))
         return out
 
     # --- GraphRAG-style communities

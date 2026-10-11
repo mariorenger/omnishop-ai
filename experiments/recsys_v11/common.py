@@ -47,13 +47,106 @@ class Clock:
 CLOCK = Clock()
 
 
+def ram_total_gb():
+    """Memory this process may really use: the machine's RAM, or the container's cgroup limit when that is lower (psutil reports the host's)."""
+    total = 0.0
+    try:
+        import psutil
+        total = psutil.virtual_memory().total / 1e9
+    except Exception:
+        pass
+    for p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            v = open(p).read().strip()
+            if v.isdigit() and 0 < int(v) / 1e9 < (total or 1e9):
+                total = int(v) / 1e9
+        except Exception:
+            pass
+    return total
+
+
+class PeakRAM:
+    """Peak resident memory of this process since ``reset()``, sampled by a daemon thread (a few times per second).
+
+    Up to v16 the suite printed the resident memory *at the end* of a stage.  A transient inside the stage never showed in it: the 17 GB (d=1024) to 34 GB
+    (d=2048) of ``semgraph.Memory.knn_view`` was invisible in the log of the BGE-large run, and the "peak 16.2 GB" quoted for v15 was such a snapshot."""
+
+    def __init__(self, every=0.25, alarm=0.7):
+        self.every, self.alarm, self.peak, self._thread, self._proc = every, alarm, 0.0, None, None
+        self.label, self._warned, self._limit = "", 0.0, 0.0
+
+    def _rss(self):
+        return self._proc.memory_info().rss if self._proc is not None else 0.0
+
+    def start(self):
+        if self._thread is not None:
+            return
+        try:
+            import psutil
+            import threading
+            self._proc = psutil.Process()
+        except Exception:
+            return
+        self.peak, self._limit = self._rss(), ram_total_gb() * 1e9
+        main_id = threading.main_thread().ident
+
+        def loop():
+            while True:
+                try:
+                    rss = self._rss()
+                    self.peak = max(self.peak, rss)
+                    self._warn(rss, main_id)
+                except Exception:
+                    return
+                time.sleep(self.every)
+        self._thread = threading.Thread(target=loop, daemon=True)
+        self._thread.start()
+
+    def _warn(self, rss, main_id):
+        """Close to the memory this process may use, say where the main thread is -- once per 5% step.  An out-of-memory kill leaves no traceback, so the line
+        printed here is the only trace of what was allocating (v16 died without one)."""
+        limit = self._limit or ram_total_gb() * 1e9
+        if not limit or rss < self.alarm * limit or rss < self._warned + 0.05 * limit:
+            return
+        self._warned = rss
+        import sys
+        import traceback
+        frame = sys._current_frames().get(main_id)
+        where = "".join(traceback.format_stack(frame, limit=6)[-4:]).rstrip() if frame is not None else "?"
+        log(f"!! RAM {rss / 1e9:.1f} GB = {rss / limit:.0%} of the {limit / 1e9:.0f} GB this process can use (stage '{self.label}'); the main thread is at:\n{where}")
+
+    def reset(self, label=""):
+        self.start()
+        self.peak, self.label, self._warned = self._rss(), label, 0.0
+
+    def gb(self):
+        return max(self.peak, self._rss()) / 1e9
+
+
+PEAK = PeakRAM()
+
+
+def lifetime_peak_gb():
+    """Highest resident memory this process has ever had (the kernel's own high-water mark: it also catches a transient too short to be sampled)."""
+    try:
+        import resource
+        import sys
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss                       # KiB on Linux, bytes on macOS
+        return peak / 1e9 if sys.platform == "darwin" else peak * 1024 / 1e9
+    except Exception:
+        return 0.0
+
+
 def mem_note():
-    """One short string with this process's resident memory, the machine's, and the GPU's peak allocation (empty when nothing can be measured)."""
+    """One short string with this process's resident memory (now, peak of the current stage, peak of the whole run), the machine's, and the GPU's peak
+    allocation (empty when nothing can be measured)."""
     out = []
     try:
         import psutil
         vm = psutil.virtual_memory()
-        out.append(f"RAM process {psutil.Process().memory_info().rss / 1e9:.1f} GB, machine {vm.used / 1e9:.1f}/{vm.total / 1e9:.0f} GB")
+        lim = ram_total_gb()
+        out.append(f"RAM process {psutil.Process().memory_info().rss / 1e9:.1f} GB (stage peak {PEAK.gb():.1f}, run peak {lifetime_peak_gb():.1f}), "
+                   f"machine {vm.used / 1e9:.1f}/{vm.total / 1e9:.0f} GB" + (f", container limit {lim:.0f} GB" if lim and lim < vm.total / 1e9 - 0.5 else ""))
     except Exception:
         pass
     try:

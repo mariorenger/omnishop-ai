@@ -90,7 +90,7 @@ def health(S, extra_suites=()):
         out += ["Stage timings (s): " + ", ".join(f"{k}={v}" for k, v in tm.items()) + f" (sum {sum(tm.values()) / 3600:.2f} h).", ""]
     mem = S.kv.get("memory")
     if mem:
-        out += ["Memory after each stage (cumulative: the GPU figure is the peak since the process started):", ""] + [f"* `{k}`: {v}" for k, v in mem.items()] + [""]
+        out += ["Memory after each stage (RAM: resident now, the stage's own peak, the peak of the whole run so far; the GPU figure is the peak since the process started):", ""] + [f"* `{k}`: {v}" for k, v in mem.items()] + [""]
     a = S.kv.get("data_audit")
     if a:
         out += [f"Data: {a['articles']:,} articles, {a['news_columns']} columns in news.tsv (no article body); abstract {a['abstract_words']:.0f} words on average; "

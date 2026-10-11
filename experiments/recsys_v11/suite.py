@@ -995,6 +995,7 @@ def main(argv=None):
             continue
         S.records = [r for r in S.records if r.get("stage") != s]                  # a retried stage must not duplicate its rows
         t_stage = time.time()
+        common.PEAK.reset(s)                                                       # the stage's own peak RAM, not the snapshot at its end (and a warning when it nears the limit)
         S.stage = s
         try:
             if STAGES[s](S, args) is False:                                        # the stage declined to run (budget, missing prerequisite): retry on resume
@@ -1023,6 +1024,9 @@ def main(argv=None):
         log("STAGE TIMINGS (s): " + ", ".join(f"{k}={v}" for k, v in tm.items()) + f" | sum={sum(tm.values())}s")
         with open(os.path.join(args.work, "timings.json"), "w", encoding="utf-8") as f:
             json.dump(tm, f, indent=1)
+    if S.kv.get("memory"):                                                         # RAM after / peak in each stage (the SUMMARY of a notebook carries it for every run)
+        with open(os.path.join(args.work, "memory.json"), "w", encoding="utf-8") as f:
+            json.dump(S.kv["memory"], f, indent=1)
     md = write_table(S, args.work)
     log("\n" + md)
     S.reps = summarize(S)

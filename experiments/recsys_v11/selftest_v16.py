@@ -1,4 +1,4 @@
-"""Tests (39)-(48) of the v16 additions: the cold-weighted validation mean, the windowed click-through and the impression times of the loader, the entity-overlap
+"""Tests (39)-(49) of the v16 additions: the cold-weighted validation mean, the windowed click-through and the impression times of the loader, the entity-overlap
 features, the stacker's folds / forward holdout / new-article weights / coarsening, a planted case that shows the machinery exposes same-day memorisation, the
 supermodel's weighted selection, the stack-only restart, the release of a finished run and the composite encoder.  Called by ``selftest.main()``.
 
@@ -13,11 +13,15 @@ supermodel's weighted selection, the stack-only restart, the release of a finish
     (45)  restart: changed stack settings (or --restack) re-run only the stack stage; other changed settings start fresh
     (46)  Suite.release(): the data is freed, the records / per-impression results survive and the cross-run tables still work
     (47)  composite encoder 'concat:A+B': unit vectors, dot product = mean of the parts' dot products, served from the cache, errors
+    (48)  Memory.knn_view: equal to the one-shot definition and bounded by a block (the one-shot gather killed the MIND-large run on 2048-d vectors)
+    (49)  common.PEAK / lifetime_peak_gb / mem_note: a transient allocation is seen in the stage peak; the container limit is read
 """
 from __future__ import annotations
 
+import gc
 import os
 import shutil
+import time
 
 import numpy as np
 import torch
@@ -474,9 +478,86 @@ def test_concat_encoder(tmp, mind, enc_dir, cache_dir, run_args, S):
        "a whole run on it (controls, graph, readers with --um-dim 32) works and skips the single-encoder pooling guard")
 
 
+# ------------------------------------------------------------------------------------------------ (48)
+def test_knn_view_memory():
+    """The v16 run on MIND-large (104k articles, k=20) died in ``Memory.knn_view``: the gather ``E[nbr]`` is ``[articles, k, d]`` float32 and its product with the
+    weights is a second one -- 2 x 8.5 GB at d=1024, 2 x 17 GB at d=2048 on top of ~12 GB.  Toy sizes never showed it (test 47 runs the whole concat pipeline on
+    a few thousand articles), so this test pins the *law*: the view equals the one-shot definition and allocates no more than a block of it."""
+    import tracemalloc
+    import semgraph as G
+    rng = np.random.default_rng(0)
+    n, d, k = 2400, 96, 20
+    E = rng.standard_normal((n, d)).astype(np.float32)
+    E[0] = 0
+    E[1:] /= np.linalg.norm(E[1:], axis=1, keepdims=True)
+    mem = rng.random(n) < 0.8
+    mem[0] = False
+    m = G.Memory(E, None, mem, "cpu")
+    rows = np.arange(1, n)
+    nbr, sim = m.neighbours(rows, k)
+    w = np.clip(sim, 0, None)
+    w = w / (w.sum(1, keepdims=True) + 1e-8)
+    want = E.copy()
+    want[rows] = G._norm(E[rows] + 0.5 * G._norm((E[nbr] * w[:, :, None]).sum(1)))                  # the definition, in one shot
+    full = n * k * d * 4                                                                              # one [articles, k, d] float32 array
+    peaks = {}
+    for name, budget in (("one block", 1e12), ("300 articles", 300 * k * d), ("floor of 64 articles", 1)):
+        tracemalloc.start()
+        got = m.knn_view(0.5, k, budget=budget)
+        peaks[name] = tracemalloc.get_traced_memory()[1] / full
+        tracemalloc.stop()
+        assert np.allclose(got, want, atol=1e-6, rtol=0), (name, float(np.abs(got - want).max()))
+        assert np.array_equal(got[0], E[0]), "the padding row stays zero"
+    assert peaks["one block"] > 1.8, f"the one-shot path must show the 2 x [n,k,d] it allocates (else this test cannot see the bug): {peaks}"
+    assert peaks["300 articles"] < 0.45 and peaks["floor of 64 articles"] < 0.25, peaks
+    sub = np.array([5, 17, 800, 2301])                                                                # a subset of rows: the others are untouched
+    part = m.knn_view(0.5, k, rows=sub, budget=1)
+    keep = np.setdiff1d(np.arange(n), sub)
+    assert np.array_equal(part[keep], E[keep]) and np.allclose(part[sub], want[sub], atol=1e-6)
+    ok(f"(48) Memory.knn_view == the one-shot definition (max |diff| < 1e-6); peak allocation {peaks['one block']:.1f} x [n,k,d] in one block, "
+       f"{peaks['300 articles']:.2f} x with 300-article blocks, {peaks['floor of 64 articles']:.2f} x at the floor; a row subset leaves the rest untouched")
+
+
+# ------------------------------------------------------------------------------------------------ (49)
+def test_peak_ram():
+    common.PEAK.reset()
+    base = common.PEAK.gb()
+    big = np.ones(60_000_000, np.float32)                                                             # 240 MB, touched
+    time.sleep(1.0)
+    seen = common.PEAK.gb()
+    del big
+    gc.collect()
+    time.sleep(0.6)
+    assert seen >= base + 0.2, (base, seen)
+    assert common.PEAK.gb() >= seen - 1e-3, "a peak does not fall back when the memory is freed"
+    assert common.lifetime_peak_gb() >= seen - 0.05
+    common.PEAK.reset()
+    assert common.PEAK.gb() < seen - 0.15, "reset() starts a new stage"
+    note = common.mem_note()
+    assert "stage peak" in note and "run peak" in note, note
+    assert common.ram_total_gb() > 0
+    # the alarm: silent below 70% of the memory the process may use, then one line per 5% step naming the stage and where the main thread is
+    import contextlib
+    import io
+    import threading
+    pk, lim, me = common.PeakRAM(alarm=0.7), common.ram_total_gb() * 1e9, threading.main_thread().ident
+    pk.reset("usermodel")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        for frac in (0.5, 0.8, 0.82, 0.9):                                                        # silent | warns | < 5% above the last warning: silent | warns
+            pk._warn(frac * lim, me)
+    out = buf.getvalue()
+    assert out.count("!! RAM") == 2 and "stage 'usermodel'" in out and "test_peak_ram" in out and "80%" in out and "90%" in out, out
+    ok(f"(49) PeakRAM: a 240 MB transient is seen in the stage peak ({base:.2f} -> {seen:.2f} GB), survives the free, reset() starts a new stage; "
+       f"mem_note reports now / stage peak / run peak; the alarm is silent below 70%, then warns once per 5% step with the stage and the main thread's stack; "
+       f"container memory {common.ram_total_gb():.0f} GB")
+
+
 # ------------------------------------------------------------------------------------------------ driver
 def run_all(tmp, mind, enc_dir, cache_dir, run_args, S, mind_train, mind_dev, S_stack):
-    """Runs (39)-(47).  ``S``: the main selftest suite; ``S_stack``: a finished run of the stack stages on the lean data."""
+    """Runs (39)-(49).  ``S``: the main selftest suite; ``S_stack``: a finished run of the stack stages on the lean data."""
+    test_knn_view_memory()
+    test_peak_ram()
     test_cold_weights()
     test_popwin_and_times(S, mind_train, mind_dev)
     test_entity_features()
