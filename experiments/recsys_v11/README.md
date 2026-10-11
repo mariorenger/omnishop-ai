@@ -1,6 +1,6 @@
 # V11 — bộ so sánh đầy đủ các hướng LLM cho news recommendation (MIND-small)
 
-**Một lần Run All trên Kaggle (T4) — đã đo 7,52 giờ cho bản v7 đầy đủ (3,2 giờ cho bản v4 cũ; v13 ước 7,5–8 giờ, chưa đo); ngân sách đồng hồ cứng 9.5 giờ** cho ~16 họ kỹ thuật / ~150 biến thể (đếm cả bản `+pop`)
+**Một lần Run All trên Kaggle (T4) — đã đo 7,52 giờ cho bản v7 đầy đủ (3,2 giờ cho bản v4 cũ; v13 đã đo 8,22 giờ, xem `RESULTS_v13.md`); ngân sách đồng hồ cứng 9.5 giờ** cho ~16 họ kỹ thuật / ~150 biến thể (đếm cả bản `+pop`)
 **và baseline huấn luyện đúng công thức đã công bố (v7: NRMS / NAML / Fastformer; v13: mặc định chỉ Fastformer)**, tất cả đo trên đúng giao thức V10, có khoảng tin cậy ghép cặp, lát cắt tin mới/tin cũ và hiệu chỉnh Bonferroni.
 Mục tiêu không phải tối đa hoá điểm, mà là **biết hướng LLM nào đáng làm luận văn, bằng bằng chứng có CI — và so với baseline huấn luyện đàng hoàng, không phải với baseline yếu**.
 
@@ -30,12 +30,12 @@ Cái chưa từng được đưa vào encoder: **category/subcategory**, **tên 
 **Vì sao chỉ giữ Fastformer, và cái giá.** Đây là lựa chọn tiết kiệm thời gian, *không* phải vì Fastformer tốt hơn: ở v7 (một seed mỗi mô hình, nDCG@10 / AUC) NAML 0,4006 / 0,6471, NRMS 0,3937 / 0,6392, Fastformer 0,3926 / 0,6455 — cả ba nằm trong nhiễu seed (0,007 cho NRMS) và Fastformer còn là mô hình **chậm nhất** (29 phút so với 16 và 18; bỏ NRMS + NAML chỉ tiết kiệm 34 phút, phần lớn tiết kiệm đến từ thang ablation, refit và seed phụ của NRMS).
 Cái mất: NAML là baseline duy nhất dùng cả abstract và category, nên phép so *cùng đầu vào* với các hàng `txt_cta*` không còn; Fastformer ở đây (cài đặt của `refmodels.py`) chỉ đọc **title**, vì vậy phép so cùng đầu vào là `txt_t*` với `fastformer_ref`.
 
-**Dự đoán ghi trước khi chạy (chưa đo; ghi lại để lúc xem số không tự thuyết phục).**
+**Dự đoán ghi trước khi chạy (ghi lại để lúc xem số không tự thuyết phục; đã đối chiếu với số đo ở `RESULTS_v13.md` §3.3).**
 * F: abstract và category có thể giúp nhẹ — cỡ |Δ nDCG@10| ≲ 0,01, category là ứng viên có cơ hội nhất; tên entity gần như dư thừa (đã nằm trong title/abstract); 100 / 200 click ≈ 0 (nhiều người đọc có ít hơn 50 click, `data_audit` sẽ cho biết tỉ lệ).
 * H11: `pool_km` nằm giữa `frozen` và `pool_lse`, có thể bằng hoặc nhỉnh hơn `pool_lse` chút; `um_mi4` ≈ `um_mi1` ≈ `um_ff_frozen` (± 0,005) và ≤ `pool_lse`, vì ở v7 mọi reader học được trên BGE đóng băng đều không vượt `pool_lse` (`pool_lse` hơn `um_frozen` +0,0080). Nếu số khác dự đoán thì đó là phát hiện đáng viết.
 * Cỡ hiệu ứng nhỏ hơn nhiễu seed (0,007 cho một lần huấn luyện; trung bình 3 seed ≈ 0,004) giữa hai hàng *đã huấn luyện* thì chưa phải kết luận: đọc `noise.md` trước khi đọc CI.
 
-> ⚠️ **Trạng thái v13:** mới kiểm bằng `selftest.py` (33 kiểm tra qua, trên đúng mã của notebook v13) và mô phỏng "Run All" của notebook v13, đều trên CPU với fixture định dạng MIND (đúng chức năng, không có ý nghĩa về điểm số). **Chưa có số đo nào trên MIND thật cho phần mới**; mọi số trong §4 của phần mới là *ước*, số đo thật chỉ có cho các stage cũ của v7 (`RESULTS_v7.md`).
+> ⚠️ **Trạng thái v13:** đã chạy trọn vẹn trên MIND thật (Kaggle, Tesla T4, 8,22 giờ, không stage nào lỗi, các kiểm tra tái lập đều MATCH); số đo và so sánh với v7 ở `RESULTS_v13.md`. Mã cũng đã kiểm bằng `selftest.py` (33 kiểm tra qua, trên đúng mã của notebook v13) và mô phỏng "Run All" trên CPU với fixture định dạng MIND. Các số "ước" ở §4 là ước tính *trước* khi chạy; số đo thật nằm ở đoạn "Đo thật v13" cuối §4.
 
 ## 1. Giả thuyết ↔ kỹ thuật ↔ paper ↔ mức độ cài đặt
 
@@ -117,6 +117,8 @@ python make_notebook.py       # sinh lại notebook (đổi NOTEBOOK trong file 
 **Ước cho v13 (chưa đo, dựa trên số đo v7 ở trên):** baseline Fastformer 2 seed (2 × 29 phút) + refit (~25–30 phút) ≈ 85 phút thay cho 114 phút (−29 phút) · `moredata` ≈ 4 phút (BGE: 4 lần mã hoá ≈ 30–40 s mỗi lần + ~60 lượt đánh giá) và ≈ 14 phút (Qwen3: `t` và `cta`, mỗi lần mã hoá 65k bài ≈ 4–10 phút) · `pool_km` ≈ 3 phút mỗi run ·
 user model: thêm view `text`, 3 seed cho `frozen`/`text`, các reader `ff`/`mi1`/`mi4`/`mi4d` ≈ +23 phút (BGE, ~85 s mỗi lần huấn luyện) và ≈ +12 phút (Qwen3, ~94 s) ⇒ tổng ≈ 7,5–8 giờ; `V11_FOCUS=1` ≈ 2–2,5 giờ. Nếu hết ngân sách, các stage mới đã được xếp trước các stage đắt.
 
+**Đo thật v13 (Kaggle, Tesla T4): 29 599 giây = 8,22 giờ**, không stage nào lỗi (vượt dải ước 7,5–8 giờ khoảng 0,2 giờ). Giây của các stage: run A 13 344, run B 15 338. Fastformer 2 seed (`ref_ff` 3 633) + refit (`ref_ff_refit` 1 776) = 5 409 s (ước ~85 phút ≈ 5 100 s). `moredata` 256 s (BGE) và 893 s (Qwen3) (ước ~4 và ~14 phút). `pool_km` thêm ~38 s (BGE) và ~55 s (Qwen3) vào stage `pooling` (ước ~3 phút). `usermodel` 2 102 s (BGE) và 1 635 s (Qwen3), tức +809 s và +884 s so với v7 (ước +23 và +12 phút). Chi tiết ở `RESULTS_v13.md` §0.
+
 Phần "V11 cũ" của v6/v7 (không tính baseline) ≈ 5,6 giờ, đúng dải ước 5,5–6 giờ đã nêu trước đó. Nếu cần ngắn hơn: `V11_BUDGET_H=6`, `V11_REF=0` (−1,9 giờ), hoặc bớt `causal@1` khỏi `--llm-user-modes` (−0,6 giờ; nhưng đó là hàng đo nhiễu seed của tower, nên giữ nếu muốn kết luận về mask).
 
 ## 5. Cách đọc kết quả → hướng luận văn
@@ -181,7 +183,7 @@ Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed**
 `data.py`/`metrics.py` (V10, nguyên văn) · `common.py` (đồng hồ ngân sách, fusion, `ScoreCache`, `HistQueries`) · `rep_eval.py` (evaluator vector hoá, CI ghép cặp, so sánh qua tập con) ·
 `semgraph.py` (RAG/GraphRAG-lite, tên entity) · `adapt.py` (head, LoRA/DoRA, MRL) · `fields.py` (F: biến thể text, ghép view, cache embedding khoá theo nội dung) · `pooling.py` (H8, bộ chấm k-means H11) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10, reader Fastformer/NRMS/additive, reader multi-interest `mi<K>`) ·
 `refdata.py` (token, GloVe, dựng lại mẫu huấn luyện V10 + negative bốc lại mỗi epoch) · `refmodels.py` (NRMS/NAML/Fastformer, trainer) · `stages_ref.py` (stage baseline + bảng ablation) ·
-`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v13_suite_moredata.ipynb` (notebook hiện hành) · `v11_full_suite_v7.ipynb` (đúng notebook đã tạo ra `RESULTS_v7.md`, tự chứa mã của nó; giữ nguyên để tái lập) · `RESULTS_v7.md` (kết quả đo thật của lần chạy đầy đủ v7: bảng, nhiễu seed, nhận định, giới hạn).
+`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard) · `selftest.py` · `make_notebook.py` · `v13_suite_moredata.ipynb` (notebook hiện hành) · `v11_full_suite_v7.ipynb` (đúng notebook đã tạo ra `RESULTS_v7.md`, tự chứa mã của nó; giữ nguyên để tái lập) · `RESULTS_v7.md` (kết quả đo thật của lần chạy đầy đủ v7: bảng, nhiễu seed, nhận định, giới hạn) · `RESULTS_v13.md` (kết quả đo thật của lần chạy đầy đủ v13 và bảng so sánh v7 ↔ v13).
 
 ## 9. Tài liệu
 
