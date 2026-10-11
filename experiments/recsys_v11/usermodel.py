@@ -146,6 +146,26 @@ class LLMEncMI(nn.Module):
                 "attn_tv": float((tv.sum((1, 2)) / pairs).mean())}
 
 
+class LLMEncPrior(nn.Module):
+    """A click prior over the article vector alone: score(c) = MLP(vector of c), whoever reads (the history is ignored).  Trained like the other readers
+    (1 clicked + 4 shown-but-not-clicked articles of the same impression, softmax), it learns what KIND of article gets clicked -- the signal that remains
+    for articles no one has clicked yet.  The stacker (``stacker.py``) reads it next to the personal scores; on its own it is a popularity-style prior,
+    not a recommender."""
+
+    def __init__(self, emb, dim=64, dropout=0.2, device="cpu"):
+        super().__init__()
+        self.set_emb(emb, device)
+        self.net = nn.Sequential(nn.Linear(self.emb.shape[1], dim), nn.GELU(), nn.LayerNorm(dim), nn.Dropout(dropout), nn.Linear(dim, dim), nn.GELU(),
+                                 nn.Linear(dim, 1))
+        self.to(device)
+
+    def set_emb(self, emb, device=None):
+        self.emb = torch.as_tensor(np.ascontiguousarray(emb, np.float32)).to(device or self.emb.device)
+
+    def score(self, hist, hist_mask, cand):
+        return self.net(self.emb[cand]).squeeze(-1)
+
+
 def _mi_spec(kind):
     """``mi4`` -> (4, 0.0); ``mi4d`` -> (4, 0.1) (with the disagreement regulariser); anything else -> None."""
     m = re.fullmatch(r"mi(\d+)(d?)", kind)
@@ -153,14 +173,16 @@ def _mi_spec(kind):
 
 
 def is_reader(kind):
-    """``ca`` | ``add`` | ``nrms`` | ``ff`` | ``mi<K>`` (K learned interests, e.g. ``mi4``) | ``mi<K>d`` (same with the disagreement regulariser)."""
-    return kind in ("ca", "add", "nrms", "ff") or _mi_spec(kind) is not None
+    """``ca`` | ``add`` | ``nrms`` | ``ff`` | ``prior`` (history-free click prior) | ``mi<K>`` (K learned interests, e.g. ``mi4``) | ``mi<K>d`` (same with the disagreement regulariser)."""
+    return kind in ("ca", "add", "nrms", "ff", "prior") or _mi_spec(kind) is not None
 
 
 def make_model(kind, emb, dim=64, dropout=0.2, device="cpu"):
-    """``ca``: the V10 clone; ``add`` / ``nrms`` / ``ff``: candidate-independent readers (see ``LLMEncUser``); ``mi<K>[d]``: ``LLMEncMI``."""
+    """``ca``: the V10 clone; ``add`` / ``nrms`` / ``ff``: candidate-independent readers (see ``LLMEncUser``); ``prior``: ``LLMEncPrior``; ``mi<K>[d]``: ``LLMEncMI``."""
     if kind == "ca":
         return LLMEncCA(emb, dim, dropout, device)
+    if kind == "prior":
+        return LLMEncPrior(emb, dim, dropout, device)
     spec = _mi_spec(kind)
     if spec is not None:
         return LLMEncMI(emb, spec[0], dim, dropout, device, spec[1])

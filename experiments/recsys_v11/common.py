@@ -242,6 +242,26 @@ def make_ragged(ids, rows):
     return {"ids": np.asarray(ids, np.int64), "ptr": np.concatenate([[0], np.cumsum(lens)]).astype(np.int64), "flat": flat}
 
 
+def ragged_scorer(rag, ids, device="cpu"):
+    """Scorer for ``rep_eval.evaluate`` that replays stored scores.  ``rag`` holds the scores of the impressions ``rag["ids"]`` (strictly increasing);
+    the EvalSet being evaluated has the impressions ``ids`` (original positions, in the EvalSet's own row order) -- ``arange(n)`` for a full split."""
+    ids = np.asarray(ids, np.int64)
+    ix = np.searchsorted(rag["ids"], ids)
+    if len(ix) and (ix.max() >= len(rag["ids"]) or not np.array_equal(rag["ids"][ix], ids)):
+        raise ValueError("the stored scores do not cover every impression of the EvalSet")
+    ptr, flat = rag["ptr"], rag["flat"]
+
+    def f(b):
+        r = ix[b["rows"]]
+        start, n = ptr[r], ptr[r + 1] - ptr[r]
+        C = b["cand"].shape[1]
+        col = np.arange(C)[None, :]
+        keep = col < n[:, None]
+        out = np.where(keep, flat[np.minimum(start[:, None] + col, max(len(flat) - 1, 0))], 0.0).astype(np.float32)
+        return torch.from_numpy(out).to(device)
+    return f
+
+
 def ragged_rows(rag):
     return [rag["flat"][rag["ptr"][i]:rag["ptr"][i + 1]] for i in range(len(rag["ptr"]) - 1)]
 
@@ -268,12 +288,24 @@ def ragged_mean_z(rags):
     return {"ids": rags[0]["ids"], "ptr": rags[0]["ptr"], "flat": np.mean(zs, axis=0).astype(np.float32)}
 
 
-EXPORT_RE = re.compile(r"^(pool_lse|pool_km5|lora\+hn|txt_(t|cta|ctae|views)_lse|hist\d+_lse|ut_causal(@\d+)?)$")
+# Raw per-candidate scores that stages keep on disk.  SUPER_RE: the zero-shot scorers the supermodel's linear fusion may pick from (unchanged since v14);
+# AUX_RE: further scorers only the stacker (stacker.py) reads -- kept out of the fusion because, measured on MIND-large, the validation split rewards
+# them (RAG / GraphRAG, plain mean-pool) more than the colder test split does.
+SUPER_RE = re.compile(r"^(pool_lse|pool_km5|lora\+hn|txt_(t|cta|ctae|views)_lse|hist\d+_lse|ut_causal(@\d+)?)$")
+AUX_RE = re.compile(r"^(frozen|pool_(recency|maxsim|topk|km\d+)|txt_(t|cta|ctae|views)|hist\d+_mean|(entity|knn)_rag|community_graphrag)$")
+EXPORT_RE = re.compile(SUPER_RE.pattern[:-2] + "|" + AUX_RE.pattern[2:])
 
 
 def export_wanted(name):
-    """Rows whose raw scores the supermodel may use (the controls ``txt_ctr*`` are deliberately not among them)."""
+    """Rows whose raw scores are kept (the controls ``txt_ctr*`` are deliberately not among them)."""
     return bool(EXPORT_RE.match(name))
+
+
+def default_kind(name):
+    """``zs`` / ``tower`` components are what the supermodel fuses; ``aux`` ones are inputs of the stacker only."""
+    if name.startswith("ut_"):
+        return "tower"
+    return "zs" if SUPER_RE.match(name) else "aux"
 
 
 def _safe(name):

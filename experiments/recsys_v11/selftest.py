@@ -14,7 +14,10 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
   7. resume skips finished stages, a tiny wall-clock budget skips the rest without crashing;
   8. v14 (``selftest_v14.py``): exported component scores equal the scores the rows were evaluated with, every supermodel rung equals an independent
      recomputation from the exported files (tower subset and +pop included), the weight fit never touches the test split, the Hugging Face loader
-     (fake Hub, nested / extracted / unlabelled archives, ../ member names, HTTP resume and truncation), the memory-lean MIND loader == V10's, scale caps.
+     (fake Hub, nested / extracted / unlabelled archives, ../ member names, HTTP resume and truncation), the memory-lean MIND loader == V10's, scale caps;
+  9. v15 (``selftest_v15.py``): label-free exposure features and article counts == a plain-python recomputation, history / slate features == their definition, the
+     stacker's feature table, a whole second run with shuffled TEST labels gives identical offline scores, a fold's out-of-fold scores do not depend on its own
+     labels, three gradient-boosting backends, the history-free prior reader, and the supermodel's apex+pop rung starts from the last popularity rung.
 
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
@@ -51,6 +54,7 @@ import stages_ref as SR
 import suite
 import usermodel as UM
 import selftest_v14 as T14
+import selftest_v15 as T15
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -245,7 +249,7 @@ def test_popularity(S):
     ref = metrics.aggregate(imps)
     got = S.cache["popularity"]["test"]["mean"]
     assert all(abs(ref[k] - got[k]) < 1e-4 for k in ("auc", "mrr", "ndcg@5", "ndcg@10"))
-    twins = {r["name"] for r in S.records if r["family"].endswith("+pop") and r["family"] != "SUPER+pop"}      # SUPER+pop rows are fitted combinations, not twins of one row
+    twins = {r["name"] for r in S.records if r["family"].endswith("+pop") and r["family"] not in ("SUPER+pop", "STACK+pop")}      # SUPER+pop rows are fitted combinations, not twins of one row
     need = {"pool_recency+pop", "pool_maxsim+pop", "pool_topk+pop", "pool_lse+pop", "entity_rag+pop", "knn_rag+pop", "head_lin+pop",
             "histq_instr+pop", "sid_profile+pop", "sid_profile+meanpool+pop", "sid_gpt+pop", "lora+mrl+hn+pop"}
     assert not (need - twins), f"missing popularity twins: {sorted(need - twins)}"
@@ -1148,12 +1152,16 @@ def main():
     T14.test_supermodel_paths(S, tmp)
     T14.test_hybrid(tmp, mind, enc_dir, cache_a, RUN_A[:-1], os.path.join(tmp, "outR"))
     T14.test_tower_math(tmp, mind, enc_dir, cache_a, RUN_A[:-1])
+    T14.test_apex_pop_start(tmp, mind, enc_dir, cache_a, RUN_A[:-1])
     S_chk, _ = T14.quiet(suite.main, [*mind, "--work", os.path.join(tmp, "outChk"), "--encoder", enc_dir, "--cache-dir", cache_a, "--stages", "controls",
                                       "--repro", "0.6241,0.3909", "--repro-pop", "0.6533,0.4026,0.6769,0.4330", *RUN_A[:-1]])
     T14.test_final_report(tmp, S, SR_, S_chk)
     T14.test_hf_mind(tmp, f"{tmp}/train", f"{tmp}/dev")
     T14.test_lean_loader(S, f"{tmp}/train", f"{tmp}/dev")
     T14.test_caps_and_flags(S, f"{tmp}/train", tmp, mind, enc_dir, cache_a, RUN_A[:-1])
+
+    # ---------------- v15: label-free exposure features, history / slate features, the stacker, its leakage guards, the prior reader
+    T15.run_all(tmp, mind, enc_dir, cache_a, RUN_A[:-1], S, f"{tmp}/train", f"{tmp}/dev")
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")

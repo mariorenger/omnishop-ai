@@ -10,6 +10,7 @@ the Hugging Face loader, the memory-lean MIND loader and the scale caps.  Called
     (29)  hf_mind: fake Hub (zip, nested zip, extracted folders, no listing, unlabelled dev, traversal), reuse, HTTP resume
     (30)  data_lean == MindData.from_mind
     (31)  scale caps, train_core_all alignment, flags (stage status, --export-scores 0, --enc-variants, sample std)
+    (27c) the apex rung's popularity twin starts from the last popularity rung (v15 fix; a test with an informative popularity feature)
 """
 from __future__ import annotations
 
@@ -94,9 +95,12 @@ def test_ragged_and_export(tmp):
         assert np.array_equal(got["val"]["flat"], rag["flat"]) and np.array_equal(got["test"]["ptr"], rag_affine["ptr"]) and np.array_equal(got["val"]["ids"], rag["ids"])
     assert not [f for f in os.listdir(os.path.join(tmp, "sc")) if ".tmp" in f]
     yes = ["pool_lse", "pool_km5", "lora+hn", "txt_t_lse", "txt_cta_lse", "txt_ctae_lse", "txt_views_lse", "hist100_lse", "hist200_lse", "ut_causal", "ut_causal@1"]
-    no = ["frozen", "pool_topk", "txt_ctr_lse", "txt_ctr", "txt_cta", "ut_causal+meanpool", "um_frozen", "pool_km2", "lora+mrl+hn", "ut_bidir", "pool_lse+pop"]
-    assert all(common.export_wanted(n) for n in yes) and not any(common.export_wanted(n) for n in no)
-    ok("(23) ragged scores: z-score == common.zscore, seed ensemble = mean of z, id / candidate mismatches raise, npz round trip, export whitelist (controls excluded)")
+    aux = ["frozen", "pool_topk", "pool_maxsim", "pool_recency", "pool_km2", "txt_t", "txt_cta", "txt_ctae", "txt_views", "hist100_mean", "entity_rag", "knn_rag", "community_graphrag"]
+    no = ["txt_ctr_lse", "txt_ctr", "ut_causal+meanpool", "um_frozen", "lora+mrl+hn", "ut_bidir", "pool_lse+pop", "frozen+pop", "frozen_hf", "pool_topk+pop", "popularity", "random_vec"]
+    assert all(common.export_wanted(n) for n in yes + aux) and not any(common.export_wanted(n) for n in no)
+    assert [common.default_kind(n) for n in yes] == ["tower" if n.startswith("ut_") else "zs" for n in yes] and all(common.default_kind(n) == "aux" for n in aux)
+    ok("(23) ragged scores: z-score == common.zscore, seed ensemble = mean of z, id / candidate mismatches raise, npz round trip, export whitelist (controls excluded; "
+       "supermodel kinds zs / tower vs stacker-only aux)")
 
 
 def tower_members(S):
@@ -111,7 +115,8 @@ def test_exports(S):
         comps[z["name"]] = z
     need = {"pool_lse", "txt_t_lse", "txt_cta_lse", "txt_ctae_lse", "txt_views_lse", "hist100_lse", "lora+hn", "um_frozen", "um_mi4_frozen"}
     assert need <= set(comps), sorted(need - set(comps))
-    assert not any(n.startswith("txt_ctr") for n in comps) and "frozen" not in comps and not any(n.endswith("+pop") for n in comps)
+    assert not any(n.startswith("txt_ctr") for n in comps) and not any(n.endswith("+pop") for n in comps)
+    assert comps["frozen"]["meta"]["kind"] == "aux" and comps["pool_topk"]["meta"]["kind"] == "aux" and comps["pool_lse"]["meta"]["kind"] == "zs"
     assert comps["um_frozen"]["meta"]["kind"] == "reader" and comps["um_mi4_frozen"]["meta"]["kind"] == "reader" and comps["pool_lse"]["meta"].get("kind", "zs") == "zs"
     checked = 0
     for n, z in comps.items():
@@ -380,6 +385,38 @@ def test_tower_math(tmp, mind, enc_dir, cache_dir, run_args):
     d = suite.R.compare(S1.cache["super_apex"]["test"], S1.cache["super_llm"]["test"], "ndcg@10")
     assert d[1] > 0 and len(S1.cache["super_apex"]["test"]["ids"]) == 150, d
     ok("(27b) tower with signal: positive weight, apex evaluated on the tower's 150 test impressions, equals the independent recomputation (also with +pop), paired gain over super_llm")
+
+
+def test_apex_pop_start(tmp, mind, enc_dir, cache_dir, run_args):
+    """(27c) the popularity twin of the apex rung starts from the weights of the last popularity rung: with a tower that carries no signal (so its weight should
+    stay 0) it is never worse than super_llm+pop on the tower's validation subset.  v14 started it from the no-pop weights (measured: -0.0065 nDCG@10)."""
+    work = os.path.join(tmp, "outTW0")
+    args = [*mind, "--work", work, "--encoder", enc_dir, "--cache-dir", cache_dir, "--stages", "controls,pooling,usermodel,supermodel", "--no-resume", *run_args]
+    S0, _ = quiet(suite.main, args)
+    rng = np.random.default_rng(11)
+    ids_v, ids_t = common.random_subset(len(S0.data.validation), 90, seed=3), common.random_subset(len(S0.data.test), 120, seed=4)
+
+    def rag(rows, ids):
+        return common.make_ragged(ids, [rng.standard_normal(len(rows[i][3])).astype(np.float32) for i in ids])
+    for nm in ("ut_causal", "ut_causal@1"):
+        common.save_scores(os.path.join(work, "scores"), nm, rag(S0.data.validation, ids_v), rag(S0.data.test, ids_t), {"kind": "tower"})
+    S1, _ = quiet(suite.main, args)
+    # make the popularity feature informative (it follows the label), so that adding it changes the best weights of every other component
+    prng = np.random.default_rng(2)
+    informative = lambda rows: [(r[0], r[1], r[2], r[3], r[4], 3.0 * np.asarray(r[4], np.float64) + prng.standard_normal(len(r[3]))) for r in rows]
+    S1.data.validation, S1.data.test = informative(S1.data.validation), informative(S1.data.test)
+    S1.es = {"val": suite.R.EvalSet(S1.data.validation, device=S1.device), "test": suite.R.EvalSet(S1.data.test, device=S1.device)}
+    quiet(SM.stage_supermodel, S1, S1.args)
+    sm = S1.kv["supermodel"]
+    assert next(x for x in sm["rungs"] if x["name"] == "super_llm+pop")["weights"]["pop"] > 0
+    comps = {c.key: c for c in SM.merge_towers(SM.load_components([work]))}
+    ap, lp = (next(x for x in sm["rungs"] if x["name"] == n) for n in ("super_apex+pop", "super_llm+pop"))
+    tower = sm["groups"]["tower"][0]
+    fv = SM.Fusion(S1.data.validation, [comps[k] for k in ap["weights"] if k != "pop"], "val", comps[tower].val["ids"], "cpu", with_pop=True)
+    w_apex = np.array([ap["weights"].get(nm, 0.0) for nm in fv.names])
+    w_llm = np.array([0.0 if nm == tower else lp["weights"].get(nm, 0.0) for nm in fv.names])
+    assert fv.ndcg10(w_apex) >= fv.ndcg10(w_llm) - 1e-9, "super_apex+pop must start from super_llm+pop"
+    ok(f"(27c) super_apex+pop starts from super_llm+pop: on the tower's {len(fv.ids)} validation impressions {fv.ndcg10(w_apex):.4f} >= {fv.ndcg10(w_llm):.4f}")
 
 
 # ------------------------------------------------------------------------------------------------ (28)
@@ -696,6 +733,14 @@ def test_caps_and_flags(S, mind_train, tmp, mind, enc_dir, cache_dir, run_args):
         assert idx == sorted(idx) and len(set(idx)) == len(idx), "a cap keeps original rows in their original order"
     assert [id(r) for r in d1.test] == [id(r) for r in d2.test] and [id(r) for r in d1.train_core] == [id(r) for r in d2.train_core], "caps are deterministic"
     assert d1.train_core_all is S.data.train_core and d1.validation_impressions == S.data.validation_impressions
+    ds = copy.copy(S.data)                                                       # the label-free exposure arrays travel with their rows
+    ds.aux_validation = [np.full((len(r[3]), 2), float(i), np.float32) for i, r in enumerate(S.data.validation)]
+    ds.aux_test = [np.full((len(r[3]), 2), float(i), np.float32) for i, r in enumerate(S.data.test)]
+    quiet(suite.cap_data, ds, args)
+    pos_v = {id(r): i for i, r in enumerate(S.data.validation)}
+    assert len(ds.aux_validation) == 100 and all(a.shape == (len(r[3]), 2) and (a == pos_v[id(r)]).all() for r, a in zip(ds.validation, ds.aux_validation))
+    pos_t = {id(r): i for i, r in enumerate(S.data.test)}
+    assert len(ds.aux_test) == 150 and all((a == pos_t[id(r)]).all() for r, a in zip(ds.test, ds.aux_test))
     d0 = copy.copy(S.data)
     suite.cap_data(d0, argparse.Namespace(val_max=0, test_max=0, train_sub=0))
     assert d0.validation is S.data.validation and d0.test is S.data.test and getattr(d0, "train_core_all", None) is None

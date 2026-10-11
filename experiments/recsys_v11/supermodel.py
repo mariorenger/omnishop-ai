@@ -214,7 +214,7 @@ def stage_supermodel(S, args):
         log("  no exported component scores found (stages not run, or --export-scores 0): supermodel not run")
         return False
     n_val, n_test = len(S.data.validation), len(S.data.test)
-    full = [c for c in comps if c.covers(n_val, n_test) and c.kind != "tower"]
+    full = [c for c in comps if c.covers(n_val, n_test) and c.kind in ("zs", "reader", "baseline")]       # "aux" / "feature" scores are the stacker's inputs
     towers = [c for c in comps if c.kind == "tower"]
     if sum(c.kind in ("zs", "reader") for c in full) < 1:
         log("  no LLM-side component (zero-shot scorer or reader) covers the whole validation / test split: supermodel not run")
@@ -273,7 +273,7 @@ def stage_supermodel(S, args):
 
     # rung 0: the base alone (the reference every other rung is compared with)
     run_rung("super_base", [base], False)
-    chain, w_prev = [base], {}
+    chain, w_prev, w_pop = [base], {}, {}
     rungs = [("super_zs", zs), ("super_llm", readers), ("super_hybrid", trained)]
     for name, group in rungs:
         if not group:
@@ -282,11 +282,13 @@ def stage_supermodel(S, args):
         chain = chain + group
         w_prev = run_rung(name, chain, False, init_w=w_prev)
         if name in ("super_llm", "super_hybrid"):
-            run_rung(name, chain, True, init_w=w_prev)
-    # rung 4: + the LLM tower, on the subset it scored; the other weights are the ones fitted on the full validation split
+            w_pop = run_rung(name, chain, True, init_w=w_prev)
+    # rung 4: + the LLM tower, on the subset it scored; the other weights are the ones fitted on the full validation split.  The popularity twin starts from
+    # the weights of the last popularity rung (tower weight 0), so on the tower's subset it can only improve on that rung (v14 started it from the no-pop weights
+    # and lost 0.0065 nDCG@10 to super_llm+pop on the same impressions)
     if towers and chain:
         w_apex = run_rung("super_apex", chain + towers, False, init_w=w_prev, only_new={towers[0].key}, tower=True)
-        run_rung("super_apex", chain + towers, True, init_w=w_apex, only_new={towers[0].key, "pop"}, tower=True)
+        run_rung("super_apex", chain + towers, True, init_w=w_pop or w_apex, only_new={towers[0].key, "pop"}, tower=True)
 
     # leave-one-group-out from the last full-coverage model with popularity
     last = next((r for r in reversed(state["rungs"]) if r["pop"] and "apex" not in r["name"]), None)

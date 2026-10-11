@@ -39,6 +39,7 @@ import rep_eval as R
 import semgraph as G
 import stages_ext as X
 import stages_ref as SR
+import stacker as ST
 import supermodel as SM
 from common import HistQueries, avg_results, fuse, log, query_prefix  # noqa: F401  (re-exported for callers)
 from data import MindData
@@ -46,7 +47,7 @@ from data import MindData
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
 DEFAULT_STAGES = "controls,pooling,moredata,graph,head,histquery,sid,encoder,usermodel,sweep"
-REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder"}   # comparators, controls and the combined model: not candidate directions
+REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder", "STACK"}   # comparators, controls and the combined model: not candidate directions
 TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
 
 
@@ -87,10 +88,12 @@ class Suite:
         return res, rec.ragged(res["ids"])
 
     def export_scores(self, name, val_rag, test_rag, meta=None):
-        """Keep the raw validation / test scores of a component on disk (``<work>/scores``) for the supermodel."""
+        """Keep the raw validation / test scores of a component on disk (``<work>/scores``) for the supermodel and the stacker."""
         if not getattr(self.args, "export_scores", 1):
             return None
-        return common.save_scores(os.path.join(self.work, "scores"), name, val_rag, test_rag, {"run": os.path.basename(self.work.rstrip("/")), **(meta or {})})
+        meta = {"run": os.path.basename(self.work.rstrip("/")), **(meta or {})}
+        meta.setdefault("kind", common.default_kind(name))
+        return common.save_scores(os.path.join(self.work, "scores"), name, val_rag, test_rag, meta)
 
     def note_check(self, name, ok, detail):
         self.kv.setdefault("checks", {})[name] = {"ok": bool(ok), "detail": detail}
@@ -279,7 +282,11 @@ class Suite:
 def stage_controls(S, args):
     log("\n== controls ==")
     E = S.tensor(S.E0)
-    v, t = S.run(R.mean_pool_scorer(E), "val"), S.run(R.mean_pool_scorer(E), "test")
+    if getattr(args, "export_scores", 1):                                   # the plain mean-pool score is one of the stacker's inputs
+        (v, vr), (t, tr) = S.run_rec(R.mean_pool_scorer(E), "val"), S.run_rec(R.mean_pool_scorer(E), "test")
+        S.export_scores("frozen", vr, tr, {"family": "control"})
+    else:
+        v, t = S.run(R.mean_pool_scorer(E), "val"), S.run(R.mean_pool_scorer(E), "test")
     S.record("frozen", "control", {}, v, t, "frozen")
     if args.repro:
         auc_ref, nd_ref = (float(x) for x in args.repro.split(","))
@@ -478,7 +485,7 @@ def stage_histquery(S, args):
 STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "moredata": X.stage_moredata, "graph": stage_graph, "head": stage_head,
           "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
           "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
-          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, **SR.STAGES}
+          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, "stack": ST.stage_stack, **SR.STAGES}
 
 
 # --------------------------------------------------------------------- output
@@ -686,17 +693,25 @@ def leaderboard(suites, tags, ref, path=None, top=None, plot=None, pop=False):
 def cap_data(data, args):
     """Scale knobs for MIND-large (all random, fixed seeds, original order kept): ``--val-max`` / ``--test-max`` keep that many validation / test
     impressions, ``--train-sub`` that many training samples for the stages that train something.  The 'seen in training' masks and the day split
-    are computed BEFORE this, on everything, so the cold / warm definition does not move.  ``data.train_core_all`` keeps the full list."""
-    def sub(items, n, seed):
-        if not n or len(items) <= n:
-            return items
-        return [items[i] for i in np.sort(np.random.default_rng(seed).permutation(len(items))[:n])]
+    are computed BEFORE this, on everything, so the cold / warm definition does not move.  ``data.train_core_all`` keeps the full list; the
+    per-impression ``aux_validation`` / ``aux_test`` arrays (label-free exposure features) are cut with the very same indices as the rows."""
+    def pick(total, n, seed):
+        if not n or total <= n:
+            return None
+        return np.sort(np.random.default_rng(seed).permutation(total)[:n])
     before = (len(data.validation), len(data.test), len(data.train_core))
-    data.validation = sub(data.validation, args.val_max, 11)
-    data.test = sub(data.test, args.test_max, 12)
-    if args.train_sub and len(data.train_core) > args.train_sub:
+    for rows_attr, aux_attr, n, seed in (("validation", "aux_validation", args.val_max, 11), ("test", "aux_test", args.test_max, 12)):
+        rows = getattr(data, rows_attr)
+        ix = pick(len(rows), n, seed)
+        if ix is not None:
+            setattr(data, rows_attr, [rows[i] for i in ix])
+            aux = getattr(data, aux_attr, None)
+            if aux is not None:
+                setattr(data, aux_attr, [aux[i] for i in ix])
+    ix = pick(len(data.train_core), args.train_sub, 13)
+    if ix is not None:
         data.train_core_all = data.train_core
-        data.train_core = sub(data.train_core, args.train_sub, 13)
+        data.train_core = [data.train_core[i] for i in ix]
     after = (len(data.validation), len(data.test), len(data.train_core))
     if after != before:
         log(f"scale caps: validation {before[0]:,} -> {after[0]:,}, test {before[1]:,} -> {after[1]:,}, training samples {before[2]:,} -> {after[2]:,}")
@@ -729,6 +744,21 @@ def build_parser():
     ap.add_argument("--export-scores", type=int, default=1, help="keep the raw scores of the supermodel's candidate components under <work>/scores")
     ap.add_argument("--super-dirs", default="", help="comma-separated work dirs of the other runs whose exported scores the supermodel may use")
     ap.add_argument("--super-baselines", default="fastformer_ref", help="trained baselines the supermodel's hybrid rung may add (names, prefix match)")
+    # stacker (stage 'stack'): gradient-boosted ranker over the exported scores + label-free features, trained on validation
+    ap.add_argument("--stack-backend", default="auto", choices=["auto", "xgboost", "lightgbm", "sklearn"])
+    ap.add_argument("--stack-variants", default="llm,meta,pop", help="llm = scores + history/slate features, meta = + article counts and exposure, pop = + V10's streaming popularity")
+    ap.add_argument("--stack-folds", type=int, default=4, help="folds (split by user) over the validation impressions")
+    ap.add_argument("--stack-objectives", default="rank:ndcg,rank:pairwise,binary:logistic", help="objectives tried on the held-out part of fold 0 (the best nDCG@10 is used): "
+                    "listwise lambdarank on the top of the list, pairwise over the whole list (the AUC-like one), pointwise logistic")
+    ap.add_argument("--stack-rounds", type=int, default=800)
+    ap.add_argument("--stack-eta", type=float, default=0.06)
+    ap.add_argument("--stack-depth", type=int, default=7)
+    ap.add_argument("--stack-seed", type=int, default=0)
+    ap.add_argument("--stack-baselines", default="", help="trained baselines (name prefixes) the stacker may read; '' = none (LLM side only)")
+    ap.add_argument("--stack-max-rows-cpu", type=int, default=3_000_000, help="CPU backends train on at most this many candidate rows")
+    ap.add_argument("--stack-chunk", type=int, default=40_000, help="test impressions whose feature table is built at a time")
+    ap.add_argument("--stack-free-memory", type=int, default=0, help="free the training samples and retrieval memories before the stacker builds its tables (it is the last stage that needs them)")
+    ap.add_argument("--stack-save-scores", type=int, default=0, help="1: also write stack_scores.npz (out-of-fold and test scores of every variant, ~100 MB on MIND-large); 2: + every fold model's test predictions")
     ap.add_argument("--save-arrays", type=int, default=1, help="write test_arrays.npz (per-impression metrics of every row; several GB on MIND-large)")
     ap.add_argument("--with-pop", type=int, default=1, help="also report every zero-shot variant fused with V10's online popularity (rows '+pop')")
     ap.add_argument("--repro-pop", default=None, help='V10 "popularity_auc,popularity_ndcg10,bge_zs_pop_auc,bge_zs_pop_ndcg10" (0.6533,0.4026,0.6769,0.4330)')
@@ -792,7 +822,7 @@ def build_parser():
     ap.add_argument("--um-epochs", type=int, default=12)
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
     ap.add_argument("--um-extra", default="ff:frozen,ff:knn_rag,mi1:frozen,mi4:frozen,mi4d:frozen,mi4:text",
-                    help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|mi<K>, K learned interests); '' = none")
+                    help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|prior|mi<K>, K learned interests; prior = history-free click prior); '' = none")
     # reference baselines (NRMS / NAML / Fastformer with the published recipe) and the ablation ladder
     ap.add_argument("--ref-glove", type=int, default=1, help="initialise word vectors from GloVe-300 (downloads it; falls back to random and says so)")
     ap.add_argument("--ref-glove-path", default="", help="GloVe txt/zip to use instead of downloading")
@@ -861,7 +891,7 @@ def main(argv=None):
         emb = dict(zip(meta["ids"], vecs))
     if args.lean_data:
         import data_lean
-        data = data_lean.from_mind_lean(args.mind_train, args.mind_dev, llm_embeddings=emb, log=log)
+        data = data_lean.from_mind_lean(args.mind_train, args.mind_dev, llm_embeddings=emb, log=log, aux="stack" in args.stages.split(","))
     else:
         data = MindData.from_mind(args.mind_train, args.mind_dev, llm_embeddings=emb)
     assert data.n_news - 1 == len(meta["ids"]), "article order mismatch between loader and metadata"

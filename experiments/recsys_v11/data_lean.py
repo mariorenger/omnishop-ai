@@ -11,6 +11,17 @@ the same online popularity and the same negative samples** (``selftest.py`` comp
   * returns the sampled negatives as plain ints.
 
 Use it through ``suite.py --lean-data 1``; MIND-small stays on the verbatim loader.
+
+It also builds what the learned ranker (``stacker.py``) needs and ``data.py`` does not have:
+
+  * ``data.aux_validation`` / ``data.aux_test``: one float32 array ``[n_candidates, 5]`` per impression -- hours since the article first appeared in
+    any earlier impression's candidate list (0 if it never did), ``log1p`` of the number of earlier impressions that showed it, and ``log1p`` of
+    the number of impressions that showed it in the last 1 / 6 / 24 completed clock hours (``exposure_features_lean``).  All **label-free and
+    causal** (only earlier impressions, ties in time scored before any of them is counted, as for the popularity feature);
+  * ``data.item_stats``: per article, how often the training rows (``train_core``) showed it and how often it was clicked there (``train_pos`` /
+    ``train_shown``: what is known before the validation days) and the same counts over ``train_core`` + the validation days (``trainval_pos`` /
+    ``trainval_shown``: what is known before the test day -- the stacker reads the first for validation impressions and the second for test ones, so both see
+    the labelled history up to the day before).
 """
 from __future__ import annotations
 
@@ -48,7 +59,70 @@ def online_log_ctr_lean(cands, labs, tkeys, n_news):
     return out
 
 
-def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_word_freq=3, llm_dim=64, llm_embeddings=None, dev_ratio=0.1, seed=0, log=print):
+EXPO_WINDOWS = (1, 6, 24)                                                  # hours (completed hour buckets before the impression's own)
+
+
+def exposure_features_lean(cands, tkeys, n_news, want):
+    """Label-free, causal exposure features of the impressions flagged in ``want`` (bool over impressions).  For every candidate:
+
+      0  hours since the article first appeared in any EARLIER impression (0 if never);
+      1  ``log1p`` of the number of earlier impressions that showed it;
+      2-4  ``log1p`` of the number of impressions that showed it in the last 1 / 6 / 24 COMPLETED clock hours before the impression's own hour
+           (``EXPO_WINDOWS``; the hour of the impression itself is never counted, so the lag is between 0 and 1 hour).
+
+    Impressions with the same time stamp are scored before any of them is counted (columns 0-1).  Returns a list (``None`` for impressions not
+    wanted) of float32 arrays ``[len(candidates), 5]``."""
+    tk = np.asarray(tkeys, np.int64)
+    hour = (tk - tk.min()) // 3600
+    nb = int(hour.max()) + 1
+    per_hour = np.zeros((nb + 1, n_news), np.int32)                           # cum[b] = shows in the hours before hour b
+    by_hour = [[] for _ in range(nb)]
+    for k, h in enumerate(hour):
+        by_hour[h].append(k)
+    for h in range(nb):
+        if by_hour[h]:
+            per_hour[h + 1] = np.bincount(np.concatenate([np.asarray(cands[k], np.int64) for k in by_hour[h]]), minlength=n_news)
+    cum = np.cumsum(per_hour, axis=0, dtype=np.int32)
+    shown = np.zeros(n_news, np.float64)
+    first = np.full(n_news, -1, np.int64)
+    order = np.argsort(tk, kind="stable")
+    ts = tk[order]
+    cut = np.flatnonzero(np.diff(ts)) + 1
+    starts, ends = np.concatenate([[0], cut]), np.concatenate([cut, [len(order)]])
+    out = [None] * len(cands)
+    for s_, e_ in zip(starts, ends):
+        grp = order[s_:e_]
+        now = int(ts[s_])
+        for k in grp:
+            if want[k]:
+                c = np.asarray(cands[k], np.int64)
+                f = first[c]
+                age = np.where(f >= 0, (now - f) / 3600.0, 0.0)
+                b = int(hour[k])
+                win = [np.log1p((cum[b] - cum[max(b - w, 0)])[c]) for w in EXPO_WINDOWS]
+                out[k] = np.stack([age, np.log1p(shown[c])] + win, 1).astype(np.float32)
+        for k in grp:
+            c = np.asarray(cands[k], np.int64)
+            np.add.at(shown, c, 1.0)
+            new = c[first[c] < 0]
+            first[new] = now
+    return out
+
+
+def item_stats_lean(cands, labs, idx, n_news, chunk=200_000):
+    """Per-article counts over the impressions ``idx``: how often it was shown and how often it was clicked."""
+    shown, pos = np.zeros(n_news, np.float64), np.zeros(n_news, np.float64)
+    idx = np.asarray(idx, np.int64)
+    for s in range(0, len(idx), chunk):
+        part = idx[s:s + chunk]
+        c = np.concatenate([np.asarray(cands[i], np.int64) for i in part]) if len(part) else np.zeros(0, np.int64)
+        y = np.concatenate([np.asarray(labs[i], np.float64) for i in part]) if len(part) else np.zeros(0)
+        shown += np.bincount(c, minlength=n_news)
+        pos += np.bincount(c, weights=y, minlength=n_news)
+    return pos.astype(np.float32), shown.astype(np.float32)
+
+
+def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_word_freq=3, llm_dim=64, llm_embeddings=None, dev_ratio=0.1, seed=0, log=print, aux=True):
     rng = np.random.default_rng(seed)
 
     def read_news(path):
@@ -187,6 +261,19 @@ def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_w
     test_days = sorted({iso(d) for d in te[5]})
     for i in core_idx:                                                  # the training rows' popularity is never read again: free it before the samples are built
         pop[i] = None
+    aux_val = aux_test = item_stats = None
+    if aux:                                                             # label-free exposure features of the validation / test slates + training-row item counts
+        t0 = time.time()
+        want = np.zeros(n_tr + n_te, bool)
+        want[val_idx] = True
+        want[n_tr:] = True
+        feats = exposure_features_lean(tr[3] + te[3], tr[6] + te[6], n_news, want)
+        aux_val, aux_test = [feats[i] for i in val_idx], feats[n_tr:]
+        del feats
+        pos_cnt, shown_cnt = item_stats_lean(tr[3], tr[4], core_idx, n_news)
+        pos_tv, shown_tv = item_stats_lean(tr[3], tr[4], core_idx + val_idx, n_news)             # everything labelled before the test day: the same "yesterday included" as for validation
+        item_stats = {"train_pos": pos_cnt, "train_shown": shown_cnt, "trainval_pos": pos_tv, "trainval_shown": shown_tv}
+        log(f"    exposure features and item counts ({time.time() - t0:.0f}s)")
 
     train_core = []
     for i in core_idx:
@@ -207,5 +294,8 @@ def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_w
         "raw_train_impressions": n_tr, "train_core_impressions": len(core_idx), "validation_impressions": len(validation), "test_impressions": len(test),
     }
     print(f"  chronological split: {len(core_idx):,} train_core / {len(validation):,} validation / {len(test):,} official test impressions")
-    return MindData(news_title, news_cat, n_news, len(uid_map), len(vocab), len(cat_map) + 1, title_len, max_hist, llm_emb, train_core, validation, test,
+    data = MindData(news_title, news_cat, n_news, len(uid_map), len(vocab), len(cat_map) + 1, title_len, max_hist, llm_emb, train_core, validation, test,
                     len(core_idx), len(validation), len(test), train_days_iso, val_days_iso, test_days, split_info, [])
+    if aux:
+        data.aux_validation, data.aux_test, data.item_stats = aux_val, aux_test, item_stats
+    return data

@@ -11,7 +11,8 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOKS = {"small": "v14_supermodel.ipynb", "large": "v14_mindlarge_hf_supermodel.ipynb"}
 MODULES = ["data.py", "metrics.py", "common.py", "rep_eval.py", "semgraph.py", "adapt.py", "fields.py", "pooling.py", "sid.py", "llm_user.py", "llm_gen.py",
-           "refdata.py", "refmodels.py", "usermodel.py", "stages_ext.py", "stages_ref.py", "supermodel.py", "final_report.py", "data_lean.py", "hf_mind.py", "suite.py"]
+           "refdata.py", "refmodels.py", "usermodel.py", "stages_ext.py", "stages_ref.py", "supermodel.py", "featscore.py", "stacker.py", "final_report.py", "data_lean.py",
+           "hf_mind.py", "suite.py"]       # suite.py imports stacker.py (v15); the committed v14 notebooks keep the code of the run that was measured -- do not regenerate them
 
 
 def lines(s):

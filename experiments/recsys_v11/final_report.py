@@ -1,7 +1,7 @@
-"""FINAL_REPORT.md of a single-model run: the supermodel, what every technique adds on its own, and the reference baselines.
+"""FINAL_REPORT.md of a single-model run: the supermodel, the stacker (v15), what every technique adds on its own, and the reference baselines.
 
 Nothing here is measured again: every number comes from the rows / caches of the finished ``Suite`` (``S.records`` / ``S.cache``) and from
-``S.kv["supermodel"]`` (weights, rungs, leave-one-group-out).  The text only names what a table shows; it draws no conclusion that the numbers do not
+``S.kv["supermodel"]`` (weights, rungs, leave-one-group-out) and ``S.kv["stack"]`` (backend, objective, importances).  The text only names what a table shows; it draws no conclusion that the numbers do not
 carry (the verdict words are the ones ``rep_eval.verdict`` and the Bonferroni rule of ``suite.representatives`` already give).
 
 The reference baselines (NRMS / NAML / Fastformer) are NOT trained by the notebooks that call this module: their numbers were measured in the
@@ -32,6 +32,15 @@ EARLIER_BASELINES = (
 )
 EARLIER_BASELINES_POP = (("NRMS + pop (v7)", 0.4383), ("NAML + pop (v7)", 0.4366), ("Fastformer + pop (v13)", 0.4381))
 MIND_SMALL_TEST = 73_152
+MIND_LARGE_DEV = 376_471
+# Published numbers on MIND-large, taken from search results / survey snippets (the papers' PDFs were NOT opened): (model, AUC, nDCG@10).  They are on the
+# leaderboard's own test set, not on MINDlarge_dev, so a difference of ~0.01 means nothing.  None = not seen.
+PUBLISHED_LARGE = (
+    ("NRMS (GloVe), range over papers", "0.670 - 0.691", "0.418 - 0.434"),
+    ("PLM-NR", "0.7064", "0.4438"),
+    ("UNBERT", "0.7068", "0.4478"),
+    ("leaderboard top, ensemble Fastformer + PLM-NR", "0.7268", None),
+)
 
 DIRECTIONS = {
     "H8-pooling": "late-interaction / top-k pooling over the frozen vectors",
@@ -93,7 +102,10 @@ def health(S, extra_suites=()):
         caps.append(f"validation {len(S.data.validation):,} of {S.data.validation_impressions:,} impressions (random, fixed seed)")
     if len(S.data.test) < S.data.test_impressions:
         caps.append(f"test {len(S.data.test):,} of {S.data.test_impressions:,} impressions (random, fixed seed)")
-    if getattr(S.data, "train_core_all", None) is not None:
+    ts = S.kv.get("train_samples")                                  # recorded by the stacker when it frees the samples
+    if ts and ts["used"] < ts["all"]:
+        caps.append(f"training samples of the learned stages {ts['used']:,} of {ts['all']:,}")
+    elif getattr(S.data, "train_core_all", None) is not None:
         caps.append(f"training samples of the learned stages {len(S.data.train_core):,} of {len(S.data.train_core_all):,}")
     if getattr(S.args, "skip_user_rag", 0):
         caps.append("row `user_rag` skipped")
@@ -151,6 +163,78 @@ def main_table(S):
                 out.append(f"| {l['removed']} | {l['test_ndcg10']:.4f} | {l['full_test_ndcg10']:.4f} | {ci(l['d_vs_full'])} |")
             out += [""]
     return out
+
+
+def stack_section(S):
+    """Section 1b: the stacker's three variants, paired against the best supermodel rung chosen on VALIDATION, and what its inputs contributed."""
+    st = S.kv.get("stack")
+    if "stack" not in (S.kv.get("stage_status") or {}):
+        return []
+    out = ["## 1b. The stacker: a gradient-boosted ranker over the exported scores and label-free features", ""]
+    if not st:
+        return out + ["(the stack stage did not run: see section 0)", ""]
+    out += [f"Backend {st['backend']}, objective `{st.get('objective')}`" + (f" (chosen on the held-out part of fold 0: {', '.join(f'{k} {v:.4f}' for k, v in st['objective_scan'].items())})" if st.get("objective_scan") else "")
+            + f", {st['folds']} folds split by user, {st['n_features']} features from {len(st['components'])} exported components.  Trained on validation impressions only; "
+            "the validation column is OUT-OF-FOLD; the test column is the mean over the fold models of their per-impression z-scores.", "",
+            "* `stack_llm`: exported scores (zero-shot, readers, history-free click prior, auxiliary scorers; every encoder run given) + history / slate features of the frozen vectors;",
+            "* `stack_meta`: + how often the training rows showed / clicked the article, its category's CTR, and its exposure in the impression log (hours since first shown, shown "
+            "before, shown in the last 1 / 6 / 24 completed hours) -- everything available offline, the variant comparable with leaderboards;",
+            "* `stack_pop`: + V10's online popularity, which counts the clicks of earlier impressions of the test day itself (streaming feedback: NOT comparable with offline papers).", "",
+            "| row | n test | val nDCG@10 (out-of-fold) | AUC | MRR | nDCG@5 | nDCG@10 | cold AUC | warm AUC |", "|---|---|---|---|---|---|---|---|---|"]
+    names = [n for n in ("stack_llm", "stack_meta", "stack_pop") if n in st.get("variants", {}) and _row(S, n)]
+    for n in names:
+        r = _row(S, n)
+        out.append("| " + " | ".join([f"`{n}`", f"{r['n_test']:,}", f4(r["val_ndcg@10"]), f4(r["auc"]), f4(r["mrr"]), f4(r["ndcg@5"]), f4(r["ndcg@10"]),
+                                      f4(r.get("cold_auc")), f4(r.get("warm_auc"))]) + " |")
+    out += [""]
+    sm = S.kv.get("supermodel") or {}
+    ok_rung = lambda r: r["name"] in S.cache and "apex" not in r["name"] and r["n_test"] == len(S.data.test)
+    best = {pop: max((r for r in sm.get("rungs", []) if r["pop"] == pop and ok_rung(r)), key=lambda r: r["val_ndcg10"], default=None) for pop in (False, True)}
+    pairs = []
+    for n, pop in (("stack_llm", False), ("stack_meta", False), ("stack_pop", True)):
+        if n in S.cache and best[pop]:
+            pairs.append((n, best[pop]["name"], f"best supermodel rung on validation ({'with' if pop else 'without'} popularity)"))
+    for a, b, why in (("stack_meta", "stack_llm", "what the article counts and exposure add"), ("stack_pop", "stack_meta", "what the streaming popularity adds")):
+        if a in S.cache and b in S.cache:
+            pairs.append((a, b, why))
+    for ref in ("txt_cta_lse", "um_knn_rag", "pool_lse", "frozen"):                    # single components the stacker is made of
+        if "stack_llm" in S.cache and ref in S.cache:
+            pairs.append(("stack_llm", ref, "single component"))
+    if pairs:
+        out += ["Paired differences on the common test impressions (A - B):", "", "| A | B | why this pair | Δ nDCG@10 [95% CI] | Δ AUC [95% CI] | Δ cold AUC [95% CI] |", "|---|---|---|---|---|---|"]
+        for a, b, why in pairs:
+            ta, tb = S.cache[a]["test"], S.cache[b]["test"]
+            out.append(f"| `{a}` | `{b}` | {why} | {ci(R.compare(ta, tb, 'ndcg@10'))} | {ci(R.compare(ta, tb, 'auc'))} | {ci(R.compare_slice(ta, tb, 'cold'))} |")
+        out += [""]
+    if any(st["variants"][n].get("group_gain_share") for n in names):
+        out += ["Share of the trees' total split gain by input group (a description of the fitted model, not a causal effect; the scikit-learn fallback reports none):", "",
+                "| variant | " + " | ".join(("scores", "ctx", "meta", "pop")) + " | most-used features |", "|---|---|---|---|---|---|"]
+        for n in names:
+            v = st["variants"][n]
+            g = v.get("group_gain_share") or {}
+            out.append(f"| `{n}` | " + " | ".join(f"{g[k]:.2f}" if k in g else "-" for k in ("scores", "ctx", "meta", "pop")) + " | "
+                       + ", ".join(f"{k.split(':', 1)[-1]} ({x:.2f})" for k, x in (v.get("top_features") or [])[:6]) + " |")
+        out += [""]
+    out += ["How to read it: the ranker is fitted on the validation split.  Where that split is warmer than the test split (measured on MIND-large: RESULTS_v14_large.md section 2.2) its "
+            "validation (out-of-fold) numbers are optimistic about the test numbers, like every other validation number of this report; only the test column and the paired differences above "
+            "are the result.", ""]
+    return out
+
+
+def published_large(S):
+    """Published MIND-large numbers, printed only for a run on MINDlarge_dev, flagged as secondary."""
+    if len(S.data.test) != MIND_LARGE_DEV:
+        return []
+    out = ["## 4. Published MIND-large numbers (secondary: from search results, the papers were not opened)", "",
+           "They are measured on the benchmark's own test set, not on `MINDlarge_dev`, with other training data and tuning; a difference of about 0.01 AUC is not a statement about the models.  "
+           "Offline rows only: the `+pop` rows use streaming feedback and have no counterpart here.", "",
+           "| model | AUC | nDCG@10 |", "|---|---|---|"]
+    out += [f"| {m} | {a} | {n or '-'} |" for m, a, n in PUBLISHED_LARGE]
+    mine = [(n, _row(S, n)) for n in ("super_zs", "super_llm", "stack_llm", "stack_meta")]
+    mine = [(n, r) for n, r in mine if r is not None and r["n_test"] == len(S.data.test)]
+    if mine:
+        out += ["", "This run, same 376,471 impressions, offline rows only:", "", "| row | AUC | nDCG@10 |", "|---|---|---|"] + [f"| `{n}` | {f4(r['auc'])} | {f4(r['ndcg@10'])} |" for n, r in mine]
+    return out + [""]
 
 
 def technique_table(S):
@@ -222,7 +306,7 @@ def build(S, path=None, json_path=None, extra_suites=()):
     title = f"# Final report: one model ({os.path.basename(S.args.encoder.rstrip('/'))}) with every technique applied -- {len(S.data.test):,} test impressions"
     parts = [[title, "", "Everything below is read from the finished run; nothing is measured again.  Confidence intervals are paired over the common impressions and "
               "cover the sampling of the test impressions only, not the training randomness of the learned readers / tower (a seed ensemble is used for them).", ""]]
-    for fn in (lambda s: health(s, extra_suites), main_table, technique_table, earlier_baselines):
+    for fn in (lambda s: health(s, extra_suites), main_table, stack_section, technique_table, earlier_baselines, published_large):
         try:
             parts.append(fn(S))
         except Exception as e:                                  # a report section must never cost the run
@@ -233,6 +317,6 @@ def build(S, path=None, json_path=None, extra_suites=()):
     if json_path:
         checks = {**{f"run: {k}": v for k, v in (S.kv.get("checks") or {}).items()},
                   **{f"{os.path.basename(x.args.encoder.rstrip('/'))}: {k}": v for x in extra_suites for k, v in (x.kv.get("checks") or {}).items()}}
-        common.atomic_write(json_path, json.dumps({"supermodel": S.kv.get("supermodel"), "stage_status": S.kv.get("stage_status"), "checks": checks},
+        common.atomic_write(json_path, json.dumps({"supermodel": S.kv.get("supermodel"), "stack": S.kv.get("stack"), "stage_status": S.kv.get("stage_status"), "checks": checks},
                                                   indent=1, default=str))
     return md

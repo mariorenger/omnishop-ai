@@ -406,7 +406,7 @@ def stage_usermodel(S, args):
         kind, _, vname = item.partition(":")
         V = views.get(vname)
         if not UM.is_reader(kind) or kind == "ca" or V is None:
-            log(f"  {item}: skipped (reader must be add|nrms|ff|mi<K> and the view must have been built)")
+            log(f"  {item}: skipped (reader must be add|nrms|ff|prior|mi<K> and the view must have been built)")
             continue
         if S.time_left() < 900:
             log(f"  {item}: skipped (wall-clock budget)")
@@ -421,8 +421,8 @@ def stage_usermodel(S, args):
             extra["attn_tv"] = [i.get("attn_tv") for i in infos]
         S.record(name, fam, {"view": vname, "seeds": seeds_for(vname), "reader": kind}, avg_results(vals), avg_results(tests),
                  ref if ref in S.cache else name, extra)
-        if rag:
-            S.export_scores(name, *rag, {"family": fam, "seeds": len(tests), "kind": "reader"})
+        if rag:                                                                      # the history-free prior is an input of the stacker only (not a personal reader)
+            S.export_scores(name, *rag, {"family": fam, "seeds": len(tests), "kind": "aux" if kind == "prior" else "reader"})
         if S.device == "cuda":
             torch.cuda.empty_cache()
 

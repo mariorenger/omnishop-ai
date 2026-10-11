@@ -1,6 +1,6 @@
 # V11 — bộ so sánh đầy đủ các hướng LLM cho news recommendation (MIND-small)
 
-> **Bản hiện hành: v14 (§0a)** — hai notebook một-mô-hình: `v14_supermodel.ipynb` (MIND-small) và `v14_mindlarge_hf_supermodel.ipynb` (MIND-large tải từ Hugging Face). Không huấn luyện baseline; các phần dưới (v13, v7) mô tả bộ so sánh nhiều hướng đã chạy trước đó.
+> **Bản hiện hành: v15 (§0b)** — hai notebook `v15_stacker.ipynb` (MIND-small) và `v15_mindlarge_hf_stacker.ipynb` (MIND-large tải từ Hugging Face): supermodel tuyến tính của v14 **cộng** một bộ xếp hạng học được (GBDT) trên điểm LLM và đặc trưng nhãn-tự-do. Các phần dưới (v14, v13, v7) mô tả những bản đã chạy trước đó; số đo thật của v14 trên MIND-large nằm ở `RESULTS_v14_large.md`.
 
 **Một lần Run All trên Kaggle (T4) — đã đo 7,52 giờ cho bản v7 đầy đủ (3,2 giờ cho bản v4 cũ; v13 đã đo 8,22 giờ, xem `RESULTS_v13.md`); ngân sách đồng hồ cứng 9.5 giờ** cho ~16 họ kỹ thuật / ~150 biến thể (đếm cả bản `+pop`)
 **và baseline huấn luyện đúng công thức đã công bố (v7: NRMS / NAML / Fastformer; v13: mặc định chỉ Fastformer)**, tất cả đo trên đúng giao thức V10, có khoảng tin cậy ghép cặp, lát cắt tin mới/tin cũ và hiệu chỉnh Bonferroni.
@@ -12,6 +12,43 @@ Bộ đo của V11 thì đúng (khớp `metrics.py`, khớp `bge_zeroshot` của
 
 > ⚠️ **Trạng thái trung thực.** Code được kiểm thử trên CPU với dữ liệu đúng định dạng MIND và các mô hình ngẫu nhiên tí hon; sandbox phát triển không có GPU/MIND/weight.
 > Các con số trên MIND thật (và thời gian) đến từ **các lần chạy Kaggle của bạn** (v4 đầy đủ trên Tesla T4: 3,2 giờ); README không chép lại kết quả — xem `results.md`, `leaderboard*.md`, `direct_comparisons.md` của lần chạy.
+
+## 0b. v15: bộ xếp hạng học được (GBDT) trên điểm LLM + đặc trưng nhãn-tự-do
+
+**Yêu cầu của bản này:** "dùng kỹ thuật LLM là được, cho tôi kết quả tốt nhất" sau khi lần chạy thật của v14 trên MIND-large (2,9 giờ, mọi stage xong; `RESULTS_v14_large.md`) cho `super_zs` AUC 0,6762 / nDCG@10 0,4277 — thấp hơn các mô hình PLM công bố ~0,03 AUC (số công bố lấy từ kết quả tìm kiếm, chưa mở PDF).
+
+**Chẩn đoán từ số đo thật của v14** (không phải phỏng đoán): (1) **validation ấm hơn test** — reader / RAG hơn `frozen` +0,03…+0,07 trên validation nhưng chỉ +0,02…−0,007 trên test (82% click của test là bài lạnh), nên một bộ trọng số khớp trên validation tin chúng quá mức;
+(2) thêm 3 reader + `hist100_lse` vào ghép tuyến tính làm test **giảm** −0,0014 dù validation tăng; (3) encoder lớn hơn không phải nguyên nhân chính (MIND-small: bge-large ≈ bge-small); (4) bậc `super_apex+pop` khởi tạo sai (từ trọng số không-pop) nên thua `super_llm+pop` 0,0065 — **đã sửa** (`supermodel.py`, test (27c) có sức mạnh: mã cũ không qua).
+
+**Việc làm.** Không thay đổi các kỹ thuật đã đo; thêm một lớp học cách *tin* chúng tuỳ tình huống:
+* `stacker.py` + stage `stack`: **XGBoost** (GPU nếu có; dự phòng LightGBM, rồi scikit-learn) xếp hạng ứng viên từ bảng đặc trưng (điểm z-score của mọi thành phần đã xuất, của cả hai encoder; đặc trưng lịch sử / slate; meta; tuỳ chọn popularity online).
+  Huấn luyện **chỉ trên impression validation**, K fold chia theo **người dùng**, dừng sớm trên 1/10 người dùng của phần huấn luyện; điểm validation báo cáo là **out-of-fold**; điểm test = trung bình (sau z-score trong impression) của các mô hình fold, tính một lần ở cuối; mục tiêu (`rank:ndcg` hay `binary:logistic`) chọn trên phần giữ lại của fold 0.
+  Ba biến thể: `stack_llm` (điểm + lịch sử/slate), `stack_meta` (+ meta, **vẫn offline**), `stack_pop` (+ popularity online của V10: streaming, **không so được** với số offline).
+* `featscore.py`: 11 đặc trưng tính từ vector đóng băng — độ giống click gần nhất / 3 click gần nhất, `in_hist`, tỉ lệ category / subcategory trong lịch sử, trùng category với click gần nhất, độ dài lịch sử, cỡ slate, độ giống trung bình / lớn nhất với các ứng viên khác, tỉ lệ cùng category trong slate.
+* `data_lean.py` (khi có stage `stack`): **đặc trưng phơi nhiễm nhãn-tự-do** của mỗi ứng viên — số giờ từ lần đầu bài xuất hiện trong một impression *trước đó*, số impression trước đã hiển thị nó, và số impression hiển thị nó trong 1 / 6 / 24 giờ (đã trọn giờ) trước giờ của impression — cùng **đếm theo bài** (đã hiển thị / click bao nhiêu lần: bằng `train_core` cho impression validation, `train_core` + các ngày validation cho impression test, để cả hai nhìn thấy "mọi thứ đã có nhãn đến hôm trước"). Chỉ dùng impression sớm hơn theo thời gian (đồng thời được tính trước khi đếm); không dùng nhãn của test.
+* Reader **`prior`** (`um_prior_*`, kind `aux`): chỉ nhìn nội dung bài ("loại bài nào hay được click"), huấn luyện như các reader khác; chỉ stacker đọc, supermodel không.
+* **Encoder thứ hai** (BGE-large, chỉ scorer zero-shot): điểm của nó vào stacker (và vào supermodel qua `--super-dirs`).
+* Các điểm "phụ" (`frozen`, `pool_topk` / `maxsim` / `recency`, `txt_*` mean-pool, `hist*_mean`, RAG, GraphRAG) cũng được xuất (kind `aux`) nhưng **chỉ stacker đọc** — đo ở v14 cho thấy RAG / GraphRAG đổi dấu từ validation sang test nên không đưa vào ghép tuyến tính.
+* Bỏ tower LoRA (v14: n=30 000 → ngang `pool_lse`, tốn 2 614 s). `final_report.py` thêm mục 1b (stacker) và, chỉ cho `MINDlarge_dev`, mục 4 (số công bố, đánh dấu thứ cấp).
+
+**Notebook** (sinh bởi `make_notebook_v15.py`; Run All, bật GPU + Internet):
+
+| Notebook | Dữ liệu | Ước thời gian (chưa đo) |
+|---|---|---|
+| `v15_stacker.ipynb` | MIND-small từ Kaggle input; kiểm tra giao thức BGE-small 1–2 phút | ~2,5 giờ trên T4 |
+| `v15_mindlarge_hf_stacker.ipynb` | MIND-large từ Hugging Face; validation 150 000 impression, 1,2 triệu mẫu train, `--um-epochs 5`; BGE-large rồi Qwen3 | ~3–5 giờ (v14 đo 2,9 giờ cho phần tương đương), ngân sách cứng 10 giờ |
+
+Công tắc môi trường: `V11_ENCODER2=` (rỗng: bỏ encoder thứ hai), `V11_STACK_BACKEND`, `V11_STACK_FOLDS`, `V11_SAVE_SCORES=1` (ghi `stack_scores.npz`), `V11_VAL_MAX`, `V11_TRAIN_SUB`, `V11_UM_EPOCHS`, `V11_BASE` (thư mục làm việc).
+
+**Chống rò nhãn (có test, và test đã được thử bằng cách cố ý gây rò):** bảng đặc trưng của test không đọc nhãn (đảo nhãn test → bảng y hệt); chạy lại **toàn bộ** pipeline với nhãn test bị xáo trong từng impression → điểm validation và điểm test của `stack_llm` / `stack_meta` **giống hệt từng bit** (chỉ `stack_pop` đổi, vì popularity online đúng là đọc click của các impression trước trong ngày test); điểm out-of-fold của một fold không đổi khi chỉ lật nhãn của chính fold đó (các fold khác đổi). Hai đột biến cố ý (nhét nhãn test vào bảng; đưa phần giữ lại vào phần huấn luyện) đều bị test bắt.
+
+**Dự đoán ghi trước khi chạy** (phỏng đoán, không phải kết quả; để lúc xem số không tự thuyết phục):
+* `stack_llm` hơn `super_llm` với CI ghép cặp loại trừ 0 (xác suất ~65%); cold AUC của stacker cao hơn của supermodel; mức tăng nDCG@10 nằm trong +0,003 … +0,02.
+* `stack_meta` > `stack_llm` (xác suất ~60%): độ phơi nhiễm / tuổi bài là tín hiệu "bài đang hot" mà nội dung không có. `stack_pop` > `stack_meta` nhưng chênh lệch nhỏ hơn mức +0,028 mà popularity online cộng cho supermodel (một phần thông tin đó đã nằm trong đặc trưng phơi nhiễm).
+* Không mong đợi chạm mức PLM end-to-end (~0,706 AUC) — chúng được tinh chỉnh toàn bộ encoder trên toàn bộ dữ liệu; nếu stacker thu hẹp được khoảng cách thì đó là phần thưởng, không phải mục tiêu.
+
+**Giới hạn đã biết của thiết kế:** (i) stacker học trên **một** ngày validation (4 fold theo người dùng không chống được hiệu ứng riêng của ngày đó); đã thay mã category thô bằng CTR theo category để cây khó học thuộc, nhưng không loại trừ hoàn toàn; (ii) đặc trưng phơi nhiễm đọc **danh sách ứng viên của chính impression test** (không nhãn) — thông tin có sẵn lúc dự đoán nhưng một hệ chỉ biết lịch sử và nội dung thì không có, nên `stack_llm` và `stack_meta` được báo riêng;
+(iii) XGBoost GPU không tất định đến từng bit (CPU thì có: test chạy lặp 3 lần giống hệt); (iv) không tinh chỉnh siêu tham số cây (mặc định: eta 0,06, độ sâu 7, ≤ 800 cây, dừng sớm 50) ngoài việc chọn mục tiêu; (v) CI ghép cặp chỉ phản ánh mẫu test, không phản ánh nhiễu huấn luyện của reader / cây.
 
 ## 0a. v14: Supermodel — MỘT mô hình, đủ kỹ thuật, không baseline; và bản thử MIND-large tải từ Hugging Face
 
@@ -199,6 +236,16 @@ HTTP tải tiếp khi bị ngắt, và **tải cụt không bao giờ được n
 Phép thử này chỉ cho thấy đường dữ liệu / evaluator / supermodel không có điểm nghẽn bậc hai; nó **không** thay cho một lần chạy trên Kaggle thật (GPU, vector 1024 chiều, 2,6 triệu impression).
 ❌ **Chưa kiểm chứng (v14):** bố cục thật của repo `Recommenders/MIND` (sandbox chặn huggingface.co; bộ tải dò lúc chạy và in danh sách file nếu lỗi); chạy trên Kaggle thật (RAM / GPU / giờ của MIND-large); kết quả của supermodel.
 
+✅ **v15** (CPU; sandbox không có GPU / MIND thật / Hugging Face): `selftest.py` + `selftest_v14.py` + `selftest_v15.py` — **56 kiểm tra qua** (v14: 45). Thêm so với v14: đặc trưng phơi nhiễm (tuổi bài, số lần hiển thị trước, số lần hiển thị trong 1 / 6 / 24 giờ đã trọn) và đếm theo bài của bộ đọc lean **bằng** phép tính lại độc lập bằng Python thuần từ file thô (kể cả các impression trùng giờ), có ca tay cho trùng thời điểm;
+`featscore.batch_features` **bằng** định nghĩa viết tay (độ lệch lớn nhất 4e-7) kể cả lịch sử rỗng và padding; bảng đặc trưng của stacker **bằng** tính lại độc lập từng cột, chia lô == nguyên khối, mọi biến thể là tiền tố của bảng, bảng test không phụ thuộc nhãn test; fold chia theo người dùng, rời nhau;
+ba backend (XGBoost / LightGBM / scikit-learn) học được tín hiệu xếp hạng gài sẵn; yêu cầu GPU thất bại thì rơi về CPU (giả lập lỗi GPU vì XGBoost 3.x tự chuyển sang CPU khi không thấy GPU); lỗi import rơi xuống backend kế; CPU bị giới hạn số hàng huấn luyện;
+stage `stack` từ đầu đến cuối: hàng validation **bằng** phép tính lại từ điểm out-of-fold theo `metrics.py` của V10, điểm test **bằng** trung bình z-score của các mô hình fold; từ chối chạy khi không có điểm xuất; bỏ biến thể `meta` khi dùng bộ đọc nguyên văn;
+**chống rò nhãn:** chạy lại *toàn bộ* pipeline trên bản sao dữ liệu có nhãn test xáo trong từng impression ⇒ điểm validation và điểm test của `stack_llm` / `stack_meta` giống hệt từng bit; điểm out-of-fold của fold k không đổi khi chỉ lật nhãn của fold k. Hai đột biến cố ý (đưa nhãn test vào bảng test; đưa phần giữ lại vào phần huấn luyện của chính nó) đều bị test bắt (thử bằng script riêng, không nằm trong selftest);
+`super_apex+pop` khởi tạo từ `super_llm+pop` (test (27c) với popularity có thông tin: mã cũ không qua test này); reader `prior` bỏ qua lịch sử và học được "loại bài hay được click"; `um_prior_*` và các điểm phụ có kind `aux` và không bao giờ lọt vào ứng viên của supermodel; mục 1b / 4 của báo cáo khớp số của lần chạy.
+✅ Mô phỏng "Run All" của **cả hai** notebook v15 từ thư mục trống (CPU, mô hình tí hon, mã thoát 0, 0 stage lỗi; bản large qua Hub giả): hai lần `suite.main` (encoder thứ hai rồi encoder chính), supermodel + stacker, `HEADLINE.md`, `FINAL_REPORT.md`, `SUMMARY_v15.md`.
+✅ Thử quy mô (CPU 4 nhân, dữ liệu **tổng hợp** hình dạng MIND-large: 800 000 impression train + 150 000 dev, 120 000 bài, encoder tí hon): `controls … supermodel, stack` xong, RAM đỉnh 5,3 GB; bảng validation 2,16 triệu hàng × 53 cột; riêng stage `stack` 110 giây trên CPU. Chỉ cho thấy đường dữ liệu không có điểm nghẽn bậc hai; **không** thay cho một lần chạy Kaggle thật (GPU XGBoost, vector 1024 chiều, 5,5 triệu hàng × ~110 cột).
+❌ **Chưa kiểm chứng (v15):** hiệu năng thật của stacker (không có dữ liệu MIND ở sandbox); XGBoost trên GPU của Kaggle (phiên bản, bộ nhớ, tốc độ); thời gian / RAM của stage `stack` ở quy mô thật (ước 20–60 phút, ~10 GB); BGE-large qua Sentence-Transformers và guard pooling trên Kaggle; bố cục repo `Recommenders/MIND` đã chạy ở v14 nên không còn là rủi ro.
+
 ❌ **Chưa kiểm chứng:** Fastformer cài lại có khớp mã chính thức về siêu tham số hay không; số bài báo ở §10 (lấy từ kết quả tìm kiếm, chưa mở PDF); kết luận có chuyển sang dataset khác (MIND-large, EB-NeRD) hay không; hầu hết hàng chỉ có **1 seed huấn luyện** (nhiễu seed đo được: 0,007 nDCG@10 giữa hai seed của NRMS, 0,010–0,012 giữa hai seed của tower — xem `RESULTS_v7.md`), nên chênh lệch nhỏ hơn mức đó giữa hai mô hình *đã huấn luyện* chưa phải kết luận.
 
 ## 6b. Sự cố môi trường đã gặp khi chạy thật
@@ -222,7 +269,7 @@ Một dataset, một tập dev. Tower/LoRA/DoRA/SID-GPT mặc định **1 seed**
 `data.py`/`metrics.py` (V10, nguyên văn) · `common.py` (đồng hồ ngân sách, fusion, `ScoreCache`, `HistQueries`) · `rep_eval.py` (evaluator vector hoá, CI ghép cặp, so sánh qua tập con) ·
 `semgraph.py` (RAG/GraphRAG-lite, tên entity) · `adapt.py` (head, LoRA/DoRA, MRL) · `fields.py` (F: biến thể text, ghép view, cache embedding khoá theo nội dung) · `pooling.py` (H8, bộ chấm k-means H11) · `sid.py` (H7) · `llm_user.py` (H5) · `llm_gen.py` (sinh văn bản, giám khảo) · `usermodel.py` (H10, reader Fastformer/NRMS/additive, reader multi-interest `mi<K>`) ·
 `refdata.py` (token, GloVe, dựng lại mẫu huấn luyện V10 + negative bốc lại mỗi epoch) · `refmodels.py` (NRMS/NAML/Fastformer, trainer) · `stages_ref.py` (stage baseline + bảng ablation) ·
-`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard, `--lean-data` / `--val-max` / `--test-max` / `--train-sub`) · `supermodel.py` (v14: ghép thành phần bằng trọng số khớp trên validation, thang, bỏ-một-nhóm) · `final_report.py` (v14: `FINAL_REPORT.md`) · `hf_mind.py` (v14: tải MIND từ Hugging Face) · `data_lean.py` (v14: bộ đọc MIND ít RAM, cùng split / popularity / negative với `data.py`) · `selftest.py` + `selftest_v14.py` (test (23)–(31) của v14) · `make_notebook.py` (sinh cả hai notebook v14) · `v14_supermodel.ipynb` và `v14_mindlarge_hf_supermodel.ipynb` (notebook hiện hành) · `v13_suite_moredata.ipynb` (notebook v13, đã đo) · `v11_full_suite_v7.ipynb` (đúng notebook đã tạo ra `RESULTS_v7.md`, tự chứa mã của nó; giữ nguyên để tái lập) · `RESULTS_v7.md` (kết quả đo thật của lần chạy đầy đủ v7: bảng, nhiễu seed, nhận định, giới hạn) · `RESULTS_v13.md` (kết quả đo thật của lần chạy đầy đủ v13 và bảng so sánh v7 ↔ v13).
+`stages_ext.py` (các stage mới) · `suite.py` (registry, resume, ngân sách, tổng hợp, leaderboard, `--lean-data` / `--val-max` / `--test-max` / `--train-sub`) · `supermodel.py` (v14: ghép thành phần bằng trọng số khớp trên validation, thang, bỏ-một-nhóm) · `final_report.py` (v14: `FINAL_REPORT.md`) · `hf_mind.py` (v14: tải MIND từ Hugging Face) · `data_lean.py` (v14: bộ đọc MIND ít RAM, cùng split / popularity / negative với `data.py`; v15: thêm đặc trưng phơi nhiễm và đếm theo bài) · `featscore.py` (v15: đặc trưng lịch sử / slate từ vector đóng băng) · `stacker.py` (v15: bộ xếp hạng GBDT, stage `stack`) · `selftest.py` + `selftest_v14.py` + `selftest_v15.py` (test (23)–(31) của v14, (32)–(38) của v15) · `make_notebook.py` (sinh hai notebook v14) · `make_notebook_v15.py` (sinh hai notebook v15) · `v15_stacker.ipynb` và `v15_mindlarge_hf_stacker.ipynb` (notebook hiện hành) · `v14_supermodel.ipynb` và `v14_mindlarge_hf_supermodel.ipynb` (v14; số đo thật của bản MIND-large ở `RESULTS_v14_large.md`) · `v13_suite_moredata.ipynb` (notebook v13, đã đo) · `v11_full_suite_v7.ipynb` (đúng notebook đã tạo ra `RESULTS_v7.md`, tự chứa mã của nó; giữ nguyên để tái lập) · `RESULTS_v7.md` (kết quả đo thật của lần chạy đầy đủ v7: bảng, nhiễu seed, nhận định, giới hạn) · `RESULTS_v13.md` (kết quả đo thật của lần chạy đầy đủ v13 và bảng so sánh v7 ↔ v13).
 
 ## 9. Tài liệu
 
