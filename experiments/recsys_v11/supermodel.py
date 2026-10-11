@@ -6,10 +6,11 @@ seeds' z-scores), the trained Fastformer / NRMS / NAML baselines (same), the LoR
 test *subset*).  This module reads them back and builds the combined model in a way that cannot touch the test split before the end:
 
   1. components are z-scored inside every impression (the recipe of V10's ``bge_zs_pop`` and of ``common.fuse``);
-  2. the BASE is the single LLM-side model (zero-shot or learned reader) with the best validation nDCG@10;
+  2. the BASE is the single LLM-side model (zero-shot or learned reader) with the best COLD-WEIGHTED validation nDCG@10 (v16: the validation impressions are
+     re-weighted so that their cold / warm click mix is the test split's -- ``Suite.val_weights``; v15 chose ``um_text``, strong on warm articles, over ``um_knn_rag``);
   3. rungs add one group of techniques at a time -- the other zero-shot scorers, the learned readers, the trained baselines (hybrid),
      the LLM tower (on its subset) -- and a ``+pop`` twin adds V10's online popularity; at every rung the weights are re-fitted on
-     VALIDATION by coordinate ascent on nDCG@10 (the base keeps weight 1, a small grid, a few sweeps);
+     VALIDATION by coordinate ascent on the same weighted nDCG@10 (the base keeps weight 1, a small grid, a few sweeps);
   4. the test split is evaluated once per rung with the validation weights, and a leave-one-group-out table says what each group contributes
      to the final model.
 
@@ -121,9 +122,11 @@ def ndcg_tie_aware(S, Y, M, k=10):
 class Fusion:
     """Z-scored component scores of ``rows[ids]`` (+ optionally V10's online popularity as the last component), laid out batch by batch."""
 
-    def __init__(self, rows, comps, split, ids, device, with_pop=False, es=None):
+    def __init__(self, rows, comps, split, ids, device, with_pop=False, es=None, imp_w=None):
+        """``imp_w``: optional weight of every impression of the split (indexed by original row id, e.g. ``Suite.val_weights()``); ``ndcg10`` is then the weighted mean."""
         self.rows, self.comps, self.split, self.device, self.with_pop = rows, comps, split, device, with_pop
         self.ids = np.asarray(ids, np.int64)
+        self.imp_w = None if imp_w is None else np.asarray(imp_w, np.float64)[self.ids]
         full = len(self.ids) == len(rows) and np.array_equal(self.ids, np.arange(len(rows)))
         if full and es is not None and len(es.rows) == len(rows):          # the Suite's own EvalSet: same batches, no second copy on the device
             self.es = es
@@ -161,18 +164,24 @@ class Fusion:
 
     def batches(self):
         if self._batches is None:
-            self._batches = [(b["labels"], b["cand_mask"], self._assemble(b)) for b in self.es]
+            self._batches = [(b["labels"], b["cand_mask"], self._assemble(b),
+                              None if self.imp_w is None else torch.as_tensor(self.imp_w[b["rows"]], dtype=torch.float32, device=self.device)) for b in self.es]
         return self._batches
 
     @torch.no_grad()
     def ndcg10(self, w):
+        """nDCG@10 of the weighted sum of the components, averaged over the impressions (weighted by ``imp_w`` when there is one)."""
         wt = torch.as_tensor(np.asarray(w, np.float32), device=self.device)
-        tot, n = 0.0, 0
-        for Y, M, Z in self.batches():
+        tot, n = 0.0, 0.0
+        for Y, M, Z, W in self.batches():
             m = ndcg_tie_aware(torch.einsum("k,kbc->bc", wt, Z), Y, M)
-            tot += float(m.sum())
-            n += len(m)
-        return tot / max(n, 1)
+            if W is None:
+                tot += float(m.sum())
+                n += len(m)
+            else:
+                tot += float((m * W).sum())
+                n += float(W.sum())
+        return tot / max(n, 1e-12)
 
     def scorer(self, w):
         wt = torch.as_tensor(np.asarray(w, np.float32), device=self.device)
@@ -221,13 +230,15 @@ def stage_supermodel(S, args):
         return False
     dev = S.device
     allv = np.arange(n_val)
-    probe = Fusion(S.data.validation, full, "val", allv, dev, es=S.es["val"])
+    wv = S.val_weights()                           # validation impressions re-weighted to the test split's cold share: the base, the grid and the weights are chosen on this
+    probe = Fusion(S.data.validation, full, "val", allv, dev, es=S.es["val"], imp_w=wv)
     ranks = {}
     for k, c in enumerate(full):
         e = np.zeros(probe.K)
         e[k] = 1.0
         ranks[c.key] = probe.ndcg10(e)
-    log("  single components on validation (nDCG@10): " + ", ".join(f"{c.key}={ranks[c.key]:.4f}" for c in sorted(full, key=lambda c: -ranks[c.key])[:12]))
+    cw = S.kv.get("cold_weights", {})
+    log(f"  single components on validation (nDCG@10, cold-weighted to {cw.get('target', 0):.0%}): " + ", ".join(f"{c.key}={ranks[c.key]:.4f}" for c in sorted(full, key=lambda c: -ranks[c.key])[:12]))
     baselines_ok = [x for x in args.super_baselines.split(",") if x]
     llm_side = [c for c in full if c.kind in ("zs", "reader")]
     base = max(llm_side, key=lambda c: ranks[c.key])
@@ -252,7 +263,7 @@ def stage_supermodel(S, args):
                 vid, tid = np.intersect1d(vid, c.val["ids"]), np.intersect1d(tid, c.test["ids"])
         else:
             vid, tid = allv, np.arange(n_test)
-        fv = Fusion(S.data.validation, rung_comps, "val", vid, dev, with_pop=pop, es=S.es["val"])
+        fv = Fusion(S.data.validation, rung_comps, "val", vid, dev, with_pop=pop, es=S.es["val"], imp_w=wv)
         ft = Fusion(S.data.test, rung_comps, "test", tid, dev, with_pop=pop, es=S.es["test"])
         w0 = np.zeros(fv.K)
         for i, nm in enumerate(fv.names):
@@ -263,10 +274,10 @@ def stage_supermodel(S, args):
         tres = S.run(ft.scorer(w), "test", es={"test": ft.es})
         weights = {nm: float(x) for nm, x in zip(fv.names, w)}
         row = S.record(name + ("+pop" if pop else ""), "SUPER+pop" if pop else "SUPER",
-                       {"base_component": base.key, "weights": weights, "components": [c.key for c in rung_comps], "fit": f"coordinate ascent on validation nDCG@10, grid {list(GRID)}, {SWEEPS} sweeps"},
+                       {"base_component": base.key, "weights": weights, "components": [c.key for c in rung_comps], "fit": f"coordinate ascent on the cold-weighted validation nDCG@10, grid {list(GRID)}, {SWEEPS} sweeps"},
                        vres, tres, ref_pop if pop else ref,
                        {"val_fit_ndcg10": best, "n_components": len(rung_comps) + int(pop), "fit_s": time.time() - t0})
-        state["rungs"].append({"name": row["name"], "weights": weights, "val_ndcg10": row["val_ndcg@10"], "test_ndcg10": row["ndcg@10"],
+        state["rungs"].append({"name": row["name"], "weights": weights, "val_ndcg10": row["val_ndcg@10"], "val_ndcg10_w": row["val_ndcg@10_w"], "test_ndcg10": row["ndcg@10"],
                                "n_val": row["n_val"], "n_test": row["n_test"], "pop": pop})
         log("    weights: " + ", ".join(f"{k}={v:g}" for k, v in weights.items() if v))
         return weights
@@ -296,7 +307,7 @@ def stage_supermodel(S, args):
         used = [c for c in chain if c.key in last["weights"]]
         groups = {"zero-shot extras": [c for c in used if c in zs], "learned readers": [c for c in used if c in readers],
                   "trained baselines": [c for c in used if c in trained], "popularity": []}
-        fv = Fusion(S.data.validation, used, "val", allv, dev, with_pop=True, es=S.es["val"])
+        fv = Fusion(S.data.validation, used, "val", allv, dev, with_pop=True, es=S.es["val"], imp_w=wv)
         ft = Fusion(S.data.test, used, "test", np.arange(n_test), dev, with_pop=True, es=S.es["test"])
         w_full = np.array([last["weights"].get(nm, 0.0) for nm in fv.names])
         t_full = S.run(ft.scorer(w_full), "test", es={"test": ft.es})

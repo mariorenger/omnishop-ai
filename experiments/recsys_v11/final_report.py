@@ -137,12 +137,14 @@ def main_table(S):
         out.append(_metrics_line(f"`{name}`", r, (ci(d), ci(dc), ref if d else "-")))
     out += [""]
     if sm:
-        out += [f"Base (the single LLM-side model with the best validation nDCG@10): `{sm['base']}`.  Groups added, in this order: "
+        out += [f"Base (the single LLM-side model with the best cold-weighted validation nDCG@10): `{sm['base']}`.  Groups added, in this order: "
                 f"zero-shot extras {sm['groups']['zs']}, learned readers {sm['groups']['reader']}"
                 + (f", trained baselines {sm['groups']['baseline']}" if sm["groups"]["baseline"] else "") + (f", LLM tower {sm['groups']['tower']} (its rows are on the subset it scored)" if sm["groups"]["tower"] else "") + ".", ""]
-        out += ["Weights fitted on validation (the base keeps 1; components with weight 0 are omitted):", "", "| rung | n val | n test | val nDCG@10 | test nDCG@10 | weights |", "|---|---|---|---|---|---|"]
+        cw = S.kv.get("cold_weights") or {}
+        out += [f"Weights fitted on validation by coordinate ascent on the nDCG@10 re-weighted to {f4(cw.get('target'))} cold clicks (this run's validation: {f4(cw.get('cold_frac'))} cold; the base keeps 1; "
+                "components with weight 0 are omitted):", "", "| rung | n val | n test | val nDCG@10 | val nDCG@10 (cold-weighted) | test nDCG@10 | weights |", "|---|---|---|---|---|---|---|"]
         for r in sm["rungs"]:
-            out.append(f"| `{r['name']}` | {r['n_val']:,} | {r['n_test']:,} | {r['val_ndcg10']:.4f} | {r['test_ndcg10']:.4f} | "
+            out.append(f"| `{r['name']}` | {r['n_val']:,} | {r['n_test']:,} | {r['val_ndcg10']:.4f} | {f4(r.get('val_ndcg10_w'))} | {r['test_ndcg10']:.4f} | "
                        + ", ".join(f"{k.split(':', 1)[-1]}={v:g}" for k, v in r["weights"].items() if v) + " |")
         out += [""]
         plain = [r["name"] for r in sm["rungs"] if not r["pop"]]
@@ -166,35 +168,75 @@ def main_table(S):
 
 
 def stack_section(S):
-    """Section 1b: the stacker's three variants, paired against the best supermodel rung chosen on VALIDATION, and what its inputs contributed."""
+    """Section 1b: the stacker's three variants (and the v15 recipe as a control), the configurations compared on the forward holdout, how far the validation score is
+    from the test score, the paired differences against the best supermodel rung chosen on VALIDATION, and what its inputs contributed."""
     st = S.kv.get("stack")
     if "stack" not in (S.kv.get("stage_status") or {}):
         return []
     out = ["## 1b. The stacker: a gradient-boosted ranker over the exported scores and label-free features", ""]
     if not st:
         return out + ["(the stack stage did not run: see section 0)", ""]
-    out += [f"Backend {st['backend']}, objective `{st.get('objective')}`" + (f" (chosen on the held-out part of fold 0: {', '.join(f'{k} {v:.4f}' for k, v in st['objective_scan'].items())})" if st.get("objective_scan") else "")
-            + f", {st['folds']} folds split by user, {st['n_features']} features from {len(st['components'])} exported components.  Trained on validation impressions only; "
-            "the validation column is OUT-OF-FOLD; the test column is the mean over the fold models of their per-impression z-scores.", "",
+    cv = st.get("cv", "user")
+    folds_txt = (f"{st['folds']} contiguous time blocks of the validation day (a buffer of {st.get('buffer_s', 0) / 60:.0f} minutes left out on each side of the held-out block)"
+                 if cv == "time" else f"{st['folds']} folds split by user")
+    members = st.get("members") or []
+    members_txt = ", ".join("`%s`/`%s`" % (m["config"], m["objective"]) for m in members)
+    out += [f"Backend {st['backend']}, {folds_txt}, {st['n_features']} features from {len(st['components'])} exported components"
+            + (" (including the entity overlap with the reader's clicks" + (" and the windowed click-through of the last 1 / 6 / 24 hours" if st.get("windowed_ctr") else "") + ")" if st.get("entity_features") else "")
+            + ".  Trained on validation impressions only; the validation column is OUT-OF-FOLD; the test column is the mean over the fold models"
+            + (f" of {len(members)} configuration(s) ({members_txt})" if members else "") + " of their per-impression z-scores.", "",
             "* `stack_llm`: exported scores (zero-shot, readers, history-free click prior, auxiliary scorers; every encoder run given) + history / slate features of the frozen vectors;",
             "* `stack_meta`: + how often the training rows showed / clicked the article, its category's CTR, and its exposure in the impression log (hours since first shown, shown "
             "before, shown in the last 1 / 6 / 24 completed hours) -- everything available offline, the variant comparable with leaderboards;",
-            "* `stack_pop`: + V10's online popularity, which counts the clicks of earlier impressions of the test day itself (streaming feedback: NOT comparable with offline papers).", "",
+            "* `stack_pop`: + V10's online popularity (and its windowed twin), which count the clicks of earlier impressions of the test day itself (streaming feedback: NOT comparable with offline papers);",
+            "* `stack_meta_v15cfg` (control): the v15 recipe on the same components -- folds by user, every feature at full resolution, deep trees -- so that the effect of the v16 changes is a "
+            "paired comparison.", "",
             "| row | n test | val nDCG@10 (out-of-fold) | AUC | MRR | nDCG@5 | nDCG@10 | cold AUC | warm AUC |", "|---|---|---|---|---|---|---|---|---|"]
     names = [n for n in ("stack_llm", "stack_meta", "stack_pop") if n in st.get("variants", {}) and _row(S, n)]
-    for n in names:
+    ctrl = "stack_meta_v15cfg" if "stack_meta_v15cfg" in st.get("variants", {}) and _row(S, "stack_meta_v15cfg") else None
+    for n in names + ([ctrl] if ctrl else []):
         r = _row(S, n)
         out.append("| " + " | ".join([f"`{n}`", f"{r['n_test']:,}", f4(r["val_ndcg@10"]), f4(r["auc"]), f4(r["mrr"]), f4(r["ndcg@5"]), f4(r["ndcg@10"]),
                                       f4(r.get("cold_auc")), f4(r.get("warm_auc"))]) + " |")
     out += [""]
+    sel = st.get("selection") or []
+    if sel:
+        fw = st.get("forward") or {}
+        out += [f"Configurations compared once on a FORWARD holdout of the validation day (train on the first 60% in time = {fw.get('train', 0):,} impressions, stop on the next 10% = "
+                f"{fw.get('stop', 0):,}, evaluate on the rest = {fw.get('eval', 0):,}, {fw.get('eval_with_new_click', 0):,} of which have a click on an article no training impression showed; "
+                f"features of `{fw.get('variant', '?')}`).  Ranking metric: {st.get('selection_metric', '?')}.  The best {len(members)} are trained in every fold and averaged (marked).", "",
+                "| configuration | objective | nDCG@10 on new-article clicks | nDCG@10 all evaluation impressions | rounds | columns | trained in the folds |", "|---|---|---|---|---|---|---|"]
+        chosen = {(m["config"], m["objective"]) for m in members}
+        for r in sel:
+            out.append(f"| `{r['config']}` | `{r['objective']}` | {f4(r['new_ndcg10'])} | {f4(r['ndcg10'])} | {r['rounds']} | {r['features']} | {'yes' if (r['config'], r['objective']) in chosen else ''} |")
+        out += [""]
+    gap_rows = [(n, _row(S, n)) for n in ([ctrl] if ctrl else []) + names]
     sm = S.kv.get("supermodel") or {}
     ok_rung = lambda r: r["name"] in S.cache and "apex" not in r["name"] and r["n_test"] == len(S.data.test)
-    best = {pop: max((r for r in sm.get("rungs", []) if r["pop"] == pop and ok_rung(r)), key=lambda r: r["val_ndcg10"], default=None) for pop in (False, True)}
+    vkey = lambda r: r.get("val_ndcg10_w", r["val_ndcg10"])                           # v16 chooses on the cold-weighted validation mean
+    best = {pop: max((r for r in sm.get("rungs", []) if r["pop"] == pop and ok_rung(r)), key=vkey, default=None) for pop in (False, True)}
+    gap_rows += [(b["name"], _row(S, b["name"])) for b in best.values() if b and _row(S, b["name"])]
+    if gap_rows:
+        cw = S.kv.get("cold_weights") or {}
+        ft = _row(S, "frozen") or {}
+        out += ["How far the validation score is from the test score (nDCG@10).  Cold share of the clicks in this run: validation " + f"{f4(cw.get('cold_frac'))}, test {f4(ft.get('cold_frac'))}; "
+                f"the columns marked 'cold-weighted' re-weight the validation impressions to {f4(cw.get('target'))}.  In v15 (MIND-large, `RESULTS_v15_large.md` 2.2) the fixed-recipe rows "
+                "(supermodel rungs, unlearned scorers) had the test ABOVE the validation (+0.006 ... +0.04: the validation day is warmer), while the learned stacker had it 0.03-0.04 BELOW -- "
+                "a stacker whose test score is far below its validation score is fitting the validation day.  'On new-article clicks' = the out-of-fold score restricted (by weights) to the "
+                "impressions whose clicked article none of the training impressions of the row's own folds showed (impressions without any click count 0 in the plain columns and are "
+                "absent from this one, so it is not directly comparable with them):", "",
+                "| row | validation (out-of-fold / fitted) | validation cold-weighted | validation on new-article clicks | test | test - validation | test - cold-weighted validation |", "|---|---|---|---|---|---|---|"]
+        for n, r in gap_rows:
+            vw = r.get("val_ndcg@10_w")
+            out.append(f"| `{n}` | {f4(r['val_ndcg@10'])} | {f4(vw)} | {f4(r.get('val_new_ndcg10'))} | {f4(r['ndcg@10'])} | {r['ndcg@10'] - r['val_ndcg@10']:+.4f} | "
+                       + (f"{r['ndcg@10'] - vw:+.4f}" if vw is not None else "-") + " |")
+        out += [""]
     pairs = []
     for n, pop in (("stack_llm", False), ("stack_meta", False), ("stack_pop", True)):
         if n in S.cache and best[pop]:
             pairs.append((n, best[pop]["name"], f"best supermodel rung on validation ({'with' if pop else 'without'} popularity)"))
-    for a, b, why in (("stack_meta", "stack_llm", "what the article counts and exposure add"), ("stack_pop", "stack_meta", "what the streaming popularity adds")):
+    for a, b, why in (("stack_meta", "stack_llm", "what the article counts and exposure add"), ("stack_pop", "stack_meta", "what the streaming popularity adds"),
+                      ("stack_meta", "stack_meta_v15cfg", "what the v16 changes add (time folds, new-article selection, cleaned features, blend) on the same components")):
         if a in S.cache and b in S.cache:
             pairs.append((a, b, why))
     for ref in ("txt_cta_lse", "um_knn_rag", "pool_lse", "frozen"):                    # single components the stacker is made of
@@ -209,15 +251,15 @@ def stack_section(S):
     if any(st["variants"][n].get("group_gain_share") for n in names):
         out += ["Share of the trees' total split gain by input group (a description of the fitted model, not a causal effect; the scikit-learn fallback reports none):", "",
                 "| variant | " + " | ".join(("scores", "ctx", "meta", "pop")) + " | most-used features |", "|---|---|---|---|---|---|"]
-        for n in names:
+        for n in names + ([ctrl] if ctrl else []):
             v = st["variants"][n]
             g = v.get("group_gain_share") or {}
             out.append(f"| `{n}` | " + " | ".join(f"{g[k]:.2f}" if k in g else "-" for k in ("scores", "ctx", "meta", "pop")) + " | "
-                       + ", ".join(f"{k.split(':', 1)[-1]} ({x:.2f})" for k, x in (v.get("top_features") or [])[:6]) + " |")
+                       + ", ".join(f"{k} ({x:.2f})" for k, x in (v.get("top_features") or [])[:6]) + " |")
         out += [""]
-    out += ["How to read it: the ranker is fitted on the validation split.  Where that split is warmer than the test split (measured on MIND-large: RESULTS_v14_large.md section 2.2) its "
-            "validation (out-of-fold) numbers are optimistic about the test numbers, like every other validation number of this report; only the test column and the paired differences above "
-            "are the result.", ""]
+    out += ["How to read it: the ranker is fitted on the validation split.  Only the test column and the paired differences above are the result; the validation numbers are what the "
+            "model was fitted and stopped on.  If `stack_meta` beats `stack_meta_v15cfg` on the test pairs AND has the smaller test - validation gap, the v16 changes did what they were "
+            "built for; if only one of the two holds, the hypothesis that the v15 gap came from fitting the validation day is not settled by this run.", ""]
     return out
 
 

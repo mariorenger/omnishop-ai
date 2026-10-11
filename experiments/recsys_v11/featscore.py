@@ -21,6 +21,8 @@ import numpy as np
 import torch
 
 NAMES = ("last1", "last3", "in_hist", "cat_share", "sub_share", "cat_last", "n_hist", "n_cand", "slate_mean", "slate_max", "slate_cat")
+ENT_NAMES = ("ent_ov", "ent_ov3", "ent_frac", "ent_n")      # v16: entity overlap between the candidate and the reader's clicks (needs the article entities of news.tsv)
+ENT_MAX = 12                                                # entities kept per article (the rarest ones when it has more)
 
 
 def code_arrays(meta, n_news):
@@ -96,4 +98,78 @@ def reference_features(hist, cands, vec, cat, sub):
             out["slate_mean"][j] = float(np.mean(ss))
             out["slate_max"][j] = max(ss)
         out["slate_cat"][j] = sum(cat[x] == cat[c] for x in cands) / C
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ entity overlap (v16)
+def entity_tables(ents, n_news, emax=ENT_MAX):
+    """``(idx, idf)`` for the entity-overlap features.  ``ents``: one list of entity ids per article (article ``i`` has global id ``i + 1``; the Wikidata ids of
+    ``news.tsv``); ``idx`` [n_news, emax] int64: the entities of every article as ids 1..n_ent (0 = none; an article with more than ``emax`` keeps its rarest
+    ones); ``idf`` [n_ent + 1] float32: ``log((n_articles + 1) / (df + 1)) + 1`` over the catalogue's article texts (``idf[0] = 0``).  Text only: no label,
+    no impression."""
+    vocab, per = {}, [[] for _ in range(n_news)]
+    for i, es in enumerate(ents):
+        for e in es:
+            per[i + 1].append(vocab.setdefault(e, len(vocab) + 1))
+    n_ent = len(vocab)
+    df = np.zeros(n_ent + 1, np.float64)
+    for lst in per:
+        if lst:
+            df[np.unique(lst)] += 1.0
+    n_art = max(len(ents), 1)
+    idf = np.zeros(n_ent + 1, np.float32)
+    idf[1:] = (np.log((n_art + 1.0) / (df[1:] + 1.0)) + 1.0).astype(np.float32)
+    idx = np.zeros((n_news, emax), np.int64)
+    for a, lst in enumerate(per):
+        if lst:
+            lst = sorted(set(lst), key=lambda j: (-idf[j], j))[:emax]
+            idx[a, :len(lst)] = lst
+    return idx, idf
+
+
+@torch.no_grad()
+def batch_entity_features(b, ent_idx, idf):
+    """``{name: [B, C] float32}`` for one EvalSet batch, ``ENT_NAMES``: ``ent_ov`` = IDF-weighted number of the candidate's entities that occur among the
+    entities of the reader's clicks; ``ent_ov3`` the same against the three most recent clicks only; ``ent_frac`` the share of the candidate's entities that
+    occur in the history; ``ent_n`` how many entities the candidate has.  ``ent_idx`` / ``idf``: ``entity_tables`` as tensors on the batch's device.
+    Entries of padded candidates are 0."""
+    cand, hist, hm, cm = b["cand"], b["hist"], b["hist_mask"], b["cand_mask"]
+    B, C = cand.shape
+    H = hist.shape[1]
+    dev = cand.device
+    n_ent1 = idf.shape[0]
+    n = hm.sum(1)
+    k3 = ((torch.arange(H, device=dev)[None, :] >= (n[:, None] - 3)) & hm)
+    he = ent_idx[hist]                                                              # [B, H, K]
+
+    def present(mask):
+        idx = torch.where(mask[:, :, None].expand_as(he), he, torch.zeros_like(he)).reshape(B, -1)
+        out = torch.zeros(B, n_ent1, dtype=torch.bool, device=dev)
+        out.scatter_(1, idx, True)
+        out[:, 0] = False                                                           # column 0 collects the padding / masked-out positions
+        return out
+    ce = ent_idx[cand]                                                              # [B, C, K]
+    valid = ce > 0
+    w = idf[ce] * valid
+    flat = ce.reshape(B, -1)
+    p_all = present(hm).gather(1, flat).reshape(B, C, -1) & valid
+    p_3 = present(k3).gather(1, flat).reshape(B, C, -1) & valid
+    n_ent = valid.sum(-1).to(torch.float32)
+    out = {"ent_ov": (p_all * w).sum(-1), "ent_ov3": (p_3 * w).sum(-1), "ent_frac": p_all.sum(-1).to(torch.float32) / n_ent.clamp(min=1.0), "ent_n": n_ent}
+    return {k: torch.where(cm, v.to(torch.float32), torch.zeros_like(v, dtype=torch.float32)) for k, v in out.items()}
+
+
+def reference_entity_features(hist, cands, ents, idf_of):
+    """Plain-python version for ONE impression: ``hist`` / ``cands`` lists of article ids, ``ents``: {article id: list of entity ids kept for it (as in ``idx``)},
+    ``idf_of``: {entity id: idf}."""
+    C = len(cands)
+    out = {k: np.zeros(C, np.float64) for k in ENT_NAMES}
+    in_hist = set(e for h in hist for e in ents.get(h, []))
+    in_last3 = set(e for h in hist[-3:] for e in ents.get(h, []))
+    for j, c in enumerate(cands):
+        es = ents.get(c, [])
+        out["ent_n"][j] = len(es)
+        out["ent_ov"][j] = sum(idf_of[e] for e in es if e in in_hist)
+        out["ent_ov3"][j] = sum(idf_of[e] for e in es if e in in_last3)
+        out["ent_frac"][j] = sum(1 for e in es if e in in_hist) / len(es) if es else 0.0
     return out

@@ -366,7 +366,7 @@ def stage_usermodel(S, args):
             def val_fn(model):
                 return S.run(UM.scorer(model), "val")["mean"]["ndcg@10"]
 
-            model, info = UM.train_user_model(V["val"], pack, val_fn, seed=sd, max_epochs=args.um_epochs, device=S.device,
+            model, info = UM.train_user_model(V["val"], pack, val_fn, seed=sd, max_epochs=args.um_epochs, device=S.device, dim=getattr(args, "um_dim", 64),
                                               deadline=S.deadline(0.2), log=lambda *a: None, kind=kind)
             if keep:
                 (v_, vr_), (t_, tr_) = S.run_rec(UM.scorer(model, V["val"]), "val"), S.run_rec(UM.scorer(model, V["test"]), "test")

@@ -23,6 +23,7 @@ Hypotheses (see README):
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import os
@@ -47,7 +48,7 @@ from data import MindData
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
 DEFAULT_STAGES = "controls,pooling,moredata,graph,head,histquery,sid,encoder,usermodel,sweep"
-REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder", "STACK"}   # comparators, controls and the combined model: not candidate directions
+REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder", "STACK", "STACK-control"}   # comparators, controls and the combined model: not candidate directions
 TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
 
 
@@ -177,6 +178,26 @@ class Suite:
         if g is not None:
             g.free()
 
+    def release(self):
+        """Drop the data, the evaluation sets, the embeddings and every big in-memory artefact once a run is finished, keeping what comparisons across runs need
+        (records, per-impression results, facts).  A second run in the same process then starts from the memory the first one used: on MIND-large a run holds
+        ~6-9 GB of rows, and v15 (which kept the first run alive) peaked at 16.2 GB of RAM."""
+        self.close()
+        self.data = self.E0 = self.es = self.meta = self.titles = self.seen_tr = self.seen_va = None
+        self.store, self._perm, self._sub = {}, {}, {}
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def val_weights(self):
+        """Per-impression weights of the validation split that re-balance its cold / warm clicks to ``--cold-target`` (``common.cold_weights``)."""
+        if "val_w" not in self.store:
+            w, info = common.cold_weights(self.data.validation, self.seen_tr, getattr(self.args, "cold_target", 0.8))
+            self.store["val_w"], self.kv["cold_weights"] = w, info
+            log(f"  validation cold share {info['cold_frac']:.1%} of the clicks -> weighted validation metric re-balanced to {info['target']:.0%} cold"
+                if info["target"] and 0 < info["target"] < 1 else "  validation metric is not re-weighted (--cold-target 0)")
+        return self.store["val_w"]
+
     # ---- results
     def record(self, name, family, cfg, val, test, ref_name, extra=None):
         """Store a row; Δ vs the reference is computed on the test split with paired CIs (common impressions only)."""
@@ -186,6 +207,7 @@ class Suite:
                "n_val": int(len(val["ids"])), "n_test": int(len(test["ids"])),
                "val_ndcg@10": val["mean"]["ndcg@10"], "val_auc": val["mean"]["auc"], **test["mean"],
                "cold_frac": test.get("cold_frac"), **(extra or {})}
+        row["val_ndcg@10_w"] = common.weighted_mean(val["arr"]["ndcg@10"], self.val_weights()[val["ids"]])      # the validation mean re-balanced to the test split's cold share
         if ref is not None and name != ref_name:
             rv, rt = ref["val"], ref["test"]
             row["val_delta"] = R.compare(val, rv, "ndcg@10")[0]
@@ -246,12 +268,12 @@ class Suite:
 
     # ---- resume
     SIG_IGNORED = {"stages", "budget_hours", "min_stage_s", "no_resume", "work", "cache_dir", "device", "mind_train", "mind_dev",
-                   "export_scores", "super_dirs", "super_baselines", "save_arrays"}
+                   "export_scores", "super_dirs", "super_baselines", "save_arrays", "restack"}
 
     def signature(self):
         """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
         into a full run); the stage list, budget, device and paths do not matter."""
-        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED and not k.startswith("ref_")}
+        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED and not k.startswith(("ref_", "stack_"))}      # stack_*: see stack_signature
         return {"args": hashlib.sha1(json.dumps(a, sort_keys=True, default=str).encode()).hexdigest(), "n_news": int(self.data.n_news),
                 "n_val": len(self.data.validation), "n_test": len(self.data.test)}
 
@@ -700,14 +722,16 @@ def cap_data(data, args):
             return None
         return np.sort(np.random.default_rng(seed).permutation(total)[:n])
     before = (len(data.validation), len(data.test), len(data.train_core))
-    for rows_attr, aux_attr, n, seed in (("validation", "aux_validation", args.val_max, 11), ("test", "aux_test", args.test_max, 12)):
+    per_row = {"validation": ("aux_validation", "aux_pop_validation", "time_validation"), "test": ("aux_test", "aux_pop_test", "time_test")}     # arrays kept per impression
+    for rows_attr, n, seed in (("validation", args.val_max, 11), ("test", args.test_max, 12)):
         rows = getattr(data, rows_attr)
         ix = pick(len(rows), n, seed)
         if ix is not None:
             setattr(data, rows_attr, [rows[i] for i in ix])
-            aux = getattr(data, aux_attr, None)
-            if aux is not None:
-                setattr(data, aux_attr, [aux[i] for i in ix])
+            for aux_attr in per_row[rows_attr]:
+                aux = getattr(data, aux_attr, None)
+                if aux is not None:
+                    setattr(data, aux_attr, aux[ix] if isinstance(aux, np.ndarray) else [aux[i] for i in ix])
     ix = pick(len(data.train_core), args.train_sub, 13)
     if ix is not None:
         data.train_core_all = data.train_core
@@ -747,9 +771,20 @@ def build_parser():
     # stacker (stage 'stack'): gradient-boosted ranker over the exported scores + label-free features, trained on validation
     ap.add_argument("--stack-backend", default="auto", choices=["auto", "xgboost", "lightgbm", "sklearn"])
     ap.add_argument("--stack-variants", default="llm,meta,pop", help="llm = scores + history/slate features, meta = + article counts and exposure, pop = + V10's streaming popularity")
-    ap.add_argument("--stack-folds", type=int, default=4, help="folds (split by user) over the validation impressions")
-    ap.add_argument("--stack-objectives", default="rank:ndcg,rank:pairwise,binary:logistic", help="objectives tried on the held-out part of fold 0 (the best nDCG@10 is used): "
-                    "listwise lambdarank on the top of the list, pairwise over the whole list (the AUC-like one), pointwise logistic")
+    ap.add_argument("--stack-folds", type=int, default=4, help="folds over the validation impressions (contiguous time blocks, or by user with --stack-cv user)")
+    ap.add_argument("--stack-objectives", default="binary:logistic", help="objectives tried (with every configuration) on the forward holdout, comma-separated: pointwise "
+                    "'binary:logistic' (the default: as good as the ranking objectives in v15 and 3x faster), listwise 'rank:ndcg', pairwise 'rank:pairwise'")
+    ap.add_argument("--stack-cv", default="time", choices=["time", "user"], help="how the validation impressions are folded: contiguous blocks of the validation day (default; the "
+                    "out-of-fold score is then not helped by the same article's clicks of the same hour) or by user (v15)")
+    ap.add_argument("--stack-configs", default="v15,clean,clean_d5,clean_d3,noprior_d5", help="stacker configurations compared on the forward holdout (stacker.CONFIGS): "
+                    "v15 = every feature, deep trees; clean = no impression-constant column and coarse near-identifying ones; _d5 / _d3 = shallower, larger leaves; noprior = also "
+                    "without the history-free click prior")
+    ap.add_argument("--stack-blend", type=int, default=2, help="the best this many (configuration, objective) pairs of the forward holdout are trained in every fold and averaged")
+    ap.add_argument("--stack-control", type=int, default=1, help="1: also train the v15 recipe (user folds, every feature, deep trees) for the 'meta' variant as the row stack_meta_v15cfg")
+    ap.add_argument("--stack-buffer-min", type=float, default=30.0, help="minutes left out of the training part on each side of a held-out time block")
+    ap.add_argument("--restack", type=int, default=0, help="1: run the stack stage again even if the saved state says it finished with these settings (re-uses every exported score)")
+    ap.add_argument("--cold-target", type=float, default=0.8, help="cold share of the clicks the validation metric used for SELECTION (supermodel base and weights, stacker) reflects; "
+                    "the test day of MIND-large has 82% cold clicks, its validation day fewer; 0 = plain validation mean")
     ap.add_argument("--stack-rounds", type=int, default=800)
     ap.add_argument("--stack-eta", type=float, default=0.06)
     ap.add_argument("--stack-depth", type=int, default=7)
@@ -820,6 +855,7 @@ def build_parser():
     ap.add_argument("--um-seeds", type=int, default=2)
     ap.add_argument("--um-seeds-focus", type=int, default=3, help="seeds for the views the new comparisons are made on ('frozen' and 'text'); trained rows differ by 0.007-0.012 between seeds")
     ap.add_argument("--um-epochs", type=int, default=12)
+    ap.add_argument("--um-dim", type=int, default=64, help="width of the readers' head (64 = V10's llmenc_ca)")
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
     ap.add_argument("--um-extra", default="ff:frozen,ff:knn_rag,mi1:frozen,mi4:frozen,mi4d:frozen,mi4:text",
                     help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|prior|mi<K>, K learned interests; prior = history-free click prior); '' = none")
@@ -858,6 +894,32 @@ def build_parser():
     return ap
 
 
+def embed_catalogue(meta, args, device, cache_dir):
+    """Frozen vectors of the whole catalogue -> ``(vectors [n_articles, d], seconds spent encoding)``.  ``--encoder concat:A+B`` (any number of parts) is the
+    L2-normalised vectors of the encoders side by side, each part scaled by 1/sqrt(parts): a unit vector whose dot product with another one is the MEAN of the
+    parts' dot products, so a zero-shot score on it is just the average of the parts' scores and only the learned readers / retrieval views gain from having both
+    spaces in one input.  Every part comes from the on-disk cache that the runs of the single encoders fill (same max_len / prefix), so a composite run
+    encodes nothing that another run has not."""
+    if not args.encoder.startswith("concat:"):
+        return X.embed_news(meta, args.encoder, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
+    parts = [p for p in args.encoder[len("concat:"):].split("+") if p]
+    if len(parts) < 2:
+        raise SystemExit(f"--encoder {args.encoder!r}: 'concat:' needs at least two encoders joined by '+'")
+    vs, secs = [], 0.0
+    for name in parts:
+        v, sec = X.embed_news(meta, name, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
+        v = np.asarray(v, np.float32)
+        vs.append(v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-8) / np.sqrt(len(parts)))
+        secs += sec
+    return np.concatenate(vs, 1).astype(np.float32), secs
+
+
+def stack_signature(args):
+    """What the stack stage depends on besides the data: its own arguments, the cold-share target of its selection and the run directories it reads."""
+    a = {k: v for k, v in sorted(vars(args).items()) if k.startswith("stack_") or k in ("cold_target", "super_dirs")}
+    return hashlib.sha1(json.dumps(a, sort_keys=True, default=str).encode()).hexdigest()
+
+
 def guard_embeddings(vecs, meta, reference, tol=0.99):
     """Catch a wrong pooling / EOS / prefix convention up front by comparing 64 vectors with a reference implementation."""
     ref = reference(meta["text"][:64])
@@ -884,8 +946,8 @@ def main(argv=None):
         emb = {str(i): v for i, v in zip(z["ids"], z["vecs"])}
         log(f"E0 <- {args.news_emb} ({len(emb):,} vectors)")
     else:
-        vecs, secs = X.embed_news(meta, args.encoder, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
-        if EQUIV_REFERENCE is not None:
+        vecs, secs = embed_catalogue(meta, args, device, cache_dir)
+        if EQUIV_REFERENCE is not None and not args.encoder.startswith("concat:"):
             guard_embeddings(vecs, meta, EQUIV_REFERENCE)
         log(f"E0 {'loaded from cache' if not secs else f'encoded with {args.encoder} in {secs:.0f}s'} ({vecs.shape[0]:,} x {vecs.shape[1]})")
         emb = dict(zip(meta["ids"], vecs))
@@ -907,6 +969,12 @@ def main(argv=None):
         S.records = [r for r in S.records if r.get("stage") not in stale]
         S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
     S.kv["ref_sig"] = ref_sig
+    stack_sig = stack_signature(args)
+    if "stack" in done and (S.kv.get("stack_sig") != stack_sig or args.restack):                 # the stacker's settings (or --restack) never cost the other stages their results
+        log("stack stage: settings changed (or --restack 1) -> it runs again on the exported scores; the other finished stages are kept")
+        done.discard("stack")
+        S.records = [r for r in S.records if r.get("stage") != "stack"]
+        S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
     if done:
         log(f"resuming: stages already finished -> {sorted(done)} ({len(S.records)} rows restored)")
     wanted = [s for s in args.stages.split(",") if s]
@@ -935,6 +1003,8 @@ def main(argv=None):
             else:
                 done.add(s)
                 status[s] = "done"
+                if s == "stack":
+                    S.kv["stack_sig"] = stack_sig
                 S.kv.setdefault("timings", {})[s] = round(time.time() - t_stage)
                 mem = common.mem_note()
                 if mem:

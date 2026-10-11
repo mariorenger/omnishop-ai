@@ -21,7 +21,11 @@ It also builds what the learned ranker (``stacker.py``) needs and ``data.py`` do
   * ``data.item_stats``: per article, how often the training rows (``train_core``) showed it and how often it was clicked there (``train_pos`` /
     ``train_shown``: what is known before the validation days) and the same counts over ``train_core`` + the validation days (``trainval_pos`` /
     ``trainval_shown``: what is known before the test day -- the stacker reads the first for validation impressions and the second for test ones, so both see
-    the labelled history up to the day before).
+    the labelled history up to the day before);
+  * ``data.aux_pop_validation`` / ``data.aux_pop_test`` (v16): one float32 array ``[n_candidates, 6]`` per impression, the click-through of every candidate over
+    the last 1 / 6 / 24 completed hours (``popwin_features_lean``).  These READ LABELS of earlier hours (streaming feedback, as V10's online popularity does),
+    so only the stacker's ``+pop`` variant uses them;
+  * ``data.time_validation`` / ``data.time_test`` (v16, also without ``aux``): the impression times in seconds, in the order of the rows.
 """
 from __future__ import annotations
 
@@ -99,13 +103,58 @@ def exposure_features_lean(cands, tkeys, n_news, want):
                 f = first[c]
                 age = np.where(f >= 0, (now - f) / 3600.0, 0.0)
                 b = int(hour[k])
-                win = [np.log1p((cum[b] - cum[max(b - w, 0)])[c]) for w in EXPO_WINDOWS]
+                win = [np.log1p(cum[b][c] - cum[max(b - w, 0)][c]) for w in EXPO_WINDOWS]          # gather first: O(candidates), not O(articles)
                 out[k] = np.stack([age, np.log1p(shown[c])] + win, 1).astype(np.float32)
         for k in grp:
             c = np.asarray(cands[k], np.int64)
             np.add.at(shown, c, 1.0)
             new = c[first[c] < 0]
             first[new] = now
+    return out
+
+
+POP_WINDOWS = (1, 6, 24)                                                  # hours (completed hour buckets before the impression's own)
+
+
+def popwin_features_lean(cands, labs, tkeys, n_news, want):
+    """Windowed click-through of the candidates of the impressions flagged in ``want``: for the last 1 / 6 / 24 COMPLETED clock hours before the impression's
+    own hour (the same hour buckets as ``exposure_features_lean``) the labelled impressions of those hours are counted.  Columns per candidate:
+
+      0-2  smoothed log-CTR ``log((clicks + 1) / (shown + 20))`` over the 1 / 6 / 24 hour window (the recipe of the popularity feature, on a window);
+      3-5  ``log1p`` of the clicks in the 1 / 6 / 24 hour window.
+
+    This reads the labels of EARLIER hours (streaming feedback, like V10's online popularity), so only the ``+pop`` variants may use it.  Strictly causal:
+    the impression's own hour is never counted.  Returns a list (``None`` for impressions not wanted) of float32 arrays ``[len(candidates), 6]``."""
+    tk = np.asarray(tkeys, np.int64)
+    hour = (tk - tk.min()) // 3600
+    nb = int(hour.max()) + 1
+    shown_h = np.zeros((nb + 1, n_news), np.int32)
+    click_h = np.zeros((nb + 1, n_news), np.int32)
+    by_hour = [[] for _ in range(nb)]
+    for k, h in enumerate(hour):
+        by_hour[h].append(k)
+    for h in range(nb):
+        if by_hour[h]:
+            c = np.concatenate([np.asarray(cands[k], np.int64) for k in by_hour[h]])
+            y = np.concatenate([np.asarray(labs[k], np.float64) for k in by_hour[h]])
+            shown_h[h + 1] = np.bincount(c, minlength=n_news)
+            click_h[h + 1] = np.bincount(c, weights=y, minlength=n_news)
+    cum_s, cum_c = np.cumsum(shown_h, axis=0, dtype=np.int32), np.cumsum(click_h, axis=0, dtype=np.int32)
+    del shown_h, click_h
+    out = [None] * len(cands)
+    for k in range(len(cands)):
+        if not want[k]:
+            continue
+        c = np.asarray(cands[k], np.int64)
+        b = int(hour[k])
+        ctr, clk = [], []
+        for w in POP_WINDOWS:
+            a = max(b - w, 0)
+            s = (cum_s[b][c] - cum_s[a][c]).astype(np.float64)                  # gather first: O(candidates), not O(articles)
+            cl = (cum_c[b][c] - cum_c[a][c]).astype(np.float64)
+            ctr.append(np.log((cl + 1.0) / (s + 20.0)))
+            clk.append(np.log1p(cl))
+        out[k] = np.stack(ctr + clk, 1).astype(np.float32)
     return out
 
 
@@ -261,7 +310,9 @@ def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_w
     test_days = sorted({iso(d) for d in te[5]})
     for i in core_idx:                                                  # the training rows' popularity is never read again: free it before the samples are built
         pop[i] = None
-    aux_val = aux_test = item_stats = None
+    aux_val = aux_test = item_stats = aux_pop_val = aux_pop_test = None
+    time_val = np.asarray([tr[6][i] for i in val_idx], np.int64)        # impression times (seconds), same order as the rows: the stacker's time-block folds
+    time_test = np.asarray(te[6], np.int64)
     if aux:                                                             # label-free exposure features of the validation / test slates + training-row item counts
         t0 = time.time()
         want = np.zeros(n_tr + n_te, bool)
@@ -270,10 +321,13 @@ def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_w
         feats = exposure_features_lean(tr[3] + te[3], tr[6] + te[6], n_news, want)
         aux_val, aux_test = [feats[i] for i in val_idx], feats[n_tr:]
         del feats
+        pw = popwin_features_lean(tr[3] + te[3], tr[4] + te[4], tr[6] + te[6], n_news, want)            # windowed click-through of earlier hours (streaming: '+pop' only)
+        aux_pop_val, aux_pop_test = [pw[i] for i in val_idx], pw[n_tr:]
+        del pw
         pos_cnt, shown_cnt = item_stats_lean(tr[3], tr[4], core_idx, n_news)
         pos_tv, shown_tv = item_stats_lean(tr[3], tr[4], core_idx + val_idx, n_news)             # everything labelled before the test day: the same "yesterday included" as for validation
         item_stats = {"train_pos": pos_cnt, "train_shown": shown_cnt, "trainval_pos": pos_tv, "trainval_shown": shown_tv}
-        log(f"    exposure features and item counts ({time.time() - t0:.0f}s)")
+        log(f"    exposure features, windowed click-through and item counts ({time.time() - t0:.0f}s)")
 
     train_core = []
     for i in core_idx:
@@ -296,6 +350,8 @@ def from_mind_lean(train_dir, dev_dir, title_len=20, max_hist=50, n_neg=4, min_w
     print(f"  chronological split: {len(core_idx):,} train_core / {len(validation):,} validation / {len(test):,} official test impressions")
     data = MindData(news_title, news_cat, n_news, len(uid_map), len(vocab), len(cat_map) + 1, title_len, max_hist, llm_emb, train_core, validation, test,
                     len(core_idx), len(validation), len(test), train_days_iso, val_days_iso, test_days, split_info, [])
+    data.time_validation, data.time_test = time_val, time_test
     if aux:
         data.aux_validation, data.aux_test, data.item_stats = aux_val, aux_test, item_stats
+        data.aux_pop_validation, data.aux_pop_test = aux_pop_val, aux_pop_test
     return data

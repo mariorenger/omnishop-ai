@@ -6,7 +6,8 @@
 Compared with v14 (``make_notebook.py``): a second encoder run (BGE-large: zero-shot scorers only) whose scores join the Qwen3-Embedding ones, the history-free click
 prior as one more reader, no LoRA tower (measured: it added nothing at the budget a free GPU allows), and -- the point of this version -- a gradient-boosted RANKER
 (``stacker.py``) over all the exported scores plus label-free features, next to the linear supermodel of v14.  Neither trains NRMS / NAML / Fastformer.
-Bump the notebook names when the content changes: Kaggle caches notebooks by file name."""
+Bump the notebook names when the content changes: Kaggle caches notebooks by file name.
+Do not regenerate the committed v15 notebooks: they keep the code of the run that was measured (``RESULTS_v15_large.md``) and the modules have changed since (v16)."""
 import json
 import os
 

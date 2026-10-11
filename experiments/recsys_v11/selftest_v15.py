@@ -187,7 +187,7 @@ def test_featscore(S):
 # ------------------------------------------------------------------------------------------------ (34)
 def test_builder(S):
     """``S``: a finished run of the stage list that exports scores, on the lean data (exposure features present)."""
-    val, test = ST.Split(S.data.validation, S.data.aux_validation), ST.Split(S.data.test, S.data.aux_test)
+    val, test = _splits(S.data)
     comps = ST.load_components([S.work], val, test)
     names = {c.name for c in comps}
     assert {"frozen", "pool_lse", "pool_topk", "txt_cta_lse", "um_frozen", "um_prior_frozen", "knn_rag"} <= names and not any(n.startswith("txt_ctr") for n in names), sorted(names)
@@ -249,7 +249,7 @@ def test_builder(S):
     rows2 = [(r[0], r[1], r[2], r[3], list(rng.permutation(np.asarray(r[4]))), r[5]) for r in S.data.test]
     assert any(list(a[4]) != list(b[4]) for a, b in zip(rows2, S.data.test))
     Xt = bld.build("test", test, 0, test.n)
-    assert np.array_equal(Xt, bld.build("test", ST.Split(rows2, S.data.aux_test), 0, test.n)), "the test feature table depends on test labels"
+    assert np.array_equal(Xt, bld.build("test", ST.Split(rows2, S.data.aux_test, S.data.aux_pop_test, S.data.time_test), 0, test.n)), "the test feature table depends on test labels"
     cold_t = Xt[:, jm + 3]                                                      # the fixture's test day shows articles no training row showed
     assert cold_t.min() == 0 and cold_t.max() == 1 and np.array_equal(Xt[:, jm + 4] >= cold_t, np.ones(len(cold_t), bool)), "never shown in a labelled impression implies unseen"
     cand_t = test.cand(0, test.n)                                               # test impressions: counts over train_core + the validation days, "unseen" = in neither
@@ -302,6 +302,12 @@ def test_folds():
     ok("(35a) folds: by user, deterministic, balanced, disjoint from the training / early-stopping users; expand / z-score helpers agree with common")
 
 
+def _splits(data):
+    """The validation / test ``Split`` of the stacker, as ``stage_stack`` builds them."""
+    return (ST.Split(data.validation, data.aux_validation, data.aux_pop_validation, data.time_validation),
+            ST.Split(data.test, data.aux_test, data.aux_pop_test, data.time_test))
+
+
 def _stack_args(**kw):
     a = suite.build_parser().parse_args(["--mind-train", "x", "--mind-dev", "y", *STACK_ARGS])
     for k, v in kw.items():
@@ -338,7 +344,7 @@ def test_leakage_and_oof(tmp, enc_dir, cache_dir, run_args, S):
     r1, r2 = S.row("stack_meta"), S2.row("stack_meta")
     assert abs(r1["ndcg@10"] - r2["ndcg@10"]) > 1e-6 and abs(r1["val_ndcg@10"] - r2["val_ndcg@10"]) < 1e-9, "metrics follow the labels, the validation side does not"
     # (c) out-of-fold scores of a fold do not depend on that fold's own labels (single objective, so that the objective scan cannot differ)
-    args = _stack_args(stack_objectives="rank:ndcg", super_dirs="")
+    args = _stack_args(stack_objectives="rank:ndcg", stack_configs="clean", super_dirs="")
     quiet(ST.stage_stack, S, args)
     ref = dict(np.load(os.path.join(S.work, "stack_scores.npz")))
     folds, ptr = ref["folds"], ref["val_ptr"]
@@ -443,9 +449,10 @@ def test_stack_stage(S, tmp, mind, enc_dir, cache_dir, run_args):
     st = S.kv["stack"]
     assert S.kv["stage_status"]["stack"] == "done" and st["backend"] in ("xgboost", "lightgbm", "sklearn") and st["folds"] == 4
     names = [r["name"] for r in S.records if r["family"].startswith("STACK")]
-    assert names == ["stack_llm", "stack_meta", "stack_pop"], names
-    assert [S.row(n)["family"] for n in names] == ["STACK", "STACK", "STACK+pop"] and [S.row(n)["ref"] for n in names] == ["frozen", "frozen", "frozen+pop"]
+    assert names == ["stack_meta_v15cfg", "stack_llm", "stack_meta", "stack_pop"], names                 # the v15-recipe control comes first, then the three variants
+    assert [S.row(n)["family"] for n in names] == ["STACK-control", "STACK", "STACK", "STACK+pop"] and [S.row(n)["ref"] for n in names] == ["frozen", "frozen", "frozen", "frozen+pop"]
     assert not any(r["family"].startswith("STACK") for r in S.reps + S.reps_pop), "stacker rows are not candidate directions"
+    assert st["cv"] == "time" and len(st["members"]) == 2 and st["selection_metric"] and len(st["selection"]) == 10, (st["cv"], st["members"], len(st.get("selection", [])))
     z = np.load(os.path.join(S.work, "stack_scores.npz"))
     vptr, tptr = z["val_ptr"], z["test_ptr"]
     for v in names:
@@ -456,13 +463,17 @@ def test_stack_stage(S, tmp, mind, enc_dir, cache_dir, run_args):
             if key == "test":
                 assert abs(got["auc"] - row["auc"]) < 2e-5 and abs(got["mrr"] - row["mrr"]) < 2e-5
         assert z[f"{v}__val_have"].all()
-        zt = [common.ragged_zscore({"ids": np.arange(len(tptr) - 1), "ptr": tptr, "flat": z[f"{v}__test_fold{k}"]})["flat"] for k in range(4)]
-        assert np.allclose(np.mean(zt, 0), z[f"{v}__test"], atol=1e-5), "test score = mean over the fold models of their within-impression z-scores"
-        assert len(st["variants"][v]["rounds"]) == 4 and abs(st["variants"][v]["test_ndcg10"] - row["ndcg@10"]) < 1e-12
+        n_mem = len(st["variants"][v]["rounds"])                                  # one list of fold rounds per member (configuration) of the blend
+        assert n_mem == (1 if v == "stack_meta_v15cfg" else len(st["members"])) and all(len(r) == 4 for r in st["variants"][v]["rounds"])
+        zt = [common.ragged_zscore({"ids": np.arange(len(tptr) - 1), "ptr": tptr, "flat": z[f"{v}__test_m{mi}_fold{k}"]})["flat"] for mi in range(n_mem) for k in range(4)]
+        assert np.allclose(np.mean(zt, 0), z[f"{v}__test"], atol=1e-5), "test score = mean over the fold models (of every member) of their within-impression z-scores"
+        assert abs(st["variants"][v]["test_ndcg10"] - row["ndcg@10"]) < 1e-12
         assert abs(sum(st["variants"][v]["group_gain_share"].values()) - 1.0) < 1e-6 or st["backend"] == "sklearn"
     assert set(st["variants"]["stack_llm"]["group_gain_share"]) == {"scores", "ctx"} and set(st["variants"]["stack_pop"]["group_gain_share"]) == {"scores", "ctx", "meta", "pop"}
-    assert st["objective"] in ("rank:ndcg", "binary:logistic") and set(st["objective_scan"]) == {"rank:ndcg", "binary:logistic"}
-    assert suite.build_parser().parse_args(["--mind-train", "x", "--mind-dev", "y"]).stack_objectives == "rank:ndcg,rank:pairwise,binary:logistic", "the default scan covers listwise, pairwise and pointwise"
+    assert {(r["config"], r["objective"]) for r in st["selection"]} == {(c, o) for c in ("v15", "clean", "clean_d5", "clean_d3", "noprior_d5") for o in ("rank:ndcg", "binary:logistic")}
+    assert st["objective"] in ("rank:ndcg", "binary:logistic")
+    dflt = suite.build_parser().parse_args(["--mind-train", "x", "--mind-dev", "y"])
+    assert dflt.stack_objectives == "binary:logistic" and dflt.stack_cv == "time" and dflt.stack_blend == 2 and dflt.stack_control == 1, "v16 defaults: pointwise objective, time folds, blend of two"
     # no exported scores -> the stage declines and says so
     Sx, text = quiet(suite.main, [*mind, "--work", os.path.join(tmp, "outStk_noexp"), "--encoder", enc_dir, "--cache-dir", cache_dir, "--stages", "controls,stack", "--export-scores", "0",
                                   "--lean-data", "1", "--no-resume", *run_args])
@@ -472,6 +483,7 @@ def test_stack_stage(S, tmp, mind, enc_dir, cache_dir, run_args):
                                   "--stack-rounds", "30", "--stack-objectives", "rank:ndcg", "--no-resume", *run_args])
     nv = [r["name"] for r in Sv.records if r["family"].startswith("STACK")]
     assert nv == ["stack_llm", "stack_pop"] and "--lean-data 1" in text and Sv.kv["stack"]["groups"] == ["scores", "ctx", "pop"], (nv, Sv.kv.get("stack"))
+    assert Sv.kv["stack"]["cv"] == "time" and not Sv.kv["stack"]["windowed_ctr"], "the verbatim loader has neither impression times nor windowed click-through: the order of the rows stands for time"
     # the other backends, and a variant list
     for be in ("lightgbm", "sklearn"):
         free = be == "lightgbm"                                                  # one of the two runs also frees the training samples before the stacker builds its tables
@@ -502,8 +514,8 @@ def test_report(S, tmp):
         r = S.row(n)
         assert abs(float(cells[2]) - r["val_ndcg@10"]) < 6e-5 and abs(float(cells[3]) - r["auc"]) < 6e-5 and abs(float(cells[6]) - r["ndcg@10"]) < 6e-5, (n, cells)
     sm = S.kv["supermodel"]
-    plain = max((r for r in sm["rungs"] if not r["pop"] and "apex" not in r["name"]), key=lambda r: r["val_ndcg10"])["name"]
-    popr = max((r for r in sm["rungs"] if r["pop"] and "apex" not in r["name"]), key=lambda r: r["val_ndcg10"])["name"]
+    plain = max((r for r in sm["rungs"] if not r["pop"] and "apex" not in r["name"]), key=lambda r: r["val_ndcg10_w"])["name"]
+    popr = max((r for r in sm["rungs"] if r["pop"] and "apex" not in r["name"]), key=lambda r: r["val_ndcg10_w"])["name"]
     assert f"| `stack_meta` | `{plain}` | best supermodel rung on validation (without popularity) |" in md
     assert f"| `stack_pop` | `{popr}` | best supermodel rung on validation (with popularity) |" in md
     assert "| `stack_meta` | `stack_llm` | what the article counts and exposure add |" in md and "Share of the trees' total split gain" in md

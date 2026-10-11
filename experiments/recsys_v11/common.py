@@ -288,6 +288,47 @@ def ragged_mean_z(rags):
     return {"ids": rags[0]["ids"], "ptr": rags[0]["ptr"], "flat": np.mean(zs, axis=0).astype(np.float32)}
 
 
+def cold_weights(rows, seen, target=0.8):
+    """Per-impression weights that re-balance the validation split towards the test split's mix of cold and warm clicks.
+
+    Measured on MIND-large (v14 / v15): the validation day is warmer than the test day (82% of the test clicks are on articles no training row showed),
+    so a selection made on the plain validation mean favours models that are strong on warm articles.  ``seen``: bool over article ids (observed by the
+    training rows); the cold share of an impression is the share of its clicked articles with ``seen`` False; ``target``: the cold share of the clicks
+    the weighted mean should reflect.  The weights are w = (target / c) * cold + ((1 - target) / (1 - c)) * (1 - cold), with c the cold share of all
+    the clicks of ``rows`` -- so a weighted mean of a per-impression metric is the mean it would have if the split had ``target`` cold clicks (clicks of
+    one kind are weighted alike).  Impressions without a click weigh 1 (their nDCG is 0 whatever the scores).  ``target`` outside (0, 1), or a split with
+    only cold / only warm clicks, gives all-ones weights.  Returns ``(w [n], info)``; ``info`` = {"cold_frac": c, "target": target, "n": ...}."""
+    seen = np.asarray(seen, bool)
+    n = len(rows)
+    cold_share = np.full(n, np.nan)
+    n_pos = n_cold = 0
+    for i, r in enumerate(rows):
+        y = np.asarray(r[4])
+        if y.size and (y > 0.5).any():
+            pos = np.asarray(r[3], np.int64)[y > 0.5]
+            c = ~seen[pos]
+            cold_share[i] = float(c.mean())
+            n_pos += len(pos)
+            n_cold += int(c.sum())
+    cfrac = n_cold / n_pos if n_pos else float("nan")
+    info = {"cold_frac": cfrac, "target": target, "n": n}
+    if not (target and 0.0 < target < 1.0) or not (0.0 < cfrac < 1.0):
+        return np.ones(n), info
+    w = (target / cfrac) * cold_share + ((1.0 - target) / (1.0 - cfrac)) * (1.0 - cold_share)
+    w[np.isnan(cold_share)] = 1.0
+    return w, info
+
+
+def weighted_mean(values, weights=None):
+    """Mean of ``values`` weighted by ``weights`` (plain mean when ``weights`` is None); 0 total weight gives nan."""
+    v = np.asarray(values, np.float64)
+    if weights is None:
+        return float(np.mean(v)) if v.size else float("nan")
+    w = np.asarray(weights, np.float64)
+    tot = float(w.sum())
+    return float((v * w).sum() / tot) if tot > 0 else float("nan")
+
+
 # Raw per-candidate scores that stages keep on disk.  SUPER_RE: the zero-shot scorers the supermodel's linear fusion may pick from (unchanged since v14);
 # AUX_RE: further scorers only the stacker (stacker.py) reads -- kept out of the fusion because, measured on MIND-large, the validation split rewards
 # them (RAG / GraphRAG, plain mean-pool) more than the colder test split does.

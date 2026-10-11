@@ -19,6 +19,10 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
      stacker's feature table, a whole second run with shuffled TEST labels gives identical offline scores, a fold's out-of-fold scores do not depend on its own
      labels, three gradient-boosting backends, the history-free prior reader, and the supermodel's apex+pop rung starts from the last popularity rung.
 
+  10. v16 (``selftest_v16.py``): the cold-weighted validation mean, windowed click-through == a plain-python recomputation and strictly causal, entity-overlap features
+     == their definition, the stacker's time folds / forward holdout / new-article weights / coarsening, a planted same-day-memorisation case that user folds hide and
+     the new-article slice of time folds exposes, the supermodel's weighted objective, restart with changed stack settings, Suite.release(), the composite encoder.
+
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
 from __future__ import annotations
@@ -55,6 +59,7 @@ import suite
 import usermodel as UM
 import selftest_v14 as T14
 import selftest_v15 as T15
+import selftest_v16 as T16
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -1161,7 +1166,10 @@ def main():
     T14.test_caps_and_flags(S, f"{tmp}/train", tmp, mind, enc_dir, cache_a, RUN_A[:-1])
 
     # ---------------- v15: label-free exposure features, history / slate features, the stacker, its leakage guards, the prior reader
-    T15.run_all(tmp, mind, enc_dir, cache_a, RUN_A[:-1], S, f"{tmp}/train", f"{tmp}/dev")
+    S_stack = T15.run_all(tmp, mind, enc_dir, cache_a, RUN_A[:-1], S, f"{tmp}/train", f"{tmp}/dev")
+
+    # ---------------- v16: cold-weighted selection, windowed click-through, entity overlap, time-block folds + new-article selection in the stacker, restart, release, composite encoder
+    T16.run_all(tmp, mind, enc_dir, cache_a, RUN_A[:-1], S, f"{tmp}/train", f"{tmp}/dev", S_stack)
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")
