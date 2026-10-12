@@ -52,6 +52,7 @@ DIRECTIONS = {
     "H4b-GraphRAG-LLM": "GraphRAG with LLM-written community summaries", "H6-LLM-aug": "LLM article expansion / reader profiles (KAR-style)",
     "H7-SemanticID": "Semantic IDs + generative ranker", "H9-LLM-rerank": "zero-shot LLM judge re-ranking the top-k",
     "H1-text-user": "history-as-text instruction query", "enc-sweep": "encoder sweep",
+    "H12-finetune": "top layers of the encoder fine-tuned under the learned reader (PLM-NR recipe)",
 }
 
 

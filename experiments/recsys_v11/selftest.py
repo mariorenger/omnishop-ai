@@ -22,6 +22,8 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
   10. v16 (``selftest_v16.py``): the cold-weighted validation mean, windowed click-through == a plain-python recomputation and strictly causal, entity-overlap features
      == their definition, the stacker's time folds / forward holdout / new-article weights / coarsening, a planted same-day-memorisation case that user folds hide and
      the new-article slice of time folds exposes, the supermodel's weighted objective, restart with changed stack settings, Suite.release(), the composite encoder.
+  11. v17 (``selftest_v17.py``): the finetune stage -- the cache of the lower layers + the top layers == the full encoder, the training step's gradients, the gate, the two matched
+     arms, resume and decline paths.
 
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
@@ -60,6 +62,7 @@ import usermodel as UM
 import selftest_v14 as T14
 import selftest_v15 as T15
 import selftest_v16 as T16
+import selftest_v17 as T17
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -1170,6 +1173,9 @@ def main():
 
     # ---------------- v16: cold-weighted selection, windowed click-through, entity overlap, time-block folds + new-article selection in the stacker, restart, release, composite encoder
     T16.run_all(tmp, mind, enc_dir, cache_a, RUN_A[:-1], S, f"{tmp}/train", f"{tmp}/dev", S_stack)
+
+    # ---------------- v17: the finetune stage (top layers of the encoder unfrozen under the learned reader, matched frozen control, gate)
+    T17.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1])
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")

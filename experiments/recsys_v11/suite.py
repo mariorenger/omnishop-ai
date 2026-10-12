@@ -36,6 +36,7 @@ import torch
 
 import adapt
 import common
+import ftune as FT
 import rep_eval as R
 import semgraph as G
 import stages_ext as X
@@ -48,8 +49,8 @@ from data import MindData
 EQUIV_REFERENCE = None  # callable(texts)->np.ndarray of reference embeddings (e.g. Sentence-Transformers), set by the notebook
 
 DEFAULT_STAGES = "controls,pooling,moredata,graph,head,histquery,sid,encoder,usermodel,sweep"
-REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder", "STACK", "STACK-control"}   # comparators, controls and the combined model: not candidate directions
-TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
+REFERENCE_FAMILIES = {"ref-baseline", "ref-ladder", "F-control", "F-control-lse", "SUPER", "SUPER-ladder", "STACK", "STACK-control", "FT-control"}   # comparators, controls and the combined model: not candidate directions
+TECHNIQUE_FAMILIES_EXCLUDED = {"control", "H10-user-model", "H12-finetune", "enc-sweep"} | REFERENCE_FAMILIES      # not "techniques over the frozen embedding"
 
 
 def _slim(r):
@@ -273,7 +274,7 @@ class Suite:
     def signature(self):
         """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
         into a full run); the stage list, budget, device and paths do not matter."""
-        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED and not k.startswith(("ref_", "stack_"))}      # stack_*: see stack_signature
+        a = {k: v for k, v in sorted(vars(self.args).items()) if k not in self.SIG_IGNORED and not k.startswith(("ref_", "stack_", "ft_"))}      # stack_*, ft_*: see stack_signature / ftune.ft_signature
         return {"args": hashlib.sha1(json.dumps(a, sort_keys=True, default=str).encode()).hexdigest(), "n_news": int(self.data.n_news),
                 "n_val": len(self.data.validation), "n_test": len(self.data.test)}
 
@@ -507,7 +508,7 @@ def stage_histquery(S, args):
 STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "moredata": X.stage_moredata, "graph": stage_graph, "head": stage_head,
           "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
           "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
-          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, "stack": ST.stage_stack, **SR.STAGES}
+          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, "stack": ST.stage_stack, "finetune": FT.stage_finetune, **SR.STAGES}
 
 
 # --------------------------------------------------------------------- output
@@ -679,8 +680,8 @@ def leaderboard(suites, tags, ref, path=None, top=None, plot=None, pop=False):
     rows = []
     for tag, S in by_tag.items():
         for r in S.records:
-            if r["family"] == "H10-user-model":
-                continue                                              # learned user models have their own control (um_frozen)
+            if r["family"] in ("H10-user-model", "H12-finetune", "FT-control"):
+                continue                                              # learned user models have their own control (um_frozen / ft_base)
             keep_controls = ("popularity", "frozen+pop") if pop else ("frozen",)
             if r["family"] == "control":
                 if r["name"] not in keep_controls:
@@ -856,6 +857,18 @@ def build_parser():
     ap.add_argument("--um-seeds-focus", type=int, default=3, help="seeds for the views the new comparisons are made on ('frozen' and 'text'); trained rows differ by 0.007-0.012 between seeds")
     ap.add_argument("--um-epochs", type=int, default=12)
     ap.add_argument("--um-dim", type=int, default=64, help="width of the readers' head (64 = V10's llmenc_ca)")
+    ap.add_argument("--ft-layers", type=int, default=2, help="finetune stage: how many of the last encoder layers are unfrozen (PLM-NR: 2)")
+    ap.add_argument("--ft-maxlen", type=int, default=96, help="finetune stage: tokens per article in the cached hidden states (the frozen vectors read 256)")
+    ap.add_argument("--ft-steps", type=int, default=18000, help="finetune stage: training steps (one step = --ft-batch samples, the candidates of which go through the top layers)")
+    ap.add_argument("--ft-batch", type=int, default=32)
+    ap.add_argument("--ft-lr", type=float, default=2e-5, help="finetune stage: learning rate of the unfrozen encoder layers")
+    ap.add_argument("--ft-head-lr", type=float, default=3e-4, help="finetune stage: learning rate of the (warm-started) reader")
+    ap.add_argument("--ft-refresh", type=int, default=600, help="finetune stage: the history side reads a table of article vectors refreshed with the current layers every N steps")
+    ap.add_argument("--ft-eval-every", type=int, default=1800, help="finetune stage: validate every N steps (rounded to a multiple of --ft-refresh)")
+    ap.add_argument("--ft-patience", type=int, default=4, help="finetune stage: stop after this many validations without a new best")
+    ap.add_argument("--ft-minutes", type=float, default=110.0, help="finetune stage: wall-clock cap of the training loop")
+    ap.add_argument("--ft-min-gain", type=float, default=0.006, help="finetune stage gate: PASS needs this rise of the cold-weighted validation nDCG@10 over the frozen start")
+    ap.add_argument("--ft-cache-dir", default="", help="finetune stage: where the cached hidden states go (default <cache dir>/ft_hidden; ~20 GB for MIND-large, keep it off Drive)")
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
     ap.add_argument("--um-extra", default="ff:frozen,ff:knn_rag,mi1:frozen,mi4:frozen,mi4d:frozen,mi4:text",
                     help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|prior|mi<K>, K learned interests; prior = history-free click prior); '' = none")
@@ -975,6 +988,12 @@ def main(argv=None):
         done.discard("stack")
         S.records = [r for r in S.records if r.get("stage") != "stack"]
         S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
+    ft_sig = FT.ft_signature(args)
+    if "finetune" in done and S.kv.get("ft_sig") != ft_sig:                                  # its settings (they are not part of the saved state's signature) changed
+        log("finetune stage: settings changed -> it runs again; the other finished stages are kept")
+        done.discard("finetune")
+        S.records = [r for r in S.records if r.get("stage") != "finetune"]
+        S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
     if done:
         log(f"resuming: stages already finished -> {sorted(done)} ({len(S.records)} rows restored)")
     wanted = [s for s in args.stages.split(",") if s]
@@ -1006,6 +1025,8 @@ def main(argv=None):
                 status[s] = "done"
                 if s == "stack":
                     S.kv["stack_sig"] = stack_sig
+                if s == "finetune":
+                    S.kv["ft_sig"] = ft_sig
                 S.kv.setdefault("timings", {})[s] = round(time.time() - t_stage)
                 mem = common.mem_note()
                 if mem:
