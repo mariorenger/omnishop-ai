@@ -63,6 +63,14 @@ def encoder_layers(model):
     return layers if isinstance(layers, nn.ModuleList) else None
 
 
+def autocast_on(device):
+    """Is autocast active for ``device``?  (``torch.is_autocast_enabled`` takes a device type from torch 2.4 on and none before.)"""
+    try:
+        return bool(torch.is_autocast_enabled(torch.device(device).type))
+    except TypeError:
+        return bool(torch.is_autocast_enabled())
+
+
 class TopEncoder(nn.Module):
     """The last layers of a BERT-like encoder + pooling + L2 normalisation: hidden states ``[B, L, d]`` entering the first of them and their lengths -> unit vectors ``[B, d]``."""
 
@@ -71,7 +79,7 @@ class TopEncoder(nn.Module):
         self.layers, self.config, self.pooling = nn.ModuleList(layers), config, pooling
 
     def forward(self, x, lens):
-        if not torch.is_autocast_enabled():                                      # a float16 cache read without autocast (CPU): the weights are float32
+        if not autocast_on(x.device):                                            # a float16 cache read without autocast (CPU): the weights are float32
             x = x.to(next(self.parameters()).dtype)
         valid = torch.arange(x.shape[1], device=x.device)[None, :] < lens[:, None]
         mask = attention_mask_for(self.config, valid, x)
