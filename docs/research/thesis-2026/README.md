@@ -4,7 +4,7 @@
 |---|---|
 | `Bao_Cao_Nghien_Cuu_LLM_News_Recommendation.docx` / `.pdf` | Báo cáo nghiên cứu 42 trang (tiếng Việt): 8 chương, 2 phụ lục, 62 tài liệu tham khảo. |
 | `Slide_Bao_Cao_LLM_News_Recommendation.pptx` / `.pdf` | 33 slide, sửa thẳng trên file slide nháp của học viên (giữ nền, khung, màu, font). Nội dung tiếng Anh, ghi chú thuyết trình tiếng Việt. |
-| `latex/` | Slide Beamer bản 2 (tiếng Việt, 49 trang) kèm bản có lời thoại; xem `latex/README.md`. |
+| `latex/` | Slide Beamer bản 2 (tiếng Việt, 51 trang) kèm bản có lời thoại; xem `latex/README.md`. |
 | `tools/` | Mã dựng lại cả hai file từ số đo. |
 
 ## Nguồn số liệu

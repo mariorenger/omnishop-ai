@@ -429,7 +429,7 @@ kNN trong reader, trên vector nối:\\
   \textbf{H8} \textperiodcentered{} LSE, top-k\par
   {\color{black!70}+0.011 đến +0.014 so với mean pooling; không thêm tham số; lặp lại trên 2 encoder, 2 quy mô}\par\vspace{5pt}
   \textbf{H10} \textperiodcentered{} Reader theo ứng viên\par
-  {\color{black!70}+0.0105 so với LSE (MIND-large); thành phần mạnh nhất. MIND-small: chưa hơn LSE}};
+  {\color{black!70}+0.0105 so với LSE (MIND-large); thành phần mạnh nhất. MIND-small: chỉ hơn LSE với Qwen3}};
 \node[col,draw=partc,fill=partc!5,text width=3.6cm,right=0.15cm of c1.north east,anchor=north west] (c2) {%
   {\footnotesize\bfseries\color{partc}Có điều kiện (2)}\par\vspace{4pt}
   \textbf{F} \textperiodcentered{} Chuyên mục trong văn bản\par
@@ -475,7 +475,7 @@ H6 & LLM sinh hồ sơ, mô tả bài & hồ sơ $-0.0308$; mô tả bài: mất
 H7 & Semantic ID + SID-GPT & 0.2898, ngang vector ngẫu nhiên (0.2897) & \FAILs\\
 \textbf{H8} & \textbf{Tương tác muộn (LSE)} & \textbf{+0.011 đến +0.014, ở 2 encoder và 2 quy mô} & \OKs\\
 H9 & LLM chấm điểm ứng viên & $-0.0112\ [-0.0216, -0.0008]$, $n=2.000$ & \FAILs\\
-\textbf{H10} & \textbf{Reader theo ứng viên} & \textbf{+0.0105 so với LSE (large); small: chưa hơn} & \OKs\\
+\textbf{H10} & \textbf{Reader theo ứng viên} & \textbf{hơn LSE +0.008 đến +0.013 (trừ BGE-small)} & \OKs\\
 H11 & Đa sở thích & K-Means $-0.0024$ so với LSE; reader $K=4$ n.s. & \FAILs\\
 H12 & Mở khóa 2 tầng BGE-large & +0.0005 (n.s.); Cold AUC $-0.0069$ & \FAILs\\
 F & Chuyên mục trong văn bản & Qwen3 +0.0186, BGE $-0.0024$ so với LSE & \PARTs\\
@@ -567,11 +567,42 @@ Thang ablation của NRMS trên MIND-small (mỗi bậc thêm một thay đổi 
 \begin{itemize}
   \setlength{\itemsep}{1pt}
   \item Bậc 2 \textbf{chưa hội tụ}, nên +0.0490 có phần phóng đại; GloVe vẫn là yếu tố lớn nhất.
-  \item So với embedding cố định: BGE-small + LSE 0.4037; Qwen3 + chuyên mục + LSE \textbf{0.4094} $\approx$ NRMS refit 0.4078 (+0.0016, CI $[-0.0023, +0.0055]$ chứa 0).
+  \item Huấn luyện lại đúng cách nâng NRMS từ 0.3694 (công thức V10) lên 0.3937 (một seed) và 0.4078 (refit); so sánh với embedding cố định ở slide sau.
 \end{itemize}
-\ychinh{(RQ1) embedding cố định + cách tổng hợp tốt \textbf{ngang} baseline huấn luyện lại, nhưng chưa vượt.}
+\ychinh{baseline yếu ở V10 là do công thức huấn luyện, không do mô hình: thêm GloVe là bước tăng lớn nhất.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Trước khi đánh giá LLM, nhóm phải có baseline đúng. NRMS theo công thức cũ yếu vì thiếu vector từ huấn luyện sẵn; thêm GloVe là bước tăng lớn nhất. Lưu ý bậc 2 chưa hội tụ nên con số 0.049 có phần phóng đại. Kết quả RQ1: embedding cố định chỉ ngang, chưa vượt NRMS refit, vì khoảng tin cậy chứa 0.}
+\end{frame}
+
+%% ============================================================================ RQ1 baseline đầy đủ
+\begin{frame}[shrink]{RQ1 \textperiodcentered{} NRMS, NAML, Fastformer huấn luyện lại so với embedding cố định}
+\scriptsize
+\renewcommand{\arraystretch}{1.04}
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{@{}YQ{1.1cm}Q{1.0cm}Q{1.32cm}Q{1.35cm}Q{1.05cm}@{}}
+\toprule
+\textbf{Mô hình (MIND-small)} & \textbf{Học?} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{Cold AUC} & \textbf{Nguồn}\\
+\midrule
+NRMS, seed 0 & có & 0.6392 & 0.3937 & 0.6471 & v7\\
+NRMS, seed 1 & có & 0.6501 & 0.4005 & 0.6630 & v7\\
+NAML & có & 0.6471 & 0.4006 & 0.6698 & v7\\
+Fastformer (trung bình 2 seed) & có & 0.6426 & 0.3927 & 0.6623 & v13\\
+NRMS refit (học thêm các ngày validation) & có & 0.6555 & 0.4078 & 0.6700 & v7\\
+Fastformer refit & có & 0.6550 & 0.4033 & 0.6767 & v13\\
+\midrule
+BGE-small + LSE (H8) & không & 0.6386 & 0.4037 & 0.6675 & v7\\
+Qwen3 + chuyên mục + LSE (F, H8) & không & 0.6556 & \textbf{0.4094} & 0.6637 & v13\\
+\bottomrule
+\end{tabularx}
+\begin{itemize}
+  \setlength{\itemsep}{1pt}
+  \item LSE hơn NRMS seed 0 (+0.010) và Fastformer (+0.011), ngang NAML và NRMS seed 1 (+0.003; hai seed NRMS lệch nhau 0.0068); thua NRMS refit $-0.0041\ [-0.0061, -0.0021]$.
+  \item Qwen3 + chuyên mục + LSE ngang NRMS refit (+0.0016, CI chứa 0), hơn Fastformer refit $+0.0061\ [+0.0022, +0.0100]$.
+\end{itemize}
+\ghichu{GloVe-300, công thức bài gốc. V10 cũ: NRMS 0.3685, NAML 0.3953, Fastformer 0.3642. Bài báo (thứ cấp): NRMS 0.410--0.412, NAML 0.412--0.415.}
+\ychinh{(RQ1) embedding cố định + LSE \textbf{ngang} NRMS, NAML, Fastformer học lại; chỉ NRMS refit hơn.}
+\par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
+\note{Đây là câu trả lời đầy đủ cho RQ1. Cả ba baseline NRMS, NAML, Fastformer đều được huấn luyện lại theo công thức bài gốc với GloVe. Embedding cố định cộng LSE, không học tham số nào, ngang các baseline huấn luyện một lần; chỉ NRMS khi được học thêm các ngày validation là còn hơn. Bản zero-shot tốt nhất, Qwen3 cộng chuyên mục cộng LSE, ngang NRMS refit và hơn Fastformer refit có ý nghĩa thống kê.}
 \end{frame}
 
 %% ============================================================================ RQ2 encoder sweep
@@ -672,6 +703,39 @@ s_{\mathrm{LSE}}(u,c)=\tau\Big(\log\sum_{i\in\mathcal H_u}\exp\big(\langle\mathb
 \note{Trên cả hai quy mô và hai bộ mã hóa, LSE và top-k đều tăng khoảng 0.011 đến 0.014 nDCG@10 mà không học gì thêm. MaxSim cứng thì giảm vì quá nhạy với một click nhiễu. Từ đây, LSE được dùng làm đối chứng mạnh: một hướng mới phải hơn LSE mới được coi là có ích.}
 \end{frame}
 
+%% ============================================================================ H8 so với attention học được
+\begin{frame}[shrink]{H8 so với attention học được trên cùng vector cố định}
+\scriptsize
+\renewcommand{\arraystretch}{1.02}
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{@{}YQ{1.15cm}Q{1.55cm}Q{1.55cm}Q{1.55cm}Q{1.55cm}@{}}
+\toprule
+ & & \multicolumn{2}{c}{\textbf{MIND-small}} & \multicolumn{2}{c}{\textbf{MIND-large}}\\
+\cmidrule(lr){3-4}\cmidrule(l){5-6}
+\textbf{Cách tổng hợp lịch sử} & \textbf{Tham số} & \textbf{BGE-small} & \textbf{Qwen3} & \textbf{BGE-large} & \textbf{Qwen3}\\
+\midrule
+mean pooling & không & 0.3909 & 0.3784 & 0.3933 & 0.3787\\
+\textbf{LSE (H8)} & không & \textbf{0.4037} & 0.3912 & 0.4047 & 0.3916\\
+\midrule
+reader kiểu NRMS & có & 0.3862 & -- & -- & --\\
+reader kiểu Fastformer & có & 0.3939 & 0.3944 & -- & --\\
+reader $K=4$ truy vấn (H11) & có & 0.3944 & \textbf{0.4029} & -- & --\\
+reader theo ứng viên (H10) & có & 0.3968 & 0.3996 & 0.4152 & 0.4050\\
+reader theo ứng viên + kNN & có & 0.4033 & -- & \textbf{0.4189} & \textbf{0.4095}\\
+\bottomrule
+\end{tabularx}
+\ghichu{Test nDCG@10, cùng bảng embedding cố định. Trung bình 2--3 seed (kiểu NRMS, + kNN trên MIND-small: 1 seed). Nguồn v7, v13, v16b; ``--'': chưa chạy hoặc log không ghi.}
+\begin{itemize}
+  \setlength{\itemsep}{1pt}
+  \item \textbf{BGE-small, MIND-small:} LSE hơn mọi reader học được, +0.007 đến +0.018 (reader + kNN chỉ ngang).
+  \item \textbf{Qwen3 hoặc MIND-large:} reader theo ứng viên hơn LSE, +0.008 đến +0.013.
+  \item Kiểu attention ít quan trọng hơn encoder và lượng dữ liệu; reader kiểu NAML chưa chạy riêng.
+\end{itemize}
+\ychinh{trong nhóm không tham số, LSE tốt nhất; so với attention học được thì tùy encoder và lượng dữ liệu.}
+\par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
+\note{Slide này trả lời câu hỏi: LSE có thắng được attention học được không. Trên cùng vector cố định, nhóm thử reader kiểu NRMS, kiểu Fastformer, nhiều truy vấn và theo ứng viên. Với BGE-small trên MIND-small, LSE thắng tất cả. Nhưng với Qwen3, và khi có nhiều dữ liệu ở MIND-large, reader theo ứng viên thắng LSE. Kiểu attention cụ thể không quan trọng bằng encoder và lượng dữ liệu. Ví dụ trên BGE-small, LSE hơn reader 4 truy vấn $+0.0093$, CI $[+0.0075, +0.0112]$; với Qwen3 trên MIND-small, cả hai seed của reader theo ứng viên đều trên LSE. Hệ thống cuối vì vậy dùng cả hai: reader làm nền, LSE làm thành phần phụ. Reader kiểu NAML chưa được chạy riêng; NAML chỉ được chạy như baseline đầy đủ ở phần RQ1.}
+\end{frame}
+
 %% ============================================================================ H10 thiết kế
 \begin{frame}[shrink]{H10 \textperiodcentered{} Reader: dùng ứng viên làm câu hỏi để đọc lịch sử}
 \begin{columns}[T,onlytextwidth]
@@ -704,45 +768,43 @@ Huấn luyện: softmax trên bài được click và các bài không được 
 \end{tikzpicture}
 \end{columns}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Reader là phiên bản có học của ý tưởng H8. Thay vì công thức cố định, nó học trọng số attention lên từng bài đã đọc, với chính ứng viên là câu hỏi. Có hai kiểu: theo ứng viên, và nén lịch sử thành một vector trước như NRMS. Câu hỏi là học như vậy có hơn LSE không, và kết quả phụ thuộc lượng dữ liệu.}
+\note{Reader là phiên bản có học của ý tưởng H8. Thay vì công thức cố định, nó học trọng số attention lên từng bài đã đọc, với chính ứng viên là câu hỏi. Có hai kiểu: theo ứng viên, và nén lịch sử thành một vector trước như NRMS. Câu hỏi là học như vậy có hơn LSE không; kết quả phụ thuộc encoder và lượng dữ liệu.}
 \end{frame}
 
 %% ============================================================================ H10 kết quả
-\begin{frame}[shrink]{H10 \textperiodcentered{} Reader chỉ thắng khi có đủ dữ liệu (MIND-large)}
+\begin{frame}[shrink]{H10 \textperiodcentered{} Reader theo ứng viên hơn LSE trên MIND-large và trên Qwen3}
 \begin{columns}[T,onlytextwidth]
 \column{0.53\textwidth}
 \scriptsize
-\textbf{MIND-small} (BGE-small, embedding cố định):\par\vspace{2pt}
-\renewcommand{\arraystretch}{1.15}
-\begin{tabularx}{\linewidth}{@{}Yc@{}}
+\textbf{Reader theo ứng viên so với LSE, cùng encoder} (test nDCG@10):\par\vspace{2pt}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{@{}YQ{1.05cm}Q{1.15cm}R{1.3cm}@{}}
 \toprule
-\textbf{Cách tổng hợp lịch sử} & \textbf{nDCG@10}\\
+\textbf{Thiết lập} & \textbf{LSE} & \textbf{Reader} & \textbf{$\Delta$}\\
 \midrule
-mean pooling (zero-shot) & 0.3909\\
-LSE (zero-shot, H8) & \textbf{0.4037}\\
-reader nén một vector, kiểu NRMS & 0.3862\\
-reader nén một vector, kiểu Fastformer & 0.3949\\
-reader theo ứng viên & 0.3957\\
-reader theo ứng viên + kNN & 0.4033\\
+MIND-small, BGE-small & 0.4037 & 0.3968 & $-0.0069$\\
+MIND-small, Qwen3 & 0.3912 & 0.3996 & $+0.0084$\\
+MIND-large, BGE-large & 0.4047 & 0.4152 & $\mathbf{+0.0105}$\\
+MIND-large, Qwen3 & 0.3916 & 0.4050 & $\mathbf{+0.0134}$\\
+MIND-large, vector nối & -- & \textbf{0.4223} & --\\
 \bottomrule
 \end{tabularx}
-\ghichu{LSE hơn reader theo ứng viên $+0.0080\ [+0.0061, +0.0099]$; reader + kNN $\approx$ LSE ($-0.0004$, n.s.); kiểu Fastformer $\approx$ reader theo ứng viên ($-0.0008$, n.s.), kiểu NRMS kém $-0.0095$.}
+\ghichu{Reader: trung bình 3 seed (BGE-small) hoặc 2 seed; hai seed lệch nhau 0.001--0.013. $\Delta$ của BGE-large là ghép cặp (v16b); các $\Delta$ khác tính từ hai con số.}
 \column{0.44\textwidth}
 \scriptsize
-\textbf{MIND-large} (nhiều dữ liệu hơn khoảng 14 lần):
 \begin{itemize}
   \setlength{\itemsep}{2pt}
-  \item Reader theo ứng viên so với LSE, cùng BGE-large: 0.4152 so với 0.4047, tức \textbf{+0.0105}.
-  \item Trên Qwen3: 0.4050 so với 0.3916 (LSE).
-  \item Trên vector nối Qwen3 $\oplus$ BGE-large: \textbf{0.4223}, cao nhất trong các reader cơ bản.
+  \item Với BGE-small và ít dữ liệu, reader chưa hơn LSE. Với Qwen3, hoặc trên MIND-large (dữ liệu gấp khoảng 14 lần), reader hơn LSE.
+  \item Trên vector nối hai encoder, reader đạt \textbf{0.4223}; bản có kNN (\code{cat:um\_knn\_rag}) là nền của hệ thống.
 \end{itemize}
 \begin{alertblock}{Cảnh báo validation ấm}
 \scriptsize Lần chạy v14 (Qwen3), so với mean pooling: reader + kNN \textbf{+0.0653} trên validation nhưng chỉ \textbf{+0.0302} trên test.
 \end{alertblock}
 \end{columns}
-\ychinh{\OK\ (khi đủ dữ liệu) H10 hơn LSE trên MIND-large và là thành phần mạnh nhất của hệ thống. Trên MIND-small, reader học được chưa hơn LSE; kiểu attention không phải yếu tố quyết định.}
+\ychinh{\OK\ H10 hơn LSE trên MIND-large (+0.0105 đến +0.0134) và trên Qwen3, là thành phần mạnh nhất của hệ thống. Với BGE-small trên MIND-small thì chưa hơn LSE.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Kết quả của H10 phụ thuộc dữ liệu. Trên MIND-small, mọi reader học được đều không hơn LSE; kiểu attention cũng không quyết định. Trên MIND-large với khoảng 14 lần dữ liệu, reader theo ứng viên vượt LSE khoảng 0.0105 và trở thành thành phần chính của hệ thống. Cần nhớ validation thổi phồng lợi ích của reader, nên mọi kết luận ở đây dựa trên test.}
+\note{Kết quả của H10 phụ thuộc encoder và lượng dữ liệu. Với BGE-small trên MIND-small, reader chưa hơn LSE. Với Qwen3, reader đã hơn LSE ngay trên MIND-small; và trên MIND-large, với khoảng 14 lần dữ liệu, reader hơn LSE trên cả hai encoder và trở thành thành phần chính của hệ thống. Cần nhớ validation thổi phồng lợi ích của reader, nên mọi kết luận ở đây dựa trên test.}
 \end{frame}
 
 %% ============================================================================ Không gian biểu diễn + H3
@@ -761,7 +823,7 @@ theo ứng viên (\code{um\_frozen}) & 0.4050 & 0.4152 & \textbf{0.4223}\\
 đọc văn bản có chuyên mục (\code{um\_text}) & 0.4092 & -- & --\\
 \bottomrule
 \end{tabularx}
-\ghichu{Vector nối: $\mathbf e=[\mathbf e_{\mathrm{Qwen3}}\,\Vert\,\mathbf e_{\mathrm{BGE}}]/\sqrt2$. kNN: $\mathbf e'_c=\mathrm{Norm}\big(\mathbf e_c+\beta\,\mathrm{Norm}(\sum_{j\in\mathcal N_k(c)}s_{cj}\mathbf e_j)\big)$, chỉ dùng các bài có trước thời điểm đánh giá. Hai seed của cùng reader lệch 0.001--0.007.}
+\ghichu{Vector nối: $\mathbf e=[\mathbf e_{\mathrm{Qwen3}}\,\Vert\,\mathbf e_{\mathrm{BGE}}]/\sqrt2$. kNN: $\mathbf e'_c=\mathrm{Norm}\big(\mathbf e_c+\beta\,\mathrm{Norm}(\sum_{j\in\mathcal N_k(c)}s_{cj}\mathbf e_j)\big)$, chỉ dùng các bài có trước thời điểm đánh giá. Hai seed của cùng reader lệch 0.001--0.008.}
 \column{0.42\textwidth}
 \scriptsize
 \begin{itemize}
@@ -1359,7 +1421,7 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \renewcommand{\arraystretch}{1.25}
 \begin{tabularx}{\textwidth}{@{}lY@{}}
 \toprule
-\textbf{RQ1} & Embedding cố định + cách tổng hợp tốt \textbf{ngang} baseline huấn luyện lại (0.4094 so với NRMS refit 0.4078, CI chứa 0): ngang, chưa vượt.\\
+\textbf{RQ1} & Embedding cố định + cách tổng hợp tốt \textbf{ngang} NRMS, NAML, Fastformer huấn luyện lại (0.4094 so với NRMS refit 0.4078, CI chứa 0), hơn Fastformer refit (+0.0061): ngang, chưa vượt.\\
 \textbf{RQ2} & Điểm nghẽn là \textbf{tầng tổng hợp lịch sử}: LSE tăng +0.011 đến +0.014 không cần tham số; bộ mã hóa lớn hơn gần như không giúp (+0.0015).\\
 \textbf{RQ3} & Trong 14 họ đã đo: \textcolor{okc}{\textbf{2 thành công}} (H8, H10), \textcolor{partc}{\textbf{2 có điều kiện}} (F, H3), \textcolor{failc}{\textbf{10 không hiệu quả}}, nhất là các hướng nén hoặc viết lại biểu diễn bằng LLM.\\
 \textbf{RQ4} & Khi chỉ có điểm embedding, GBDT $\approx$ hợp nhất tuyến tính ($-0.0004$); GBDT có ích nhờ exposure (+0.0147). CV theo khối thời gian làm validation khớp test (lệch $-0.0379 \to -0.0072$).\\
@@ -1470,6 +1532,7 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
   \item[Khoảng tin cậy có tính nhiễu huấn luyện không?] Không. CI ghép cặp chỉ phản ánh nhiễu mẫu test; nhiễu seed đo riêng (0.007--0.014 trên MIND-small, 0.001--0.007 cho reader trên MIND-large). Chênh nhỏ hơn mức đó giữa hai mô hình đã huấn luyện không được dùng để kết luận.
   \item[Sao không dùng embedding 4B--8B?] Giới hạn GPU. Bằng chứng hiện có cho thấy encoder lớn hơn không tự động tốt hơn (BGE-large chỉ +0.0015 so với BGE-small; Qwen3-0.6B kém BGE-large +0.0102 khi làm đầu vào reader), nhưng chưa loại trừ được.
   \item[Vì sao GBDT không giúp khi chỉ có điểm embedding?] Bốn trọng số tuyến tính đã khai thác hết thông tin của các điểm ($-0.0004$, n.s.); GBDT chỉ có ích khi có thông tin mới như exposure (+0.0147).
+  \item[LSE đã so với attention học được, với NAML, Fastformer chưa?] Có. Trên cùng vector cố định: reader kiểu NRMS, Fastformer, 4 truy vấn, theo ứng viên (slide ``H8 so với attention học được''). Baseline đầy đủ NRMS, NAML, Fastformer: slide RQ1. Reader kiểu NAML trên vector cố định chưa chạy.
   \item[Kích thước slate quan trọng nhất có hợp lý không?] Chưa rõ. Bỏ cột này làm điểm holdout giảm; có thể cây dùng nó làm ngữ cảnh để đổi cách kết hợp. Cần ablation riêng.
   \item[Đóng góp chính của đề tài là gì?] (1) Đánh giá chặt 12 họ LLM 2024--2026 cho tin tức với baseline huấn luyện lại, CI ghép cặp và nhiễu seed; (2) chỉ ra điểm nghẽn là tầng tổng hợp lịch sử và hai cách sửa trên embedding cố định (LSE, reader theo ứng viên); (3) giao thức validation có trọng số bài mới + CV theo khối thời gian; (4) hệ ba tầng chạy trên 1 GPU T4.
 \end{description}
