@@ -36,6 +36,7 @@ import torch
 
 import adapt
 import common
+import fields as FD
 import ftune as FT
 import rep_eval as R
 import semgraph as G
@@ -269,7 +270,7 @@ class Suite:
 
     # ---- resume
     SIG_IGNORED = {"stages", "budget_hours", "min_stage_s", "no_resume", "work", "cache_dir", "device", "mind_train", "mind_dev",
-                   "export_scores", "super_dirs", "super_baselines", "save_arrays", "restack"}
+                   "export_scores", "super_dirs", "super_baselines", "save_arrays", "restack", "rerun"}
 
     def signature(self):
         """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
@@ -754,6 +755,11 @@ def build_parser():
     ap.add_argument("--doc-prefix", default="")
     ap.add_argument("--query-format", default="auto")
     ap.add_argument("--max-len", type=int, default=256)
+    ap.add_argument("--base-text", default="ta", choices=["ta", "t", "cta", "ctae"], help="text the run's own vectors read (fields.build_texts): ta = 'title. abstract' "
+                    "(every run before v18); cta = with the category phrase in front.  A 'concat:' run reads every part with this text, so it re-uses the cached "
+                    "vectors of the single-encoder runs whose 'moredata' stage embedded that variant")
+    ap.add_argument("--enc-dtype", default="auto", choices=["auto", "fp32", "fp16"], help="weights of the frozen encoder (adapt.resolve_dtype): auto = fp16 linear "
+                    "layers with fp32 embeddings / norms for >= 3B parameters on a GPU (same autocast arithmetic, half the memory), fp32 otherwise")
     ap.add_argument("--q-max-len", type=int, default=384)
     ap.add_argument("--stages", default=DEFAULT_STAGES)
     ap.add_argument("--lean-data", type=int, default=0, help="memory-lean loader (data_lean.py, same split / popularity / negatives) for MIND-large")
@@ -784,6 +790,8 @@ def build_parser():
     ap.add_argument("--stack-control", type=int, default=1, help="1: also train the v15 recipe (user folds, every feature, deep trees) for the 'meta' variant as the row stack_meta_v15cfg")
     ap.add_argument("--stack-buffer-min", type=float, default=30.0, help="minutes left out of the training part on each side of a held-out time block")
     ap.add_argument("--restack", type=int, default=0, help="1: run the stack stage again even if the saved state says it finished with these settings (re-uses every exported score)")
+    ap.add_argument("--rerun", default="", help="comma-separated stages to run again although the saved state says they finished (their rows are dropped first); "
+                    "e.g. 'supermodel,stack' after other runs added components (--super-dirs)")
     ap.add_argument("--cold-target", type=float, default=0.8, help="cold share of the clicks the validation metric used for SELECTION (supermodel base and weights, stacker) reflects; "
                     "the test day of MIND-large has 82% cold clicks, its validation day fewer; 0 = plain validation mean")
     ap.add_argument("--stack-rounds", type=int, default=800)
@@ -857,6 +865,9 @@ def build_parser():
     ap.add_argument("--um-seeds-focus", type=int, default=3, help="seeds for the views the new comparisons are made on ('frozen' and 'text'); trained rows differ by 0.007-0.012 between seeds")
     ap.add_argument("--um-epochs", type=int, default=12)
     ap.add_argument("--um-dim", type=int, default=64, help="width of the readers' head (64 = V10's llmenc_ca)")
+    ap.add_argument("--um-lr-decay", type=float, default=1.0, help="learned readers: the learning rate is multiplied by this after every epoch from --um-decay-after on (1 = constant, V10)")
+    ap.add_argument("--um-decay-after", type=int, default=2, help="learned readers: first epoch after which --um-lr-decay applies")
+    ap.add_argument("--um-min-delta", type=float, default=1e-3, help="learned readers: a validation rise counts as an improvement (new best epoch, patience reset) above this")
     ap.add_argument("--ft-layers", type=int, default=2, help="finetune stage: how many of the last encoder layers are unfrozen (PLM-NR: 2)")
     ap.add_argument("--ft-maxlen", type=int, default=96, help="finetune stage: tokens per article in the cached hidden states (the frozen vectors read 256)")
     ap.add_argument("--ft-steps", type=int, default=18000, help="finetune stage: training steps (one step = --ft-batch samples, the candidates of which go through the top layers)")
@@ -871,7 +882,8 @@ def build_parser():
     ap.add_argument("--ft-cache-dir", default="", help="finetune stage: where the cached hidden states go (default <cache dir>/ft_hidden; ~20 GB for MIND-large, keep it off Drive)")
     ap.add_argument("--um-repro", default=None, help='V10 llmenc_ca "auc,ndcg10" (0.6494,0.3997)')
     ap.add_argument("--um-extra", default="ff:frozen,ff:knn_rag,mi1:frozen,mi4:frozen,mi4d:frozen,mi4:text",
-                    help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|prior|mi<K>, K learned interests; prior = history-free click prior); '' = none")
+                    help="other readers on frozen vectors, 'reader:view' (reader: add|nrms|ff|sca|prior|mi<K>, K learned interests; sca = candidate-aware with a "
+                    "self-attention block over the history; prior = history-free click prior); '' = none")
     # reference baselines (NRMS / NAML / Fastformer with the published recipe) and the ablation ladder
     ap.add_argument("--ref-glove", type=int, default=1, help="initialise word vectors from GloVe-300 (downloads it; falls back to random and says so)")
     ap.add_argument("--ref-glove-path", default="", help="GloVe txt/zip to use instead of downloading")
@@ -907,20 +919,29 @@ def build_parser():
     return ap
 
 
+def base_texts(meta, args):
+    """The text of every article that the run's own vectors read: ``meta['text']`` (``title. abstract``) unless ``--base-text`` says otherwise."""
+    bt = getattr(args, "base_text", "ta")
+    return list(meta["text"]) if bt == "ta" else FD.build_texts(meta, bt)
+
+
 def embed_catalogue(meta, args, device, cache_dir):
     """Frozen vectors of the whole catalogue -> ``(vectors [n_articles, d], seconds spent encoding)``.  ``--encoder concat:A+B`` (any number of parts) is the
     L2-normalised vectors of the encoders side by side, each part scaled by 1/sqrt(parts): a unit vector whose dot product with another one is the MEAN of the
     parts' dot products, so a zero-shot score on it is just the average of the parts' scores and only the learned readers / retrieval views gain from having both
     spaces in one input.  Every part comes from the on-disk cache that the runs of the single encoders fill (same max_len / prefix), so a composite run
-    encodes nothing that another run has not."""
+    encodes nothing that another run has not.  ``--base-text`` picks the text every part reads (``fields.build_texts``; default the suite's own
+    ``title. abstract``)."""
+    texts = base_texts(meta, args)
+    edt = getattr(args, "enc_dtype", "auto")
     if not args.encoder.startswith("concat:"):
-        return X.embed_news(meta, args.encoder, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
+        return X.embed_news(meta, args.encoder, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir, adapt.resolve_dtype(args.encoder, edt, device), texts)
     parts = [p for p in args.encoder[len("concat:"):].split("+") if p]
     if len(parts) < 2:
         raise SystemExit(f"--encoder {args.encoder!r}: 'concat:' needs at least two encoders joined by '+'")
     vs, secs = [], 0.0
     for name in parts:
-        v, sec = X.embed_news(meta, name, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir)
+        v, sec = X.embed_news(meta, name, args.max_len, args.doc_prefix, device, args.enc_bs, cache_dir, adapt.resolve_dtype(name, edt, device), texts)
         v = np.asarray(v, np.float32)
         vs.append(v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-8) / np.sqrt(len(parts)))
         secs += sec
@@ -933,13 +954,16 @@ def stack_signature(args):
     return hashlib.sha1(json.dumps(a, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def guard_embeddings(vecs, meta, reference, tol=0.99):
-    """Catch a wrong pooling / EOS / prefix convention up front by comparing 64 vectors with a reference implementation."""
-    ref = reference(meta["text"][:64])
+def guard_embeddings(vecs, meta, reference, tol=0.99, texts=None):
+    """Catch a wrong pooling / EOS / prefix convention up front by comparing 64 vectors with a reference implementation (on the texts the vectors read)."""
+    ref = reference(list((meta["text"] if texts is None else texts)[:64]))
     if ref is None:
         log("E0 guard: reference encoder unavailable - pooling/EOS/prefix NOT cross-checked")
         return
     ref = np.asarray(ref, np.float32)
+    if not np.isfinite(ref).all():
+        log("E0 guard: the reference encoder returned non-finite vectors (fp16?) - pooling/EOS/prefix NOT cross-checked")
+        return
     cos = (vecs[:64] * ref).sum(1) / (np.linalg.norm(vecs[:64], axis=1) * np.linalg.norm(ref, axis=1) + 1e-8)
     log(f"E0 guard: HFEncoder vs reference embeddings, min cos={cos.min():.4f} mean={cos.mean():.4f}")
     if cos.min() < tol:
@@ -961,7 +985,7 @@ def main(argv=None):
     else:
         vecs, secs = embed_catalogue(meta, args, device, cache_dir)
         if EQUIV_REFERENCE is not None and not args.encoder.startswith("concat:"):
-            guard_embeddings(vecs, meta, EQUIV_REFERENCE)
+            guard_embeddings(vecs, meta, EQUIV_REFERENCE, texts=base_texts(meta, args))
         log(f"E0 {'loaded from cache' if not secs else f'encoded with {args.encoder} in {secs:.0f}s'} ({vecs.shape[0]:,} x {vecs.shape[1]})")
         emb = dict(zip(meta["ids"], vecs))
     if args.lean_data:
@@ -994,6 +1018,15 @@ def main(argv=None):
         done.discard("finetune")
         S.records = [r for r in S.records if r.get("stage") != "finetune"]
         S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
+    again = [s_ for s_ in getattr(args, "rerun", "").split(",") if s_ and s_ in done]
+    if again:                                                                          # e.g. the supermodel and the stacker after other runs added components
+        log(f"--rerun: running {again} again (their rows are dropped first); the other finished stages are kept")
+        done -= set(again)
+        S.records = [r for r in S.records if r.get("stage") not in again]
+        S.cache = {k: v for k, v in S.cache.items() if k in {r["name"] for r in S.records}}
+        for s_ in again:
+            S.kv.get("timings", {}).pop(s_, None)
+            S.kv.get("memory", {}).pop(s_, None)
     if done:
         log(f"resuming: stages already finished -> {sorted(done)} ({len(S.records)} rows restored)")
     wanted = [s for s in args.stages.split(",") if s]

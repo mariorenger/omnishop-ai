@@ -131,24 +131,44 @@ def digest(texts):
     return h.hexdigest()[:16]
 
 
-def embed_texts(texts, name, max_len, prefix, device, bs, cache_dir, dtype=torch.float32):
+def gpu_devices(device):
+    """The GPUs one encoding may use: every visible GPU when ``device`` is plain ``cuda`` (Kaggle's "T4 x2" has two; ``V11_MULTI_GPU=0`` keeps one)."""
+    if device != "cuda" or os.environ.get("V11_MULTI_GPU", "1") == "0" or not torch.cuda.is_available():
+        return [device]
+    return [f"cuda:{i}" for i in range(torch.cuda.device_count())] or [device]
+
+
+def embed_texts(texts, name, max_len, prefix, device, bs, cache_dir, dtype=torch.float32, log=print):
     """Frozen vectors ``[len(texts), d]``, cached on disk per (model, max_len, prefix, **the texts themselves**): a different text variant
-    can never be served from another variant's cache.  Returns ``(vecs, seconds)`` (0 if cached)."""
+    can never be served from another variant's cache.  Returns ``(vecs, seconds)`` (0 if cached).  With two GPUs the batches are split between
+    them (``adapt.encode_multi``: same batches, same vectors).  A few non-finite rows (fp16 overflow) are encoded again on the CPU in fp32; many of
+    them stop the run."""
     key = f"{name}|{max_len}|{prefix}|{len(texts)}|{digest(texts)}"
     path = os.path.join(cache_dir, "emb_cache_" + hashlib.sha1(key.encode()).hexdigest()[:12] + ".npz")
     if os.path.exists(path):
         z = np.load(path)
         if str(z["key"]) == key:
             return z["vecs"], 0.0
-    enc = adapt.HFEncoder(name, max_len=max_len, device=device, prefix=prefix, dtype=dtype)
+    devs = gpu_devices(device)
     t0 = time.time()
-    vecs = enc.encode(texts, bs=bs)
+    if len(devs) > 1:
+        log(f"  encoding {len(texts):,} texts with {name} on {len(devs)} GPUs ({str(dtype).replace('torch.', '')} weights)")
+        vecs = adapt.encode_multi(name, texts, max_len, prefix, dtype, bs, devs, log=log)
+    else:
+        enc = adapt.HFEncoder(name, max_len=max_len, device=device, prefix=prefix, dtype=dtype)
+        vecs = enc.encode(texts, bs=bs)
+        del enc
     secs = time.time() - t0
-    del enc
-    if device == "cuda":
+    if str(device).startswith("cuda"):
         torch.cuda.empty_cache()
-    if not np.isfinite(vecs).all():
-        raise RuntimeError(f"{name}: non-finite embeddings (fp16 overflow?)")
+    bad = np.nonzero(~np.isfinite(vecs).all(1))[0]
+    if len(bad):
+        if len(bad) > max(64, len(texts) // 200):
+            raise RuntimeError(f"{name}: {len(bad):,} non-finite embeddings of {len(texts):,} (fp16 overflow?)")
+        log(f"  {name}: {len(bad)} non-finite embeddings -> encoded again on the CPU in fp32")
+        cpu = adapt.HFEncoder(name, max_len=max_len, device="cpu", prefix=prefix, dtype=torch.float32)
+        vecs[bad] = cpu.encode([texts[i] for i in bad], bs=8)
+        del cpu
     os.makedirs(cache_dir, exist_ok=True)
     np.savez(path, key=np.array(key), vecs=vecs)
     return vecs, secs

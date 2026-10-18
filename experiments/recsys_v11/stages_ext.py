@@ -34,11 +34,13 @@ from common import HistQueries, ScoreCache, avg_results, decoder_only, fuse, log
 
 
 # ============================================================================ shared helpers
-def embed_news(meta, name, max_len, prefix, device, bs, cache_dir, dtype=torch.float32, texts=None):
+def embed_news(meta, name, max_len, prefix, device, bs, cache_dir, dtype=None, texts=None):
     """Frozen article vectors ``[n_articles, d]`` of ``texts`` (default: the suite's own ``title. abstract``), cached on disk per
     (model, max_len, prefix, the texts themselves) so that the encoder sweep and a later run with the same model never encode twice and a
-    different text variant can never be served from another variant's cache.  Returns ``(vecs, seconds)`` (0 if cached)."""
-    return FD.embed_texts(meta["text"] if texts is None else texts, name, max_len, prefix, device, bs, cache_dir, dtype)
+    different text variant can never be served from another variant's cache.  ``dtype`` None: ``adapt.resolve_dtype(name, 'auto')`` (fp16 weights
+    for >= 3B parameters on a GPU, fp32 otherwise).  Returns ``(vecs, seconds)`` (0 if cached)."""
+    dtype = FD.adapt.resolve_dtype(name, "auto", device) if dtype is None else dtype
+    return FD.embed_texts(meta["text"] if texts is None else texts, name, max_len, prefix, device, bs, cache_dir, dtype, log=log)
 
 
 def short(name):
@@ -78,7 +80,8 @@ def stage_pooling(S, args):
 # ============================================================================ F: more of the data
 def _embedder(S, args):
     """``texts -> [len(texts), d]`` frozen vectors of the run's encoder, through the content-keyed cache (no encoding after a resume)."""
-    return lambda texts: FD.embed_texts(texts, args.encoder, args.max_len, args.doc_prefix, S.device, args.enc_bs, S.cache_dir)[0]
+    dtype = FD.adapt.resolve_dtype(args.encoder, getattr(args, "enc_dtype", "auto"), S.device)
+    return lambda texts: FD.embed_texts(texts, args.encoder, args.max_len, args.doc_prefix, S.device, args.enc_bs, S.cache_dir, dtype, log=log)[0]
 
 
 def view_vectors(S, args):
@@ -98,6 +101,9 @@ def stage_moredata(S, args):
     log("\n== F  more of the data: article fields in the text an encoder reads, and the length of the history a pooling rule sees ==")
     if "pool_lse" not in S.cache:
         log("  not run: the late-interaction row of the pooling stage is the reference of the -lse families (run 'pooling' first)")
+        return False
+    if getattr(args, "base_text", "ta") != "ta":
+        log(f"  not run: the run's own vectors already read the text variant '{args.base_text}' (--base-text), so the stage's control 'ta' would be mislabelled")
         return False
     a = FD.audit(S.meta, S.data)
     log(f"  news.tsv has {a['news_columns']} columns per line (MIND-small: 8 = id, category, subcategory, title, abstract, URL, title entities, abstract entities)"
@@ -367,7 +373,8 @@ def stage_usermodel(S, args):
                 return S.run(UM.scorer(model), "val")["mean"]["ndcg@10"]
 
             model, info = UM.train_user_model(V["val"], pack, val_fn, seed=sd, max_epochs=args.um_epochs, device=S.device, dim=getattr(args, "um_dim", 64),
-                                              deadline=S.deadline(0.2), log=lambda *a: None, kind=kind)
+                                              deadline=S.deadline(0.2), log=lambda *a: None, kind=kind, lr_decay=getattr(args, "um_lr_decay", 1.0),
+                                              decay_after=getattr(args, "um_decay_after", 2), min_delta=getattr(args, "um_min_delta", 1e-3))
             if keep:
                 (v_, vr_), (t_, tr_) = S.run_rec(UM.scorer(model, V["val"]), "val"), S.run_rec(UM.scorer(model, V["test"]), "test")
                 vrag.append(vr_), trag.append(tr_)
@@ -379,7 +386,7 @@ def stage_usermodel(S, args):
                 b = next(iter(S.es["val"]))
                 info.update(model.diversity(b["hist"], b["hist_mask"]))
             infos.append(info)
-            log(f"    {kind}/{vname} seed {sd}: {info['epochs']} epochs, val nDCG@10={info['best_val']:.4f}"
+            log(f"    {kind}/{vname} seed {sd}: {info['epochs']} epochs (best {info['best_epoch']}), val nDCG@10={info['best_val']:.4f}"
                 + (f", interests: cosine {info['interest_cos']:.2f}, attention TV {info['attn_tv']:.2f}" if "interest_cos" in info else "") + f" ({time.time() - t0:.0f}s)")
         return vals, tests, infos, ((common.ragged_mean_z(vrag), common.ragged_mean_z(trag)) if keep else None)
 
@@ -391,7 +398,8 @@ def stage_usermodel(S, args):
         per_seed = [t["mean"]["ndcg@10"] for t in tests]
         row = S.record(f"um_{vname}", fam, {"view": vname, "seeds": seeds_for(vname), "reader": "ca"}, avg_results(vals), avg_results(tests),
                        ref if ref in S.cache else f"um_{vname}",
-                       {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": per_seed, **({"ndcg10_std": float(np.std(per_seed, ddof=1))} if len(per_seed) > 1 else {})})
+                       {"epochs": [i["epochs"] for i in infos], "best_epochs": [i.get("best_epoch") for i in infos], "ndcg10_per_seed": per_seed,
+                        **({"ndcg10_std": float(np.std(per_seed, ddof=1))} if len(per_seed) > 1 else {})})
         if rag:
             S.export_scores(f"um_{vname}", *rag, {"family": fam, "seeds": len(per_seed), "kind": "reader"})
         if vname == "frozen" and args.um_repro:
@@ -406,14 +414,14 @@ def stage_usermodel(S, args):
         kind, _, vname = item.partition(":")
         V = views.get(vname)
         if not UM.is_reader(kind) or kind == "ca" or V is None:
-            log(f"  {item}: skipped (reader must be add|nrms|ff|prior|mi<K> and the view must have been built)")
+            log(f"  {item}: skipped (reader must be add|nrms|ff|sca|prior|mi<K> and the view must have been built)")
             continue
         if S.time_left() < 900:
             log(f"  {item}: skipped (wall-clock budget)")
             continue
         vals, tests, infos, rag = fit(kind, vname, V)
         name = f"um_{kind}_{vname}"
-        extra = {"epochs": [i["epochs"] for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]}
+        extra = {"epochs": [i["epochs"] for i in infos], "best_epochs": [i.get("best_epoch") for i in infos], "ndcg10_per_seed": [t["mean"]["ndcg@10"] for t in tests]}
         if len(tests) > 1:
             extra["ndcg10_std"] = float(np.std(extra["ndcg10_per_seed"], ddof=1))
         if any("interest_cos" in i for i in infos):

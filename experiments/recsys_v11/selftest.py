@@ -24,6 +24,9 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
      the new-article slice of time folds exposes, the supermodel's weighted objective, restart with changed stack settings, Suite.release(), the composite encoder.
   11. v17 (``selftest_v17.py``): the finetune stage -- the cache of the lower layers + the top layers == the full encoder, the training step's gradients, the gate, the two matched
      arms, resume and decline paths.
+  12. v18 (``selftest_v18.py``): fp16 weights with fp32 embeddings / norms for >= 3B encoders, encoding split over several devices == one device bit for bit, repair of
+     a few non-finite rows, --base-text (own vectors on 'cta', composites served from the cache), --rerun of the supermodel and the stacker after new components, the
+     reader 'sca', the decaying learning rate / improvement threshold of the readers, the control-vs-treatment table and gates of v18a.
 
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
@@ -63,6 +66,7 @@ import selftest_v14 as T14
 import selftest_v15 as T15
 import selftest_v16 as T16
 import selftest_v17 as T17
+import selftest_v18 as T18
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -1176,6 +1180,9 @@ def main():
 
     # ---------------- v17: the finetune stage (top layers of the encoder unfrozen under the learned reader, matched frozen control, gate)
     T17.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1])
+
+    # ---------------- v18: fp16 weights for a 4B encoder, encoding over several GPUs, --base-text, --rerun, reader 'sca', decaying learning rate, the v18 reports
+    T18.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1], texts)
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")

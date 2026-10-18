@@ -40,6 +40,37 @@ class LLMEncCA(nn.Module):
         return (torch.einsum("bch,bhd->bcd", att, h) * c).sum(-1)
 
 
+class LLMEncSCA(nn.Module):
+    """``LLMEncCA`` with a contextualised history: the same 2-layer head, then one residual multi-head self-attention block over the clicked history
+    (NRMS's news-level self-attention: every click is re-read in the light of the reader's other clicks), then the candidate-aware attention and dot
+    product of ``LLMEncCA``.  The block's output projection starts at zero, so training starts from a candidate-aware reader and the self-attention
+    adds only what it learns; a reader without history is scored as by ``LLMEncCA``."""
+
+    def __init__(self, emb, dim=64, heads=4, dropout=0.2, device="cpu"):
+        super().__init__()
+        from refmodels import SelfAttn
+        self.set_emb(emb, device)
+        self.head = nn.Sequential(nn.Linear(self.emb.shape[1], dim), nn.GELU(), nn.LayerNorm(dim), nn.Dropout(dropout), nn.Linear(dim, dim))
+        self.sa = SelfAttn(dim, heads, dim // heads, out_proj=True)
+        nn.init.zeros_(self.sa.o.weight)
+        nn.init.zeros_(self.sa.o.bias)
+        self.drop = nn.Dropout(dropout)
+        self.cand_proj = nn.Linear(dim, dim, bias=False)
+        self.scale = dim ** 0.5
+        self.to(device)
+
+    def set_emb(self, emb, device=None):
+        self.emb = torch.as_tensor(np.ascontiguousarray(emb, np.float32)).to(device or self.emb.device)
+
+    def score(self, hist, hist_mask, cand):
+        from refmodels import safe_mask
+        h, c = self.head(self.emb[hist]), self.head(self.emb[cand])
+        h = h + self.drop(self.sa(h, safe_mask(hist_mask)))
+        att = torch.einsum("bcd,bhd->bch", self.cand_proj(c), h) / self.scale
+        att = torch.softmax(att.masked_fill(~hist_mask[:, None, :], -1e9), -1)
+        return (torch.einsum("bch,bhd->bcd", att, h) * c).sum(-1)
+
+
 class LLMEncUser(nn.Module):
     """Same frozen article table and 2-layer head as ``LLMEncCA``, but the reader is encoded *without* looking at the candidate:
     ``add`` additive attention pooling (NAML-style), ``nrms`` multi-head self-attention + additive pooling, ``ff`` Fastformer block +
@@ -173,14 +204,18 @@ def _mi_spec(kind):
 
 
 def is_reader(kind):
-    """``ca`` | ``add`` | ``nrms`` | ``ff`` | ``prior`` (history-free click prior) | ``mi<K>`` (K learned interests, e.g. ``mi4``) | ``mi<K>d`` (same with the disagreement regulariser)."""
-    return kind in ("ca", "add", "nrms", "ff", "prior") or _mi_spec(kind) is not None
+    """``ca`` | ``sca`` (``ca`` with a self-attention block over the history) | ``add`` | ``nrms`` | ``ff`` | ``prior`` (history-free click prior) |
+    ``mi<K>`` (K learned interests, e.g. ``mi4``) | ``mi<K>d`` (same with the disagreement regulariser)."""
+    return kind in ("ca", "sca", "add", "nrms", "ff", "prior") or _mi_spec(kind) is not None
 
 
 def make_model(kind, emb, dim=64, dropout=0.2, device="cpu"):
-    """``ca``: the V10 clone; ``add`` / ``nrms`` / ``ff``: candidate-independent readers (see ``LLMEncUser``); ``prior``: ``LLMEncPrior``; ``mi<K>[d]``: ``LLMEncMI``."""
+    """``ca``: the V10 clone; ``sca``: ``LLMEncSCA``; ``add`` / ``nrms`` / ``ff``: candidate-independent readers (see ``LLMEncUser``); ``prior``: ``LLMEncPrior``;
+    ``mi<K>[d]``: ``LLMEncMI``."""
     if kind == "ca":
         return LLMEncCA(emb, dim, dropout, device)
+    if kind == "sca":
+        return LLMEncSCA(emb, dim, 4, dropout, device)
     if kind == "prior":
         return LLMEncPrior(emb, dim, dropout, device)
     spec = _mi_spec(kind)
@@ -203,9 +238,10 @@ def pack_train(rows, max_hist=50):
 
 
 def train_user_model(emb, pack, val_fn, seed=0, dim=64, dropout=0.2, lr=1e-3, wd=1e-5, bs=64, max_epochs=12,
-                     min_epochs=3, patience=2, min_delta=1e-3, device="cpu", deadline=None, log=print, kind="ca"):
+                     min_epochs=3, patience=2, min_delta=1e-3, device="cpu", deadline=None, log=print, kind="ca", lr_decay=1.0, decay_after=2):
     """``val_fn(model) -> float`` (validation nDCG@10, evaluated with the embedding table valid for the validation
-    period).  ``kind``: user encoder, see ``make_model``.  Returns ``(model restored to its best epoch, info)``."""
+    period).  ``kind``: user encoder, see ``make_model``.  ``lr_decay`` < 1: the learning rate is multiplied by it after every epoch from
+    ``decay_after`` on (v18; 1 = the constant rate of V10).  Returns ``(model restored to its best epoch, info)``."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     model = make_model(kind, emb, dim, dropout, device)
@@ -242,12 +278,16 @@ def train_user_model(emb, pack, val_fn, seed=0, dim=64, dropout=0.2, lr=1e-3, wd
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         elif epoch >= min_epochs:
             stale += 1
-        log(f"      [user-model] epoch {epoch:02d} loss={tot / max(nb, 1):.4f} val nDCG@10={val:.4f}")
+        log(f"      [user-model] epoch {epoch:02d} loss={tot / max(nb, 1):.4f} val nDCG@10={val:.4f} lr={opt.param_groups[0]['lr']:.2e}")
         if epoch >= min_epochs and stale >= patience:
             break
+        if lr_decay != 1.0 and epoch >= decay_after:
+            for g in opt.param_groups:
+                g["lr"] *= lr_decay
     model.load_state_dict(best_state)
     model.eval()
-    return model, {"best_val": float(best), "epochs": len(hist), "train_s": time.time() - t0}
+    best_epoch = max((e for e, _, v in hist if v == best), default=len(hist))
+    return model, {"best_val": float(best), "epochs": len(hist), "best_epoch": int(best_epoch), "train_s": time.time() - t0}
 
 
 def scorer(model, emb=None):

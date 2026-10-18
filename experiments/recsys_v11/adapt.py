@@ -21,6 +21,8 @@ fMRLRec/SMEC) and ``hardneg`` impression negatives.
 from __future__ import annotations
 
 import math
+import re
+import threading
 import time
 
 import numpy as np
@@ -149,6 +151,37 @@ def guess_pooling(name):
     return "mean"
 
 
+def params_b(name):
+    """Parameter count in billions read from a model name (``Qwen/Qwen3-Embedding-4B`` -> 4.0, ``...-0.6B`` -> 0.6); 0 when the name carries none."""
+    m = re.findall(r"(\d+(?:\.\d+)?)[bB](?![A-Za-z0-9])", name.split("/")[-1])
+    return float(m[-1]) if m else 0.0
+
+
+def resolve_dtype(name, enc_dtype="auto", device="cpu"):
+    """Weight dtype of a frozen encoder.  ``fp32``: fp32 weights, fp16 autocast on a GPU (the suite's default); ``fp16``: the linear layers in fp16,
+    embeddings and norms in fp32, same autocast -- the same arithmetic as ``fp32`` (autocast casts the weights of every matmul to fp16 anyway) at half
+    the weight memory: a 4B encoder is 16 GB in fp32, more than a 16 GB T4 holds next to its activations; ``auto``: ``fp16`` for >= 3B parameters
+    on a GPU, otherwise ``fp32``."""
+    gpu = str(device).startswith("cuda")
+    if enc_dtype == "fp16" or (enc_dtype == "auto" and gpu and params_b(name) >= 3.0):
+        return torch.float16 if gpu else torch.float32          # fp16 matmuls on a CPU are slow and not what the GPU computes: keep fp32 there
+    if enc_dtype not in ("auto", "fp32", "fp16"):
+        raise ValueError(f"--enc-dtype {enc_dtype!r}: choose auto, fp32 or fp16")
+    return torch.float32
+
+
+def keep_fp32_residual(model):
+    """Cast the embedding tables and every normalisation layer of a half-precision model back to fp32 (the linear layers stay fp16).  Under fp16 autocast the
+    hidden states then stay fp32 between the matmuls -- what autocast computes for a model kept in fp32 -- so large activations cannot overflow fp16 in the
+    residual stream.  Returns the number of modules cast."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, nn.Embedding) or "norm" in type(m).__name__.lower():
+            m.float()
+            n += 1
+    return n
+
+
 class HFEncoder:
     """Plain Hugging Face encoder with explicit pooling (so LoRA/DoRA training and
     inference share one code path and no ST-version drift)."""
@@ -162,7 +195,10 @@ class HFEncoder:
         if self.pooling == "last":
             self.tok.padding_side = "left"
         self.model = load_hf(AutoModel, name, dtype, trust_remote_code).to(device)
-        self.amp = device == "cuda" and dtype == torch.float32        # fp32 master weights + fp16 autocast
+        gpu = str(device).startswith("cuda")
+        if gpu and dtype == torch.float16:                             # fp16 linear layers: keep embeddings and norms (the residual stream) in fp32, as autocast does with fp32 weights
+            keep_fp32_residual(self.model)
+        self.amp = gpu and dtype in (torch.float32, torch.float16)   # fp16 matmuls under autocast, fp32 everywhere else
 
     def _pool(self, out, attn):
         h = out.last_hidden_state
@@ -191,7 +227,7 @@ class HFEncoder:
         vecs = np.zeros((len(texts), self.model.config.hidden_size), np.float32)
         for s in range(0, len(texts), bs):
             ix = order[s:s + bs]
-            vecs[ix] = F.normalize(self.embed([texts[i] for i in ix]), dim=-1).cpu().numpy()
+            vecs[ix] = F.normalize(embed_batch(self, [texts[i] for i in ix]), dim=-1).cpu().numpy()
         self.model.train(was)
         return vecs
 
@@ -208,6 +244,52 @@ class HFEncoder:
         except Exception:
             pass
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+
+def embed_batch(enc, texts):
+    """``enc.embed(texts)`` that halves the batch while the GPU runs out of memory (the longest texts of a large encoder); every half is embedded as a
+    batch of its own, so only the padding of that batch changes."""
+    try:
+        return enc.embed(texts)
+    except torch.cuda.OutOfMemoryError:
+        if len(texts) <= 1:
+            raise
+        torch.cuda.empty_cache()
+        h = len(texts) // 2
+        return torch.cat([embed_batch(enc, texts[:h]), embed_batch(enc, texts[h:])])
+
+
+def encode_multi(name, texts, max_len, prefix, dtype, bs, devices, log=print):
+    """``HFEncoder.encode`` spread over several GPUs: the same batches (texts sorted by length, consecutive slices of ``bs``), batch ``k`` on
+    ``devices[k % n]``, one encoder per device in its own thread (grad mode and autocast are per thread; a tokenizer is not shared between threads).
+    Every batch is computed exactly as on one GPU, so the vectors are the same; only the wall-clock time is divided."""
+    encs = []
+    for d in devices:
+        encs.append(HFEncoder(name, max_len=max_len, device=d, prefix=prefix, dtype=dtype))
+        encs[-1].model.eval()
+    order = np.argsort([len(t) for t in texts])
+    starts = list(range(0, len(texts), bs))
+    vecs = np.zeros((len(texts), encs[0].model.config.hidden_size), np.float32)
+    errors = []
+
+    def work(i):
+        try:
+            with torch.no_grad():
+                for s in starts[i::len(encs)]:
+                    ix = order[s:s + bs]
+                    vecs[ix] = F.normalize(embed_batch(encs[i], [texts[j] for j in ix]), dim=-1).cpu().numpy()
+        except BaseException as e:                       # re-raised in the calling thread
+            errors.append(e)
+
+    threads = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(len(encs))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    del encs
+    if errors:
+        raise errors[0]
+    return vecs
 
 
 def check_equivalence(enc, st_encode, texts, tol=0.99):
