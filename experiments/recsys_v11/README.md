@@ -25,6 +25,8 @@ Bộ đo của V11 thì đúng (khớp `metrics.py`, khớp `bge_zeroshot` của
 
 **Cổng (viết trước):** như v18a (G1 `super_llm`, G2 `stack_meta`, G3 `stack_pop`: PASS khi CI ghép cặp của Δ thí nghiệm − đối chứng nằm trên 0); "vượt kết quả tốt nhất" so với 0,4373 / **0,4570** (v18a) / 0,4731.
 
+**Giới hạn đã biết của notebook v18 / v19:** đồng hồ ngân sách (`common.CLOCK`) lấy `--budget-hours` của lần gọi `suite.main` **đầu tiên** và dùng chung cho mọi lần gọi sau, nên phần "giữ lại cho các run sau" của `budget_args(reserve_h=...)` không có tác dụng. Thứ tự các run được bảo vệ bằng các ngưỡng `hours_left()` của chính notebook (`PLUS_MIN_H`, `TREAT_MIN_H`, …) và bằng `--min-stack-s`.
+
 **Mã mới:** `--min-stack-s`, `--llm-eval-n`, `--llm-user-minutes`, `--hq-val-n` / `--hq-test-n` (suite.py); `train_user_tower(minutes=...)`, `encode_parallel`, `UserTower.clone_to` (llm_user.py); H5 chấm toàn bộ + xuất kind `reader`, H1 mã hoá trên mọi GPU; `report_v18.gate_v18a(bests=...)`; `make_notebook_v19.py`; test (63)–(67) ở `selftest_v19.py`.
 
 ## 0e. v18: encoder LLM 4B có đối chứng trong notebook (v18a) và reader huấn luyện kỹ hơn + reader `sca` (v18b)

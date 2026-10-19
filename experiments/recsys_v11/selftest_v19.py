@@ -47,6 +47,7 @@ def test_stack_gate(tmp, mind, enc_dir, cache_dir, run_args):
         assert "min_stack_s" in suite.Suite.SIG_IGNORED
     finally:
         suite.EQUIV_REFERENCE = keep_ref
+        common.CLOCK.reset()                                           # the first --budget-hours of a process is shared by every later suite.main call
     ok("(63) --min-stack-s 3600 with 0.5 h left: the supermodel runs, only the stacker is skipped; without it the stacker runs on resume (the flag is not in the signature)")
 
 
@@ -131,6 +132,7 @@ def test_encode_parallel(dec_dir, texts):
 
 # ------------------------------------------------------------------------------------------------ (66)
 def test_h5_full_split(tmp, mind, dec_dir, cache_dir, run_args):
+    common.CLOCK.reset()                                               # no budget left over from an earlier test (the stage skips with < 30 min left)
     keep_ref = suite.EQUIV_REFERENCE
     suite.EQUIV_REFERENCE = None
     try:
