@@ -98,6 +98,10 @@
 \newcommand{\PARTs}{\nhanS{partc}{CÓ ĐIỀU KIỆN}}
 \newcommand{\FAILs}{\nhanS{failc}{KHÔNG HIỆU QUẢ}}
 \newcommand{\NAs}{\nhanS{nac}{CHƯA ĐO}}
+\newcommand{\DUs}{\nhanS{okc}{ĐỦ}}
+\newcommand{\MOTPHANs}{\nhanS{partc}{MỘT PHẦN}}
+\newcommand{\TAPCONs}{\nhanS{partc}{TẬP CON}}
+\newcommand{\NGHIs}{\nhanS{nac}{NGHI LỖI}}
 \newcommand{\OK}{\nhan{okc}{THÀNH CÔNG}}
 \newcommand{\PART}{\nhan{partc}{CÓ ĐIỀU KIỆN}}
 \newcommand{\FAIL}{\nhan{failc}{KHÔNG HIỆU QUẢ}}
@@ -439,18 +443,18 @@ kNN trong reader, trên vector nối:\\
 \node[col,draw=failc,fill=failc!5,text width=5.3cm,right=0.15cm of c2.north east,anchor=north west] (c3) {%
   {\footnotesize\bfseries\color{failc}Không hiệu quả (10)}\par\vspace{3pt}
   \textbf{H1} lịch sử dạng văn bản: $-0.0211$\par
-  \textbf{H2} LoRA/DoRA cho encoder: chỉ +0.003\par
+  \textbf{H2}$^{\dagger}$ LoRA/DoRA cho encoder: chỉ +0.003\par
   \textbf{H4} GraphRAG: val dương, test $-0.0066$\par
   \textbf{H4b} LLM tóm tắt cụm: không khác\par
-  \textbf{H5} tháp người dùng LoRA: bằng LSE\par
-  \textbf{H6} hồ sơ do LLM viết: $-0.0308$\par
+  \textbf{H5}$^{\dagger}$ tháp LoRA: hơn LSE, kém reader\par
+  \textbf{H6}$^{\dagger}$ hồ sơ do LLM viết: $-0.0308$\par
   \textbf{H7} Semantic ID: ngang ngẫu nhiên\par
-  \textbf{H9} LLM chấm điểm: $-0.0112$\par
+  \textbf{H9}$^{\dagger}$ LLM chấm điểm: $-0.0112$\par
   \textbf{H11} đa sở thích: thấp hơn LSE\par
-  \textbf{H12} mở khóa encoder: +0.0005 (n.s.)};
+  \textbf{H12}$^{\dagger}$ mở khóa encoder: +0.0005 (n.s.)};
 \end{tikzpicture}
 \par\vspace{3pt}
-{\scriptsize\color{nac}\textbf{Chưa đo:} T (cổng cold/warm) và SID-News: đã có mã, chưa có lần chạy đo kết quả.}
+{\scriptsize\color{nac}\textbf{Chưa đo:} T (cổng cold/warm) và SID-News: đã có mã, chưa có lần chạy đo kết quả. \quad $^{\dagger}$ \textbf{chưa chạy đủ dữ liệu} (xem slide quy mô dữ liệu).}
 \ychinh{``thành công'' = hơn \emph{đối chứng mạnh nhất} cùng điều kiện (không chỉ hơn mean pooling), CI không chứa 0 và được giữ trong hệ thống cuối.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đây là câu trả lời trực tiếp cho câu hỏi ``hướng nào thành công''. Thành công rõ chỉ có H8 và H10: cả hai đều thuộc tầng tổng hợp lịch sử. F và H3 có ích trong điều kiện cụ thể. Mười hướng còn lại không hơn đối chứng mạnh; nhiều hướng trong số đó vẫn hơn mean pooling, nhưng mean pooling là đối chứng yếu, nên không tính là thành công. Họ T và SID-News chưa có số đo nên không xếp loại.}
@@ -465,25 +469,53 @@ kNN trong reader, trên vector nối:\\
 \toprule
 \textbf{Mã} & \textbf{Hướng đã thử} & \textbf{Kết quả chính (so với đối chứng mạnh nhất)} & \textbf{Kết luận}\\
 \midrule
-H1 & Lịch sử đọc thành văn bản & $-0.0211$ đến $-0.0014$ so với mean pooling & \FAILs\\
-H2 & LoRA/DoRA cho encoder & +0.0016 đến +0.0029; Cold AUC giảm & \FAILs\\
+H1 & Lịch sử đọc thành văn bản & small $-0.0211$ đến $-0.0014$; large $-0.0101$ so với mean pooling & \FAILs\\
+H2 & LoRA/DoRA cho encoder$^{\dagger}$ & +0.0016 đến +0.0029; Cold AUC giảm & \FAILs\\
 H3 & kNN bổ sung vector bài & qua reader +0.0037; dùng thẳng thì giảm & \PARTs\\
 H4 & GraphRAG (tâm cụm) & val +0.0199 nhưng test $-0.0066$ & \FAILs\\
 H4b & LLM tóm tắt mỗi cụm & không khác biệt thống kê & \FAILs\\
-H5 & Tháp người dùng (LoRA) & bằng LSE ($-0.0000$); không giúp bộ hợp nhất & \FAILs\\
-H6 & LLM sinh hồ sơ, mô tả bài & hồ sơ $-0.0308$; mô tả bài: mất khi có popularity & \FAILs\\
+H5 & Tháp người dùng (LoRA)$^{\dagger}$ & 0.5\% dữ liệu: bằng LSE; 3.5\%: hơn LSE +0.0085, kém reader $-0.0048$; không giúp hợp nhất & \FAILs\\
+H6 & LLM sinh hồ sơ, mô tả bài$^{\dagger}$ & hồ sơ $-0.0308$ / $-0.0278$ (small / large); mô tả bài +0.0079 / +0.0043 (n.s.) & \FAILs\\
 H7 & Semantic ID + SID-GPT & 0.2898, ngang vector ngẫu nhiên (0.2897) & \FAILs\\
 \textbf{H8} & \textbf{Tương tác muộn (LSE)} & \textbf{+0.011 đến +0.014, ở 2 encoder và 2 quy mô} & \OKs\\
-H9 & LLM chấm điểm ứng viên & $-0.0112\ [-0.0216, -0.0008]$, $n=2.000$ & \FAILs\\
+H9 & LLM chấm điểm ứng viên$^{\dagger}$ & small $-0.0112$; large $-0.0092$ (n.s.); cả hai $n=2.000$ & \FAILs\\
 \textbf{H10} & \textbf{Reader theo ứng viên} & \textbf{hơn LSE +0.008 đến +0.013 (trừ BGE-small)} & \OKs\\
 H11 & Đa sở thích & K-Means $-0.0024$ so với LSE; reader $K=4$ n.s. & \FAILs\\
-H12 & Mở khóa 2 tầng BGE-large & +0.0005 (n.s.); Cold AUC $-0.0069$ & \FAILs\\
+H12 & Mở khóa 2 tầng BGE-large$^{\dagger}$ & +0.0005 (n.s.); Cold AUC $-0.0069$ & \FAILs\\
 F & Chuyên mục trong văn bản & Qwen3 +0.0186, BGE $-0.0024$ so với LSE & \PARTs\\
 \bottomrule
 \end{tabularx}
-\ghichu{\NAs\ T (cổng cold/warm kiểu PAD) và SID-News (Semantic ID cải tiến): đã có mã, chưa có lần chạy đo. Đo trên MIND-small: H1, H2, H6, H7, H9; trên MIND-large: H4, H12, F; cả hai: H3, H5, H8, H10, H11. n.s. = không có ý nghĩa thống kê.}
+\ghichu{\NAs\ T (cổng cold/warm kiểu PAD) và SID-News (Semantic ID cải tiến): đã có mã, chưa có lần chạy đo. Đo trên MIND-small: H2, H4b, H7; trên MIND-large: H4, H12, F; cả hai: H1, H3, H5, H6, H8, H9, H10, H11. n.s. = không có ý nghĩa thống kê. $^{\dagger}$ chưa chạy đủ dữ liệu: kết luận chỉ đúng trong ngân sách đã thử (slide sau).}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bảng này dùng để tra cứu khi chuẩn bị hoặc khi bị hỏi về một hướng cụ thể. Đọc theo hàng: hướng đã thử, con số quan trọng nhất so với đối chứng mạnh nhất, và kết luận. Chỉ H8 và H10 thành công; F và H3 có điều kiện; T và SID-News chưa đo.}
+\end{frame}
+
+%% ============================================================================ Quy mô dữ liệu của các hướng LLM
+\begin{frame}[shrink]{Các hướng LLM đã chạy trên bao nhiêu dữ liệu?}
+\scriptsize
+\renewcommand{\arraystretch}{1.0}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\textwidth}{@{}P{3.75cm}YP{2.55cm}P{1.45cm}@{}}
+\toprule
+\textbf{Hướng (cách dùng LLM)} & \textbf{Dữ liệu huấn luyện đã dùng} & \textbf{Đánh giá trên test} & \textbf{Mức độ}\\
+\midrule
+Qwen3-0.6B, BGE-large làm encoder (H8, H10, F) & mã hóa cả 104.151 bài; reader 1.2 triệu mẫu (bản kỹ hơn: đủ 2.71 triệu) & toàn bộ 376.471 & \DUs\\
+Qwen3-4B làm encoder (RQ2, v18a) & mã hóa cả 104.151 bài; reader 1.2 triệu mẫu & toàn bộ & \DUs\\
+H1 lịch sử thành văn bản & không cần huấn luyện (zero-shot) & small 41\%; large 16\% & \DUs\\
+H4b LLM tóm tắt cụm & không cần huấn luyện; tóm tắt mọi cụm & toàn bộ (small) & \DUs\\
+\midrule
+H2 LoRA/DoRA cho encoder & $\le$ 1.500 bước $\times$ 32 = 48.000 cặp co-click; chỉ small & toàn bộ (small) & \MOTPHANs\\
+H5 tháp người dùng LLM + LoRA & v14: 12.800 lịch sử (0.5\%); v19b: 93.952 (3.5\%), 200 phút & v14: 30.000; v19b: toàn bộ & \MOTPHANs\\
+H12 mở khóa 2 tầng BGE-large & 576.000 mẫu ($\approx$ nửa epoch); gradient chỉ phía ứng viên & toàn bộ & \MOTPHANs\\
+H6 LLM mở rộng bài, viết hồ sơ & zero-shot; chỉ trên nền mean pooling, chưa vào hệ thống & 2.500 (large: 0.7\%) & \TAPCONs\\
+H9 LLM chấm Có/Không & zero-shot; chỉ xếp lại top-10 của mean pooling & 2.000 (large: 0.5\%) & \TAPCONs\\
+H7 Semantic ID + SID-GPT & 3 epoch (small) & toàn bộ (small) & \NGHIs\\
+\bottomrule
+\end{tabularx}
+\ghichu{LLM nhúng: Qwen3-Embedding-0.6B (H1, H5); LLM sinh: Qwen3-1.7B (H4b, H6, H9). Phần trăm: của test (73.152 impression ở small, 376.471 ở large) hoặc của 2.71 triệu mẫu huấn luyện. Ước tính để chạy đủ, từ tốc độ đo trên T4: H5 một epoch khoảng 87 giờ; H9 trên toàn bộ test khoảng 38 giờ; mở rộng cả 104.151 bài khoảng 3--4 giờ. Một phiên Kaggle tối đa 12 giờ.}
+\ychinh{các hướng thành công (H8, H10) đều chạy trên toàn bộ dữ liệu. Các hướng huấn luyện LLM (H2, H5, H12) mới dùng một phần dữ liệu; LLM sinh văn bản và chấm điểm (H6, H9) mới đo trên tập con nhỏ, trên nền mean pooling. Với các dòng này, ``không hiệu quả'' chỉ có nghĩa là \textbf{chưa hơn đối chứng mạnh nhất trong ngân sách đã thử}, chưa phải kết luận về phương pháp.}
+\par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
+\note{Slide này để đánh giá công bằng các hướng LLM. Các hướng thành công đều chạy trên toàn bộ dữ liệu. Ngược lại, các hướng huấn luyện LLM mới dùng một phần nhỏ: tháp người dùng mới thấy 3.5\% dữ liệu huấn luyện, mở khóa encoder khoảng nửa epoch. LLM sinh văn bản và LLM chấm điểm chỉ đo trên vài nghìn impression và đặt trên nền mean pooling. Vì vậy với các hướng này, nhóm chỉ kết luận trong ngân sách đã thử; chạy đủ cần nhiều GPU hơn một phiên Kaggle, ví dụ một epoch của tháp người dùng ước khoảng 87 giờ trên T4.}
 \end{frame}
 
 %% ============================================================================ Biểu đồ độ lớn
@@ -531,7 +563,7 @@ F & Chuyên mục trong văn bản & Qwen3 +0.0186, BGE $-0.0024$ so với LSE &
 GraphRAG thay bài bằng tâm cụm, Semantic ID lượng tử hóa thành mã rời rạc, LLM viết lại lịch sử và hồ sơ thành đoạn văn.
 Khi 82.25\% click là bài mới, mất chi tiết riêng của từng bài là mất điểm (GraphRAG: Cold AUC $-0.0181$).}\hfill
 \hop{partc}{2.5cm}{{\footnotesize\bfseries\color{partc}2. Chỉ thắng đối chứng yếu}\par\vspace{2pt}\scriptsize
-K-Means đa sở thích: +0.0090 so với mean pooling nhưng $-0.0024$ so với LSE. Tháp người dùng LoRA hơn mean pooling nhưng chỉ bằng LSE.
+K-Means đa sở thích: +0.0090 so với mean pooling nhưng $-0.0024$ so với LSE. Tháp người dùng LoRA (0.5\% dữ liệu) hơn mean pooling nhưng chỉ bằng LSE.
 LSE không tham số đã lấy được phần lợi ích này.}
 
 \vspace{6pt}
@@ -539,8 +571,8 @@ LSE không tham số đã lấy được phần lợi ích này.}
 Ở lần chạy v14, so với mean pooling: kNN RAG $+0.0130$ trên validation nhưng $-0.0037$ trên test; GraphRAG $+0.0199 \to -0.0066$;
 reader + kNN $+0.0653 \to +0.0302$. Validation có ít bài mới hơn test rất nhiều.}\hfill
 \hop{nac}{2.5cm}{{\footnotesize\bfseries\color{nac}4. Tinh chỉnh với ngân sách nhỏ}\par\vspace{2pt}\scriptsize
-Mở khóa 2 tầng cuối BGE-large: +0.0005 (không có ý nghĩa), Cold AUC $-0.0069$.
-Tháp LoRA chỉ huấn luyện 800 bước (0.5\% dữ liệu) và validation vẫn còn tăng: chưa đủ để kết luận về bản thân phương pháp.}
+Mở khóa 2 tầng cuối BGE-large ($\approx$ nửa epoch): +0.0005 (n.s.), Cold AUC $-0.0069$.
+Tháp LoRA: 0.5\% dữ liệu thì bằng LSE, 3.5\% thì hơn LSE +0.0085 nhưng kém reader. Cả hai \textbf{chưa chạy đủ dữ liệu}: chưa đủ để kết luận về phương pháp.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bốn mẫu thất bại lặp lại nhiều lần. Một: nén hoặc viết lại biểu diễn làm mất chi tiết của bài mới. Hai: nhiều hướng chỉ thắng mean pooling, còn LSE không tham số đã làm được điều đó. Ba: validation có ít bài mới nên đánh giá quá cao các mô hình mạnh ở bài cũ. Bốn: tinh chỉnh trong ngân sách GPU nhỏ chưa đủ để thay đổi kết quả.}
 \end{frame}
@@ -631,6 +663,7 @@ BGE-large (1024) & 0.3924 & $+0.0015$ (n.s.)\\
   \setlength{\itemsep}{3pt}
   \item Tăng khoảng 10 lần số tham số (BGE-small $\to$ BGE-large) chỉ được +0.0015, không có ý nghĩa; BGE-base còn kém BGE-small.
   \item Trên MIND-large, khi làm đầu vào cho reader, BGE-large (335M tham số) vẫn hơn Qwen3-Embedding-0.6B: $+0.0102\ [+0.0095, +0.0108]$.
+  \item MIND-large, v18a: \textbf{Qwen3-Embedding-4B} làm đầu vào reader chỉ ngang bản 0.6B ($+0.0006$) và kém BGE-large ($-0.005$ đến $-0.009$).
   \item Khoảng cách tới NRMS refit (0.4078) nằm ở \textbf{cách tổng hợp}: mean pooling chia đều mọi bài đã đọc, còn NRMS học attention để lọc nhiễu.
 \end{itemize}
 \end{columns}
@@ -831,6 +864,7 @@ theo ứng viên (\code{um\_frozen}) & 0.4050 & 0.4152 & \textbf{0.4223}\\
   \item BGE-large hơn Qwen3 $+0.0102\ [+0.0095, +0.0108]$; vector nối hơn BGE-large $+0.0071\ [+0.0066, +0.0076]$: \textbf{đa dạng hai không gian} có ích hơn kích thước.
   \item kNN trong reader: +0.0045 (Qwen3), +0.0037 (BGE-large), nhưng trên vector nối chỉ $+0.0003\ [-0.0001, +0.0007]$; Cold AUC vẫn tăng +0.0088.
   \item RAG dùng thẳng, không qua reader (BGE-large, so với mean pooling): thực thể $-0.0105$, kNN $-0.0017$, GraphRAG $-0.0079$.
+  \item Huấn luyện reader trên đủ 2.71 triệu mẫu, 6 epoch (v18b, v19a): vector nối + kNN \textbf{0.4316} ($+0.0091$), BGE-large $+0.0099$; đưa vào hệ thống chỉ thêm $+0.0006$ (hợp nhất) đến $+0.0016$ (GBDT).
 \end{itemize}
 \end{columns}
 \ychinh{\PART\ H3: kNN chỉ có ích khi đi qua reader và chủ yếu ở bài mới; vector nối hai encoder là không gian tốt nhất cho reader.}
@@ -894,29 +928,35 @@ nhánh đối chứng giữ đóng băng, cùng số bước, cùng thứ tự m
 \end{frame}
 
 %% ============================================================================ H5
-\begin{frame}[shrink]{H5 \textperiodcentered{} Tháp người dùng LLM (LoRA): chỉ ngang LSE}
+\begin{frame}[shrink]{H5 \textperiodcentered{} Tháp người dùng LLM (LoRA): hơn LSE khi học lâu hơn, vẫn kém reader}
 \scriptsize
 \textbf{Thiết lập:} Qwen3-Embedding-0.6B đọc lịch sử dưới dạng văn bản, tinh chỉnh bằng LoRA (mặt nạ causal, bidirectional hoặc soft).
-MIND-large: 800 bước $\times$ 16 mẫu = 12.800 mẫu (0.5\% dữ liệu huấn luyện), validation vẫn còn tăng ở bước cuối; do chi phí suy luận, chỉ đánh giá trên 30.000 impression test.\par\vspace{3pt}
+MIND-large, v14: 800 bước $\times$ 16 mẫu = 12.800 mẫu (0.5\% dữ liệu huấn luyện), chỉ đánh giá trên 30.000 impression test.
+v19b: 200 phút, 5.872 bước $\times$ 16 = 93.952 mẫu (\textbf{3.5\%} của 2.71 triệu), chấm \textbf{toàn bộ} 376.471 impression test.\par\vspace{3pt}
 \renewcommand{\arraystretch}{1.07}
 \setlength{\tabcolsep}{4pt}
 \begin{tabularx}{\textwidth}{@{}P{2.8cm}YQ{0.95cm}Q{1.32cm}P{3.65cm}P{1.75cm}@{}}
 \toprule
-\textbf{Biến thể (v14)} & \textbf{Mô tả} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{$\Delta$ nDCG@10 [CI 95\%]} & \textbf{so với}\\
+\textbf{Biến thể} & \textbf{Mô tả} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{$\Delta$ nDCG@10 [CI 95\%]} & \textbf{so với}\\
 \midrule
-\code{ut\_causal} & tháp LoRA đứng riêng & 0.6272 & 0.3807 & $+0.0065\ [+0.0035, +0.0095]$ & mean pooling\\
+\code{ut\_causal} (v14) & tháp LoRA, 0.5\% dữ liệu & 0.6272 & 0.3807 & $+0.0065\ [+0.0035, +0.0095]$ & mean pooling\\
 \code{ut\_causal+meanpool} & tháp + mean pooling & 0.6384 & 0.3904 & $+0.0162\ [+0.0138, +0.0187]$ & mean pooling\\
  & & & & $-0.0000\ [-0.0027, +0.0026]$ & \textbf{LSE}\\
 \code{super\_apex} & bộ hợp nhất + tháp & 0.6743 & 0.4223 & $-0.0002\ [-0.0009, +0.0006]$ & bộ hợp nhất\\
+\midrule
+\code{ut\_causal} (v19b) & tháp LoRA, 3.5\% dữ liệu & 0.6470 & 0.4002 & $\mathbf{+0.0085}\ [+0.0077, +0.0094]$ & \textbf{LSE}\\
+ & & & & $-0.0048\ [-0.0055, -0.0040]$ & reader Qwen3\\
+\code{super\_llm} + tháp (v19b) & hợp nhất có thêm tháp & 0.6863 & 0.4373 & $0$; các hàng GBDT $\pm0.001$ & hệ thống không tháp\\
 \bottomrule
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
   \item MIND-small: tháp + mean pooling $\approx$ LSE của BGE ($-0.0007$, n.s.), thua NRMS refit ($-0.0035$). Khác biệt giữa các mặt nạ nhỏ hơn nhiễu seed (0.010--0.012); mặt nạ soft không lặp lại được (0.4043 $\to$ 0.3956).
+  \item v19b: validation 0.3813 $\to$ 0.3899 $\to$ 0.3906 (bước 1.938 / 3.934 / 5.872), gần phẳng khi learning rate giảm về 0; cùng LLM không huấn luyện (H1) kém hơn $-0.0319$.
 \end{itemize}
-\ychinh{\FAIL\ H5 hơn mean pooling nhưng chỉ bằng LSE không tham số và không thêm gì khi hợp nhất. Ngân sách huấn luyện quá nhỏ nên chưa kết luận được về bản thân phương pháp.}
+\ychinh{\FAIL\ trong ngân sách đã thử: huấn luyện thêm giúp rõ (0.5\% dữ liệu: bằng LSE; 3.5\%: hơn LSE +0.0085), nhưng tháp vẫn kém reader trên vector cố định và không thêm gì cho hệ thống. \textbf{Chưa chạy đủ dữ liệu} (một epoch ước khoảng 87 giờ T4), nên chưa kết luận được về bản thân phương pháp.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Tháp người dùng LLM là hướng trông hứa hẹn trong văn liệu. Ở đây nó hơn mean pooling, nhưng khi so với LSE thì bằng nhau, và thêm vào bộ hợp nhất không đổi gì. Cần nói rõ: mô hình chỉ được huấn luyện 800 bước, nên đây là kết luận trong ngân sách đã thử, chưa phải kết luận về phương pháp.}
+\note{Tháp người dùng LLM là hướng trông hứa hẹn trong văn liệu. Với 800 bước, tức 0.5\% dữ liệu, nó chỉ bằng LSE. Ở lần chạy v19b, huấn luyện 200 phút, khoảng 3.5\% dữ liệu, và chấm trên toàn bộ test, nó đã hơn LSE rõ, nhưng vẫn kém reader trên vector cố định và không thêm gì cho hệ thống. Cần nói rõ: mô hình mới thấy 3.5\% dữ liệu; một epoch đầy đủ ước khoảng 87 giờ trên T4, vượt khả năng một phiên Kaggle. Đây là kết luận trong ngân sách đã thử, chưa phải kết luận về phương pháp.}
 \end{frame}
 
 %% ============================================================================ H11
@@ -960,16 +1000,16 @@ Không phạt: 4 vector gần như trùng nhau (cos 0.85--0.87; MIND-large 0.94-
 \toprule
 \textbf{Họ} & \textbf{Cách làm} & \textbf{Kết quả ($\Delta$ nDCG@10)} & \textbf{Giải thích khả dĩ}\\
 \midrule
-H1: lịch sử thành văn bản & ghép các tiêu đề đã đọc thành một câu truy vấn & $-0.0211$ đến $-0.0014$ (MIND-small) & câu dài làm loãng tín hiệu từng bài\\
-H6: hồ sơ độc giả & Qwen3-1.7B viết hồ sơ sở thích & $-0.0308$ (MIND-small) & tóm tắt mất sở thích ngách\\
-H6: mô tả bài & LLM viết mô tả mở rộng mỗi bài & $+0.0079\ [+0.0021, +0.0137]$, $n=2.500$; mất khi có popularity & trùng với độ phổ biến\\
-H9: LLM chấm điểm & Qwen3-1.7B hỏi Yes/No từng ứng viên & $-0.0112\ [-0.0216, -0.0008]$, $n=2.000$ & thiếu hiệu chuẩn; chậm\\
+H1: lịch sử thành văn bản & ghép các tiêu đề đã đọc thành một câu truy vấn & small $-0.0211$ đến $-0.0014$ ($n=30.000$); large $-0.0101$ ($n=60.000$) & câu dài làm loãng tín hiệu từng bài\\
+H6: hồ sơ độc giả & Qwen3-1.7B viết hồ sơ sở thích & small $-0.0308$; large $-0.0278$ (cả hai $n=2.500$) & tóm tắt mất sở thích ngách\\
+H6: mô tả bài & LLM viết mô tả mở rộng mỗi bài & small $+0.0079\ [+0.0021, +0.0137]$; large $+0.0043$ (n.s.); $n=2.500$; mất khi có popularity & trùng với độ phổ biến\\
+H9: LLM chấm điểm & Qwen3-1.7B hỏi Yes/No từng ứng viên & small $-0.0112$; large $-0.0092$ (n.s.); cả hai $n=2.000$, top-10 của mean pooling & thiếu hiệu chuẩn; chậm\\
 H7: Semantic ID & mã RQ-KMeans; xếp hạng sinh SID-GPT & hồ sơ SID $+0.0035$; SID-GPT 0.2898 $\approx$ ngẫu nhiên 0.2897 & chưa học được; cần kiểm tra cài đặt\\
 H4: GraphRAG & thay bài bằng tâm cụm của đồ thị kNN & small $+0.0043$; large: val $+0.0199$, test $-0.0066$ & tâm cụm xóa chi tiết riêng của bài mới\\
 H4b: tóm tắt cụm & LLM viết tóm tắt chủ đề mỗi cụm & không khác biệt thống kê & --\\
 \bottomrule
 \end{tabularx}
-\ychinh{\FAIL\ không hướng nào cho lợi ích bền vững trên test. Riêng SID-GPT ngang vector ngẫu nhiên: cần kiểm tra lại cài đặt trước khi kết luận về Semantic ID.}
+\ychinh{\FAIL\ không hướng nào cho lợi ích bền vững trên test. H6 và H9 mới đo trên tập con nhỏ (0.5--0.7\% test của MIND-large), trên nền mean pooling, chưa thử trong hệ thống cuối. Riêng SID-GPT ngang vector ngẫu nhiên: cần kiểm tra lại cài đặt trước khi kết luận về Semantic ID.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Nhóm các hướng dùng LLM để viết lại hoặc nén biểu diễn đều không đứng vững. Riêng Semantic ID, mô hình sinh cho kết quả ngang vector ngẫu nhiên; đây là dấu hiệu nó không học được gì, nên nhóm thận trọng: kết luận là ``chưa làm được trong cài đặt này'', chưa phải ``phương pháp không dùng được''.}
 \end{frame}
@@ -1364,7 +1404,7 @@ Fastformer + PLM-NR (ensemble) & đầu bảng xếp hạng, số thứ cấp & 
 \begin{itemize}
   \setlength{\itemsep}{1pt}
   \item Khác điều kiện: nhóm đo trên \code{MINDlarge\_dev}; số công bố đo trên test của benchmark (nguồn thứ cấp).
-  \item Hệ chỉ dùng nội dung và lịch sử (\code{super\_zs}, \code{stack\_llm}: AUC $\approx$ 0.686) nằm trong dải NRMS, thấp hơn PLM-NR khoảng 0.02 AUC.
+  \item Hệ chỉ dùng nội dung và lịch sử (\code{super\_zs}, \code{stack\_llm}: AUC $\approx$ 0.686; tốt nhất ở các lần chạy sau 0.692, nDCG@10 0.4420) nằm trong dải NRMS, thấp hơn PLM-NR khoảng 0.015--0.02 AUC.
   \item \code{stack\_meta} ngang PLM-NR về AUC, cao hơn về nDCG@10, nhưng đọc thêm exposure: \textbf{không cùng bài toán}. \code{stack\_pop} dùng click của chính ngày test nên không so trực tiếp.
 \end{itemize}
 \end{alertblock}
@@ -1404,8 +1444,8 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
   \setlength{\itemsep}{3pt}
   \item \textbf{Giao thức chọn mô hình:} $\tau=0.80$ của validation có trọng số được chọn gần tỷ lệ click vào bài mới quan sát trên test (82.25\%), vốn tính từ nhãn test. Cần thay bằng ước lượng không dùng nhãn.
   \item \textbf{Một họ dữ liệu, một ngày test:} chỉ có MIND; dùng \code{*\_dev} thay cho test của bảng xếp hạng; số công bố là số thứ cấp.
-  \item \textbf{Quy mô mô hình:} embedding lớn nhất 0.6B tham số, LLM sinh lớn nhất 1.7B; chưa thử embedding 4B--8B.
-  \item \textbf{Ngân sách tinh chỉnh:} H2 chỉ chạy trên MIND-small; tháp LoRA (H5) 800 bước, 1 seed, tập con 30.000 impression; chưa tinh chỉnh toàn phần trên MIND-large.
+  \item \textbf{Quy mô mô hình:} embedding 4B mới thử làm đầu vào reader (v18a: ngang 0.6B); LLM sinh lớn nhất 1.7B; chưa thử 8B.
+  \item \textbf{Ngân sách tinh chỉnh và tập con:} H2 chỉ chạy trên MIND-small; tháp LoRA (H5) nhiều nhất 3.5\% dữ liệu, 1 seed; H12 khoảng nửa epoch; H6, H9 chỉ trên 2.000--2.500 impression; chưa tinh chỉnh toàn phần trên MIND-large.
   \item \textbf{Kết quả âm:} phần lớn đo trên MIND-small với một cấu hình; SID-GPT ngang vector ngẫu nhiên nên có thể do cài đặt.
   \item \textbf{Độ bất định:} CI chỉ phản ánh nhiễu mẫu test. Nhiễu seed đo được: 0.007--0.014 nDCG@10 (MIND-small), 0.001--0.007 (reader trên MIND-large); nhiều hàng chỉ một seed.
   \item \textbf{So sánh với công bố:} chưa chạy lại PLM-NR, UNBERT trên cùng \code{MINDlarge\_dev}; chưa so với MINER, GLORY hay các phương pháp tin tức dùng LLM như ONCE.
@@ -1422,10 +1462,10 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \begin{tabularx}{\textwidth}{@{}lY@{}}
 \toprule
 \textbf{RQ1} & Embedding cố định + cách tổng hợp tốt \textbf{ngang} NRMS, NAML, Fastformer huấn luyện lại (0.4094 so với NRMS refit 0.4078, CI chứa 0), hơn Fastformer refit (+0.0061): ngang, chưa vượt.\\
-\textbf{RQ2} & Điểm nghẽn là \textbf{tầng tổng hợp lịch sử}: LSE tăng +0.011 đến +0.014 không cần tham số; bộ mã hóa lớn hơn gần như không giúp (+0.0015).\\
+\textbf{RQ2} & Điểm nghẽn là \textbf{tầng tổng hợp lịch sử}: LSE tăng +0.011 đến +0.014 không cần tham số; bộ mã hóa lớn hơn gần như không giúp (BGE-large +0.0015; Qwen3-4B ngang 0.6B).\\
 \textbf{RQ3} & Trong 14 họ đã đo: \textcolor{okc}{\textbf{2 thành công}} (H8, H10), \textcolor{partc}{\textbf{2 có điều kiện}} (F, H3), \textcolor{failc}{\textbf{10 không hiệu quả}}, nhất là các hướng nén hoặc viết lại biểu diễn bằng LLM.\\
 \textbf{RQ4} & Khi chỉ có điểm embedding, GBDT $\approx$ hợp nhất tuyến tính ($-0.0004$); GBDT có ích nhờ exposure (+0.0147). CV theo khối thời gian làm validation khớp test (lệch $-0.0379 \to -0.0072$).\\
-\textbf{RQ5} & Mở khóa 2 tầng cuối BGE-large không thu hẹp khoảng cách (+0.0005, n.s.; Cold AUC $-0.0069$); tháp LoRA không bổ sung cho bộ hợp nhất.\\
+\textbf{RQ5} & Mở khóa 2 tầng cuối BGE-large không thu hẹp khoảng cách (+0.0005, n.s.; Cold AUC $-0.0069$); tháp LoRA hơn LSE nhưng không bổ sung cho hệ thống. Cả hai mới chạy một phần dữ liệu (khoảng nửa epoch; 3.5\%).\\
 \bottomrule
 \end{tabularx}
 \ychinh{hệ thống ba tầng trên embedding cố định đạt \textbf{0.4516} nDCG@10 ở chế độ offline (+0.0729 so với mốc) và \textbf{0.4731} ở chế độ online, chạy trên 1 GPU T4; phần lớn mức tăng (khoảng 80\%) đến từ cách dùng embedding và reader.}
@@ -1452,7 +1492,7 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \begin{itemize}
   \setlength{\itemsep}{3pt}
   \item Kiểm chứng trên dữ liệu có toàn văn bài viết (EB-NeRD).
-  \item Thử embedding 4B--8B và tinh chỉnh LoRA trên toàn bộ MIND-large; chạy $\ge$ 3 seed.
+  \item Huấn luyện tháp LLM (H5) và tinh chỉnh encoder trên toàn bộ MIND-large (hiện mới 3.5\% và khoảng nửa epoch); chạy $\ge$ 3 seed.
   \item Ước lượng $\tau$ không dùng nhãn test; đo độ trễ đầu-cuối.
   \item Chạy đo SID-News và họ T; làm ablation riêng cho kích thước slate.
 \end{itemize}
@@ -1530,7 +1570,7 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \begin{description}
   \setlength{\itemsep}{4pt}
   \item[Khoảng tin cậy có tính nhiễu huấn luyện không?] Không. CI ghép cặp chỉ phản ánh nhiễu mẫu test; nhiễu seed đo riêng (0.007--0.014 trên MIND-small, 0.001--0.007 cho reader trên MIND-large). Chênh nhỏ hơn mức đó giữa hai mô hình đã huấn luyện không được dùng để kết luận.
-  \item[Sao không dùng embedding 4B--8B?] Giới hạn GPU. Bằng chứng hiện có cho thấy encoder lớn hơn không tự động tốt hơn (BGE-large chỉ +0.0015 so với BGE-small; Qwen3-0.6B kém BGE-large +0.0102 khi làm đầu vào reader), nhưng chưa loại trừ được.
+  \item[Sao không dùng embedding lớn hơn (4B--8B)?] Đã thử Qwen3-Embedding-4B trên MIND-large (v18a): làm đầu vào reader chỉ ngang bản 0.6B ($+0.0006$) và kém BGE-large ($-0.005$ đến $-0.009$); 8B chưa thử vì giới hạn GPU. Encoder lớn hơn không tự động tốt hơn (BGE-large chỉ +0.0015 so với BGE-small).
   \item[Vì sao GBDT không giúp khi chỉ có điểm embedding?] Bốn trọng số tuyến tính đã khai thác hết thông tin của các điểm ($-0.0004$, n.s.); GBDT chỉ có ích khi có thông tin mới như exposure (+0.0147).
   \item[LSE đã so với attention học được, với NAML, Fastformer chưa?] Có. Trên cùng vector cố định: reader kiểu NRMS, Fastformer, 4 truy vấn, theo ứng viên (slide ``H8 so với attention học được''). Baseline đầy đủ NRMS, NAML, Fastformer: slide RQ1. Reader kiểu NAML trên vector cố định chưa chạy.
   \item[Kích thước slate quan trọng nhất có hợp lý không?] Chưa rõ. Bỏ cột này làm điểm holdout giảm; có thể cây dùng nó làm ngữ cảnh để đổi cách kết hợp. Cần ablation riêng.
@@ -1555,9 +1595,13 @@ v14 & MIND-large & một encoder (Qwen3) và đủ kỹ thuật; bộ hợp nh�
 v15 & MIND-large & GBDT stacker (XGBoost GPU), đặc trưng exposure, encoder thứ hai BGE-large & 2.73 giờ\\
 v16b & MIND-large & CV theo khối thời gian, reader trên BGE-large và vector nối, đo RAM đỉnh (21.2 GB) & 4.49 giờ\\
 v17 & MIND-large & mở khóa 2 tầng cuối BGE-large dưới reader (H12), nhánh đối chứng khớp cặp, cổng dừng & --\\
+v18a & MIND-large & đối chứng = v16b chạy lại (trùng đến 4 chữ số); Qwen3-Embedding-4B làm encoder & 8.15 giờ\\
+v18b & MIND-large & reader huấn luyện trên đủ 2.71 triệu mẫu, 6 epoch; reader \code{sca} & 5.13 giờ\\
+v19a & MIND-large & reader kỹ hơn đưa vào hợp nhất + GBDT (có đối chứng); H6, H9 trên tập con & 9.54 giờ\\
+v19b & MIND-large & H5 huấn luyện 200 phút, chấm toàn bộ test; H1 trên 60.000 impression & 10.09 giờ\\
 \bottomrule
 \end{tabularx}
-\ghichu{Mọi lần chạy là một notebook ``Run All'' trên Kaggle (Tesla T4 16 GB, mã dùng một GPU). Các bảng MIND-large trong bài lấy từ v16b, trừ các dòng đánh dấu (*) lấy từ v17.}
+\ghichu{Mọi lần chạy là một notebook ``Run All'' trên Kaggle (Tesla T4 16 GB; v14--v17 dùng một GPU, v18--v19 dùng hai). Các bảng MIND-large trong bài lấy từ v16b, trừ các dòng đánh dấu (*) lấy từ v17 và các số ghi rõ v18, v19. Đối chứng của v18a, v18b, v19a, v19b trùng v16b đến 4 chữ số.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide dự phòng: cho biết mỗi con số đến từ lần chạy nào.}
 \end{frame}

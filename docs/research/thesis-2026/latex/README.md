@@ -6,7 +6,7 @@ Bản trình bày lại cùng nội dung với deck Beamer của nhóm, sắp th
 | Tệp | Nội dung |
 |---|---|
 | `Slide_LLMRec_v2.tex` | Mã nguồn Beamer 16:9, tiếng Việt, một file. Mọi hình vẽ bằng TikZ, không cần ảnh ngoài. Mỗi slide có lời thoại gợi ý (`\note{}`). |
-| `Slide_LLMRec_v2.pdf` | Bản biên dịch với giao diện dự phòng: 51 trang (48 slide đánh số, cộng bìa, mục lục và trang cảm ơn). |
+| `Slide_LLMRec_v2.pdf` | Bản biên dịch với giao diện dự phòng: 52 trang (49 slide đánh số, cộng bìa, mục lục và trang cảm ơn). |
 | `Slide_LLMRec_v2_loi_thoai.pdf` | Cùng nội dung; mỗi trang có slide ở nửa trên và lời thoại ở nửa dưới, dùng để tự luyện thuyết trình. |
 
 ## Biên dịch
@@ -26,7 +26,7 @@ pdflatex Slide_LLMRec_v2.tex   # lần 2 để cập nhật số trang
 
 1. Bài toán và dữ liệu: bài toán, MIND và các chỉ số, năm câu hỏi nghiên cứu.
 2. Cách tiếp cận: quy trình 4 bước (dựng baseline, sàng lọc trên MIND-small, xác nhận trên MIND-large, ghép hệ thống), bảng nối văn liệu với giả thuyết, mô hình cơ sở, giao thức đánh giá, hệ thống cuối.
-3. Bức tranh tổng thể: ba cột thành công / có điều kiện / không hiệu quả, bảng tra cứu từng hướng, biểu đồ độ lớn tác động, bốn lý do thất bại.
+3. Bức tranh tổng thể: ba cột thành công / có điều kiện / không hiệu quả, bảng tra cứu từng hướng, **quy mô dữ liệu mà mỗi hướng LLM đã chạy** (đủ / một phần / tập con), biểu đồ độ lớn tác động, bốn lý do thất bại.
 4. Chẩn đoán: RQ1 (thang ablation NRMS; NRMS, NAML, Fastformer huấn luyện lại so với embedding cố định), RQ2 (quét bộ mã hóa).
 5. Các hướng thành công: H8 (kèm slide so LSE với attention học được trên cùng vector: kiểu NRMS, Fastformer, 4 truy vấn, theo ứng viên), H10, cùng H3 và F (có điều kiện).
 6. Các hướng không thành công: H2 và H12, H5, H11, nhóm sinh hoặc nén bằng LLM (H1, H4, H4b, H6, H7, H9), các hướng chưa đo (SID-News, T).
@@ -43,12 +43,12 @@ Tiêu chí "thành công": hơn đối chứng mạnh nhất trong cùng điều
 |---|---|
 | Thành công | H8 (tương tác muộn: LSE, top-k), H10 (reader theo ứng viên: hơn LSE trên MIND-large và với Qwen3) |
 | Có điều kiện | F (chuyên mục trong văn bản: giúp Qwen3, không giúp BGE), H3 (kNN: chỉ có ích khi đi qua reader) |
-| Không hiệu quả | H1, H2, H4, H4b, H5, H6, H7, H9, H11, H12 |
+| Không hiệu quả | H1, H2, H4, H4b, H5, H6, H7, H9, H11, H12 (H2, H5, H6, H9, H12 **chưa chạy đủ dữ liệu**: kết luận chỉ đúng trong ngân sách đã thử) |
 | Chưa đo | T (cổng cold/warm kiểu PAD), SID-News |
 
 ## Nguồn số liệu
 
-- MIND-small: `experiments/recsys_v11/RESULTS_v7.md`, `RESULTS_v13.md`. MIND-large: `RESULTS_v14_large.md`, `RESULTS_v15_large.md`, `RESULTS_v16b_large.md`.
+- MIND-small: `experiments/recsys_v11/RESULTS_v7.md`, `RESULTS_v13.md`. MIND-large: `RESULTS_v14_large.md`, `RESULTS_v15_large.md`, `RESULTS_v16b_large.md`; các số ghi v18, v19: `RESULTS_v18a_large.md`, `RESULTS_v18b_large.md`, `RESULTS_v19a_large.md`, `RESULTS_v19b_large.md`.
 - Mọi bảng MIND-large của hệ thống cuối lấy từ một lần chạy là v16b. Dòng đánh dấu (*) lấy từ v17.
 - Một số con số lấy từ bản nháp của nhóm (log chạy của nhóm) và chưa có trong các file `RESULTS` của repo. Cần tự đối chiếu trước khi thuyết trình:
   - bảng H12 của v17 (`ft_base`, `ft_reader`) và dòng `super_llm*` (0.4378);
@@ -70,3 +70,14 @@ Tiêu chí "thành công": hơn đối chứng mạnh nhất trong cùng điều
 - Nhiễu seed đo trên test: 0.007–0.014 nDCG@10 trên MIND-small, 0.001–0.007 với reader trên MIND-large.
 - Sửa vài số cho khớp log: `pool_km5` trên MIND-small là 0.4007; H2 tăng +0.0016 đến +0.0029; con số +0.0653 → +0.0302 của v14 là của reader + kNN (reader thường là +0.0596 → +0.0192). Thêm ghi chú rằng bậc 2 của thang NRMS chưa hội tụ.
 - Để biên dịch được: `babel` dùng `vietnamese` thay cho `vietnam`; bỏ chữ `LLMREC` thừa sau `\title`.
+
+## Cập nhật 2026-10-19 (sau các lần chạy v18–v19)
+
+Sửa ít, giữ nguyên mạch trình bày và các con số chính của hệ thống (0.4516 offline, 0.4731 online; chờ v19c đo nhiễu của stacker trước khi đổi).
+- **Thêm một slide** ngay sau bảng tra cứu: mỗi hướng LLM đã chạy trên bao nhiêu dữ liệu huấn luyện và bao nhiêu impression test, gắn nhãn đủ / một phần / tập con. Mục đích: không kết luận "LLM kém" cho các hướng chưa chạy đủ (H2, H5, H12 mới dùng một phần dữ liệu huấn luyện; H6, H9 mới đo trên 2.000–2.500 impression, trên nền mean pooling).
+- Dấu $^{\dagger}$ (chưa chạy đủ dữ liệu) ở slide tổng thể và bảng tra cứu.
+- H5: thêm lần chạy v19b (3.5% dữ liệu, chấm toàn bộ test): 0.4002, hơn LSE +0.0085, kém reader −0.0048, không thêm gì cho hệ thống; tiêu đề slide đổi theo.
+- H1, H6, H9: thêm số đo trên MIND-large (v19a, v19b) và kích thước tập con.
+- RQ2: thêm Qwen3-Embedding-4B (v18a): làm đầu vào reader chỉ ngang 0.6B, kém BGE-large.
+- Không gian biểu diễn: reader huấn luyện trên đủ 2.71 triệu mẫu (v18b, v19a): 0.4316 (+0.0091); vào hệ thống chỉ +0.0006 đến +0.0016.
+- So với PLM-NR, giới hạn, kết luận RQ2 / RQ5, hướng tiếp theo, một câu hỏi phụ lục và bảng các lần chạy: cập nhật theo các số trên.
