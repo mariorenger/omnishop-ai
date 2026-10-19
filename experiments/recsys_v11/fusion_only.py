@@ -10,6 +10,9 @@ every component they share.
 The stacker subsamples rows and columns (0.7 / 0.7), so its seed is a source of training noise that the paired CI of a row does not include (v18a: adding columns
 moved the stacker rows by -0.0019 ... +0.0026).  ``seed_table`` puts the rows of two stacker seeds side by side, measures that noise directly (control seed 1 -
 control seed 0: same components) and adds the mean of the two seeds' test scores (an ensemble of two stackers) as rows of their own.
+
+``explore_table`` reports an EXPLORATORY arm chosen after v19a's test result: the supermodel with its base and weights chosen on the plain validation mean
+(``--cold-target 0``) instead of the cold-weighted one, which ranked v19a's readers trained harder below the old ones while the test ranked them above.
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ CONTROL_RUNS = ("bge", "cat")            # the v16b pipeline's other runs (BGE-l
 NEW_READERS = ("catplus", "bgeplus")     # v19a: the readers trained harder on the same vectors
 MAIN = "qwen3"                           # the main run (Qwen3-Embedding-0.6B); v19b's copy also holds the H5 tower
 STACK_ROWS = ("stack_llm", "stack_meta", "stack_meta_v15cfg", "stack_pop")
+SUPER_ROWS = ("super_base", "super_zs", "super_llm", "super_llm+pop")
 
 
 def _is_comp(fn):
@@ -270,3 +274,36 @@ def stack_table(S, path=None, title="Stacker of the treatment: features and what
         with open(path, "w", encoding="utf-8") as f:
             f.write(md + "\n")
     return md
+
+
+def explore_table(arms, path=None, rows=SUPER_ROWS):
+    """The supermodel rows with the base and weights chosen on the cold-weighted validation (``ctrl_s0`` / ``treat_s0``, the pre-registered rule) next to the
+    same rows chosen on the plain validation (``ctrl_cw0`` / ``treat_cw0``), with the paired differences.  EXPLORATORY: the plain rule was picked after
+    v19a's test result, so a gain here is a lead for a pre-registered run, not a result.  -> (markdown, {row: {...}})."""
+    c0, t0, cp, tp = (arms.get(k) for k in ("ctrl_s0", "treat_s0", "ctrl_cw0", "treat_cw0"))
+    lines = ["# v19c, EXPLORATORY: supermodel chosen on the plain validation mean (--cold-target 0) instead of the cold-weighted one", "",
+             "The rule was picked AFTER v19a's test result (the cold-weighted validation ranked the readers trained harder below the old ones, the test above), "
+             "so these rows are a lead for a pre-registered run, not a result.", ""]
+    bases = []
+    for lab, s in (("control, cold-weighted", c0), ("treatment, cold-weighted", t0), ("control, plain", cp), ("treatment, plain", tp)):
+        st = (getattr(s, "kv", None) or {}).get("supermodel") if s is not None else None
+        if st:
+            bases.append(f"* {lab}: base `{st.get('base')}`; readers {', '.join(f'`{k}`' for k in st.get('groups', {}).get('reader', [])) or '-'}")
+    if bases:
+        lines += ["Base and readers chosen:"] + bases + [""]
+    lines += ["| row | control, cold-weighted | control, plain | Δ plain - cold-weighted (control) | treatment, cold-weighted | treatment, plain "
+              "| Δ plain - cold-weighted (treatment) | Δ treatment - control (plain) |", "|---|---|---|---|---|---|---|---|"]
+    out = {}
+    for n in rows:
+        r = {"ctrl": _row(c0, n), "ctrl_plain": _row(cp, n), "treat": _row(t0, n), "treat_plain": _row(tp, n),
+             "d_ctrl": _paired(cp, n, c0, n), "d_treat": _paired(tp, n, t0, n), "d_plain": _paired(tp, n, cp, n)}
+        if all(v is None for v in r.values()):
+            continue
+        out[n] = r
+        lines.append(f"| `{n}` | {_f(r['ctrl'])} | {_f(r['ctrl_plain'])} | {_ci(r['d_ctrl'])} | {_f(r['treat'])} | {_f(r['treat_plain'])} | {_ci(r['d_treat'])} | "
+                     f"{_ci(r['d_plain'])} |")
+    md = "\n".join(lines)
+    if path:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(md + "\n")
+    return md, out

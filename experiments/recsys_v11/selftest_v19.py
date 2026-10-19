@@ -268,8 +268,18 @@ def test_fusion_inputs(tmp):
         raise AssertionError("different candidates must be refused")
     except ValueError:
         pass
+    # the exploratory table (supermodel chosen on the plain validation) next to the pre-registered rule, with the bases each run chose
+    c0, t0 = T18._fake_suite({"super_llm": base, "super_base": base}), T18._fake_suite({"super_llm": base + 0.002, "super_base": base})
+    cp, tp = T18._fake_suite({"super_llm": base + 0.001, "super_base": base}), T18._fake_suite({"super_llm": base + 0.006, "super_base": base + 0.004})
+    for s_, b_ in ((c0, "cat:um_knn_rag"), (t0, "cat:um_knn_rag"), (cp, "cat:um_knn_rag"), (tp, "catplus:um_knn_rag")):
+        s_.kv = {"supermodel": {"base": b_, "groups": {"reader": ["catplus:um_frozen"]}}}
+    emd, eout = FO.explore_table({"ctrl_s0": c0, "treat_s0": t0, "ctrl_cw0": cp, "treat_cw0": tp}, os.path.join(root, "explore.md"))
+    assert abs(eout["super_llm"]["d_treat"][0] - 0.004) < 1e-9 and abs(eout["super_llm"]["d_plain"][0] - 0.005) < 1e-9 and abs(eout["super_base"]["d_ctrl"][0]) < 1e-12
+    assert "EXPLORATORY" in emd and "treatment, plain: base `catplus:um_knn_rag`" in emd and "super_zs" not in eout and os.path.exists(os.path.join(root, "explore.md"))
+    assert FO.explore_table({})[1] == {}, "no arm ran: an empty table"
     ok("(68) fusion_only: inputs found (full before QUICK), arms laid out with links (control without the tower, treatment with it and with the readers trained "
-       "harder; supermodel run tags right), an export replaces the link not the source, missing inputs build nothing, copies compared, seed table and 2-seed means")
+       "harder; supermodel run tags right), an export replaces the link not the source, missing inputs build nothing, copies compared, seed table and 2-seed means, "
+       "exploratory plain-validation table")
 
 
 def run_all(tmp, mind, enc_dir, dec_dir, cache_dir, run_args, texts):

@@ -25,6 +25,7 @@ BEST_OFFLINE = max(V16B["stack_meta"], V16B["stack_meta_v15cfg"])          # 0.4
 BEST_ONLINE = V16B["stack_pop"]                                            # 0.4731 (streaming popularity)
 BEST_CONTENT = V16B["super_llm"]                                           # 0.4373: content + history only
 BEST_V18 = {"super_llm": 0.4373, "stack_meta": 0.4570, "stack_pop": 0.4731}  # after v18a (RESULTS_v18a_large.md): offline best is stack_meta_v15cfg 0.4570
+BEST_V19 = {"super_llm": 0.4380, "stack_meta": 0.4570, "stack_pop": 0.4731}  # after v19a / v19b (RESULTS_v19a_large.md): content only 0.4380 (v19a treatment)
 FUSED = ("super_base", "super_zs", "super_llm", "stack_llm", "stack_meta", "stack_meta_v15cfg", "super_llm+pop", "stack_pop")
 
 
