@@ -241,9 +241,10 @@ class Suite:
         """A popularity twin is reported when the row it would be compared with has one (``frozen`` always does, ``pool_lse`` after the pooling stage)."""
         return bool(getattr(self.args, "with_pop", 0)) and f"{ref_name}+pop" in self.cache
 
-    def select(self, name, family, configs, make, ref_name, extra=None, es=None, pop=None, export=None):
+    def select(self, name, family, configs, make, ref_name, extra=None, es=None, pop=None, export=None, kind=None):
         """Generic grid: choose the config on validation, report it on test once (plus its popularity twin).  ``export`` (default: the rows
-        ``common.export_wanted`` names): also keep the raw scores of the chosen config for the supermodel."""
+        ``common.export_wanted`` names): also keep the raw scores of the chosen config for the supermodel.  ``kind``: the component kind written with
+        the exported scores (default: ``common.default_kind`` of the name)."""
         best = None
         for cfg in configs:
             v = self.run(make(cfg, "val"), "val", es=es)
@@ -255,7 +256,7 @@ class Suite:
         if (common.export_wanted(name) if export is None else export) and getattr(self.args, "export_scores", 1):
             _, vr = self.run_rec(make(cfg, "val"), "val", es=es)                # one more validation pass for the chosen config only
             t, tr = self.run_rec(make(cfg, "test"), "test", es=es)
-            self.export_scores(name, vr, tr, {"cfg": cfg, "family": family})
+            self.export_scores(name, vr, tr, {"cfg": cfg, "family": family, **({"kind": kind} if kind else {})})
         else:
             t = self.run(make(cfg, "test"), "test", es=es)
         row = self.record(name, family, cfg, v, t, ref_name, extra)
@@ -270,7 +271,7 @@ class Suite:
 
     # ---- resume
     SIG_IGNORED = {"stages", "budget_hours", "min_stage_s", "no_resume", "work", "cache_dir", "device", "mind_train", "mind_dev",
-                   "export_scores", "super_dirs", "super_baselines", "save_arrays", "restack", "rerun"}
+                   "export_scores", "super_dirs", "super_baselines", "save_arrays", "restack", "rerun", "min_stack_s", "llm_user_minutes"}
 
     def signature(self):
         """A saved state is reused only if the data AND every result-relevant argument are identical (so a QUICK run can never leak
@@ -478,7 +479,8 @@ def stage_histquery(S, args):
     log("\n== H1 history-as-text, instruction-aware query ==")
     K = args.hist_k
     hq = HistQueries(S.data, S.titles, K)
-    n_val, n_test = (args.llm_val_n, args.llm_test_n) if args.hq_subset else (0, 0)
+    pick = lambda own, llm: llm if own is None or own < 0 else own
+    n_val, n_test = (pick(getattr(args, "hq_val_n", -1), args.llm_val_n), pick(getattr(args, "hq_test_n", -1), args.llm_test_n)) if args.hq_subset else (0, 0)
     sets = {sp: S.subset(sp, n) for sp, n in (("val", n_val), ("test", n_test))}
     es = {sp: sets[sp][1] for sp in sets}
     need = np.union1d(hq.needed("val", sets["val"][0]), hq.needed("test", sets["test"][0]))
@@ -491,17 +493,22 @@ def stage_histquery(S, args):
             log("  skipped (wall-clock budget)")
             break
         pre = query_prefix(args.encoder, args.query_format, instruct)
-        enc = adapt.HFEncoder(args.encoder, max_len=args.q_max_len, device=S.device, prefix=pre)
         Q = hq.alloc(S.E0.shape[1])
         t0 = time.time()
-        Q[need] = enc.encode(hq.texts(need), bs=args.enc_bs)
-        log(f"  encoded queries ({'instruct' if instruct else 'plain'}) in {time.time() - t0:.0f}s, prefix={pre[:40]!r}")
+        devs = FD.gpu_devices(S.device)
+        if len(devs) > 1:                                                          # same batches on every GPU: the same vectors, faster
+            Q[need] = adapt.encode_multi(args.encoder, hq.texts(need), args.q_max_len, pre,
+                                         adapt.resolve_dtype(args.encoder, getattr(args, "enc_dtype", "auto"), S.device), args.enc_bs, devs)
+        else:
+            enc = adapt.HFEncoder(args.encoder, max_len=args.q_max_len, device=S.device, prefix=pre)
+            Q[need] = enc.encode(hq.texts(need), bs=args.enc_bs)
+            del enc
+        log(f"  encoded queries ({'instruct' if instruct else 'plain'}) in {time.time() - t0:.0f}s on {len(devs)} device(s), prefix={pre[:40]!r}")
         qs = lambda sp: hq.scorer(Q, Et, sp, S.device, ids=sets[sp][0])
         tag = "instr" if instruct else "plain"
         S.select(f"histq_{tag}", "H1-text-user", [{"w": 0.0}], lambda c, sp: qs(sp), "frozen", es=es)
         S.select(f"histq_{tag}+meanpool", "H1-text-user", [{"w": w} for w in (0.5, 1.0, 2.0)],
                  lambda c, sp: fuse([(qs(sp), 1.0), (mp, c["w"])]), "frozen", es=es)
-        del enc
         if S.device == "cuda":
             torch.cuda.empty_cache()
 
@@ -771,6 +778,8 @@ def build_parser():
     ap.add_argument("--repro", default=None, help='published V10 control "auc,ndcg10" (bge_zeroshot: 0.6241,0.3909)')
     ap.add_argument("--budget-hours", type=float, default=0.0, help="shared wall-clock budget; long loops stop gracefully (0 = unlimited)")
     ap.add_argument("--min-stage-s", type=float, default=300.0, help="do not start a stage with less than this left")
+    ap.add_argument("--min-stack-s", type=float, default=0.0, help="do not start the stack stage with less than this left (0 = --min-stage-s); only the stacker, "
+                    "which takes ~1 hour on MIND-large, needs a large margin")
     ap.add_argument("--no-resume", action="store_true")
     ap.add_argument("--export-scores", type=int, default=1, help="keep the raw scores of the supermodel's candidate components under <work>/scores")
     ap.add_argument("--super-dirs", default="", help="comma-separated work dirs of the other runs whose exported scores the supermodel may use")
@@ -818,6 +827,8 @@ def build_parser():
     ap.add_argument("--hist-k", type=int, default=10)
     ap.add_argument("--hq-plain", type=int, default=1, help="also run the history query without the instruction")
     ap.add_argument("--hq-subset", type=int, default=0, help="evaluate H1 on the same nested subsets as H5")
+    ap.add_argument("--hq-val-n", type=int, default=-1, help="H1 with --hq-subset 1: validation impressions (-1 = --llm-val-n, 0 = all)")
+    ap.add_argument("--hq-test-n", type=int, default=-1, help="H1 with --hq-subset 1: test impressions (-1 = --llm-test-n, 0 = all)")
     ap.add_argument("--skip-user-rag", type=int, default=0, help="skip the collaborative 'user_rag' row (its user-memory matrices do not fit on MIND-large)")
     ap.add_argument("--louvain-res", type=float, default=1.0)
     ap.add_argument("--betas", type=float, nargs="+", default=[0.25, 0.5, 1.0])
@@ -858,6 +869,10 @@ def build_parser():
     ap.add_argument("--llm-val-n", type=int, default=5000)
     ap.add_argument("--llm-test-n", type=int, default=30000)
     ap.add_argument("--llm-enc-bs", type=int, default=64)
+    ap.add_argument("--llm-eval-n", type=int, default=0, help="H5: validation impressions of the evaluations DURING training (0 = the --llm-val-n set); "
+                    "lets the final scoring cover the whole split (--llm-val-n 0 --llm-test-n 0) without encoding it at every evaluation")
+    ap.add_argument("--llm-user-minutes", type=float, default=0.0, help="H5: train for this many minutes (the step count and its cosine schedule are fitted "
+                    "to the step time measured on the first 20 steps; --llm-user-steps stays the upper bound); 0 = exactly --llm-user-steps")
     ap.add_argument("--ut-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
     # learned user model
     ap.add_argument("--um-views", default="frozen,head,encoder,entity_rag,knn_rag,text")
@@ -1041,7 +1056,8 @@ def main(argv=None):
             log(f"-- stage '{s}' already finished (resume), skipped")
             status.setdefault(s, "done")
             continue
-        if s != "controls" and common.out_of_time(args.min_stage_s):               # controls are the reference: always run
+        need_s = args.min_stack_s if (s == "stack" and getattr(args, "min_stack_s", 0) > 0) else args.min_stage_s
+        if s != "controls" and common.out_of_time(need_s):                         # controls are the reference: always run
             log(f"-- stage '{s}' SKIPPED: wall-clock budget exhausted ({common.CLOCK.elapsed() / 3600:.1f}h used)")
             status[s] = "skipped: wall-clock budget"
             continue

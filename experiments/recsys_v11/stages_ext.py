@@ -249,7 +249,7 @@ def stage_sweep(S, args):
 
 # ============================================================================ H5 LLM user tower
 def stage_llm_user(S, args):
-    from llm_user import UserTower, probe_masks, train_user_tower
+    from llm_user import UserTower, encode_parallel, probe_masks, train_user_tower
     log("\n== H5 fine-tuned LLM user tower: history-as-text, LoRA, causal / bidirectional / soft attention mask ==")
     dec = decoder_only(args.encoder)
     modes = [m for m in args.llm_user_modes.split(",") if m] if dec else ["native"]     # "causal@1" = the causal mode with training seed 1 (noise estimate)
@@ -257,17 +257,29 @@ def stage_llm_user(S, args):
     hq = HistQueries(S.data, S.titles, K)
     sets = {sp: S.subset(sp, n) for sp, n in (("val", args.llm_val_n), ("test", args.llm_test_n))}
     es = {sp: sets[sp][1] for sp in sets}
-    log(f"  evaluation on {len(sets['val'][0]):,} validation / {len(sets['test'][0]):,} test impressions; modes={modes}")
+    n_eval = getattr(args, "llm_eval_n", 0)
+    ev = S.subset("val", n_eval) if n_eval > 0 else sets["val"]                    # the validation impressions of the evaluations during training
+    ev_is_val = len(ev[0]) == len(sets["val"][0])
+    full = len(sets["val"][0]) == len(S.data.validation) and len(sets["test"][0]) == len(S.data.test)
+    log(f"  evaluation on {len(sets['val'][0]):,} validation / {len(sets['test'][0]):,} test impressions"
+        + ("" if ev_is_val else f" (during training on {len(ev[0]):,} validation impressions)") + f"; modes={modes}"
+        + ("; the tower covers the whole split, so its scores are exported as a reader (an input of the supermodel and the stacker)" if full else ""))
     E_doc = S.tensor(S.E0)
     mp = R.mean_pool_scorer(E_doc)
     pre = query_prefix(args.encoder, args.query_format, True)
     qfn = lambda h: "; ".join(S.titles[i] for i in h[-K:])
     probe_texts = hq.texts(range(min(3, len(hq.uniq))))
 
-    def encode_split(tw, sp):
-        qi = hq.needed(sp, sets[sp][0])
+    def encode_split(tw, sp, ids, final=False):
+        """Query vectors of the unique histories of the rows ``ids``; the final scoring uses every GPU and a longer deadline than the evaluations."""
+        qi = hq.needed(sp, ids)
         Q = hq.alloc(E_doc.shape[1])
-        Q[qi] = tw.encode(hq.texts(qi), bs=args.llm_enc_bs, deadline=S.deadline(0.3))
+        if final:
+            t0 = time.time()
+            Q[qi] = encode_parallel(tw, hq.texts(qi), bs=args.llm_enc_bs, devices=FD.gpu_devices(S.device), deadline=S.deadline(0.6), log=log)
+            log(f"      [{tw.label}] {sp}: {len(qi):,} unique histories encoded in {time.time() - t0:.0f}s")
+        else:
+            Q[qi] = tw.encode(hq.texts(qi), bs=args.llm_enc_bs, deadline=S.deadline(0.3))
         missing = int((np.abs(Q[qi]).sum(1) == 0).sum())
         if missing:
             log(f"      WARNING: {missing:,}/{len(qi):,} {sp} queries were not encoded (wall-clock budget) - their rows score as ties")
@@ -290,23 +302,25 @@ def stage_llm_user(S, args):
                 continue
 
         def eval_fn(tw):
-            Q = encode_split(tw, "val")
+            Q = encode_split(tw, "val", ev[0])
             tw.eval_payload = Q
-            return S.run(hq.scorer(Q, E_doc, "val", S.device, ids=sets["val"][0]), "val", es=es)["mean"]["ndcg@10"]
+            return S.run(hq.scorer(Q, E_doc, "val", S.device, ids=ev[0]), "val", es={"val": ev[1]})["mean"]["ndcg@10"]
 
+        minutes = getattr(args, "llm_user_minutes", 0) or None
         info = train_user_tower(tw, qfn, S.data.train_core, E_doc, kind="lora", steps=args.llm_user_steps, bs=args.llm_user_bs,
                                 lr=args.llm_user_lr, r=args.llm_user_r, eval_fn=eval_fn, shared_negs=bool(args.llm_user_shared),
-                                seed=seed, deadline=S.deadline(0.3), log=log)
-        info["truncated"] = bool(info["steps"] < args.llm_user_steps)
+                                seed=seed, deadline=S.deadline(0.6 if minutes else 0.3), log=log, minutes=minutes)
+        info["truncated"] = bool(info.get("deadline_hit"))
         if info["truncated"]:
-            log(f"      WARNING: '{label}' trained {info['steps']}/{args.llm_user_steps} steps (wall-clock budget) - not comparable with the other masks")
-        Qv = info.pop("payload") if info.get("payload") is not None else encode_split(tw, "val")
-        Qt = encode_split(tw, "test")
+            log(f"      WARNING: '{label}' stopped at {info['steps']}/{info['planned_steps']} steps (wall-clock budget) - not comparable with the other masks")
+        payload = info.pop("payload", None)
+        Qv = payload if (payload is not None and ev_is_val) else encode_split(tw, "val", sets["val"][0], final=True)
+        Qt = encode_split(tw, "test", sets["test"][0], final=True)
         info.pop("losses", None)
         sc = {"val": hq.scorer(Qv, E_doc, "val", S.device, ids=sets["val"][0]),
               "test": hq.scorer(Qt, E_doc, "test", S.device, ids=sets["test"][0])}
-        S.select(f"ut_{label}", fam, [{"mode": mode, "seed": seed, "steps": args.llm_user_steps, "r": args.llm_user_r}], lambda c, sp: sc[sp],
-                 "frozen", info, es=es)
+        S.select(f"ut_{label}", fam, [{"mode": mode, "seed": seed, "steps": int(info.get("planned_steps", args.llm_user_steps)), "r": args.llm_user_r,
+                                       "minutes": minutes}], lambda c, sp: sc[sp], "frozen", info, es=es, kind="reader" if full else None)
         S.select(f"ut_{label}+meanpool", fam, [{"mode": mode, "seed": seed, "w": w} for w in args.ut_ws],
                  lambda c, sp: fuse([(mp, 1.0), (sc[sp], c["w"])]), "frozen", info, es=es)
         del tw

@@ -27,6 +27,8 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
   12. v18 (``selftest_v18.py``): fp16 weights with fp32 embeddings / norms for >= 3B encoders, encoding split over several devices == one device bit for bit, repair of
      a few non-finite rows, --base-text (own vectors on 'cta', composites served from the cache), --rerun of the supermodel and the stacker after new components, the
      reader 'sca', the decaying learning rate / improvement threshold of the readers, the control-vs-treatment table and gates of v18a.
+  13. v19 (``selftest_v19.py``): --min-stack-s gates only the stacker, H5 trained for a number of minutes (cosine schedule over the steps that fit), the tower
+     encoded over several devices == one device, H5 scored on the whole split and exported as a reader (supermodel + stacker), H1 subset sizes, gate bests.
 
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
@@ -67,6 +69,7 @@ import selftest_v15 as T15
 import selftest_v16 as T16
 import selftest_v17 as T17
 import selftest_v18 as T18
+import selftest_v19 as T19
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -1183,6 +1186,9 @@ def main():
 
     # ---------------- v18: fp16 weights for a 4B encoder, encoding over several GPUs, --base-text, --rerun, reader 'sca', decaying learning rate, the v18 reports
     T18.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1], texts)
+
+    # ---------------- v19: the stack-only time gate, time-boxed H5 training, the tower encoded over several devices, H5 on the whole split as a reader
+    T19.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1], texts)
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")

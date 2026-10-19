@@ -24,6 +24,7 @@ V16B = {"super_base": 0.4260, "super_llm": 0.4373, "stack_llm": 0.4369, "stack_m
 BEST_OFFLINE = max(V16B["stack_meta"], V16B["stack_meta_v15cfg"])          # 0.4543: the best offline row measured so far
 BEST_ONLINE = V16B["stack_pop"]                                            # 0.4731 (streaming popularity)
 BEST_CONTENT = V16B["super_llm"]                                           # 0.4373: content + history only
+BEST_V18 = {"super_llm": 0.4373, "stack_meta": 0.4570, "stack_pop": 0.4731}  # after v18a (RESULTS_v18a_large.md): offline best is stack_meta_v15cfg 0.4570
 FUSED = ("super_base", "super_zs", "super_llm", "stack_llm", "stack_meta", "stack_meta_v15cfg", "super_llm+pop", "stack_pop")
 
 
@@ -51,9 +52,9 @@ def _f(x):
     return "-" if x is None else f"{x:.4f}"
 
 
-def fusion_table(ctrl, treat, path=None, names=FUSED):
-    """v18a: every fused row of the control next to the same row of the treatment, with the paired Δ (treatment - control) and the v16b number."""
-    lines = ["# v18a: control (v16b pipeline, this notebook) vs treatment (+ Qwen3-Embedding-4B components), same impressions", "",
+def fusion_table(ctrl, treat, path=None, names=FUSED, title="v18a: control (v16b pipeline, this notebook) vs treatment (+ Qwen3-Embedding-4B components), same impressions"):
+    """Every fused row of the control next to the same row of the treatment, with the paired Δ (treatment - control) and the v16b number."""
+    lines = [f"# {title}", "",
              "| row | control nDCG@10 | treatment nDCG@10 | Δ treatment - control [95% CI] | Δ AUC [95% CI] | v16b (other run) |", "|---|---|---|---|---|---|"]
     out = {}
     for n in names:
@@ -72,7 +73,7 @@ def fusion_table(ctrl, treat, path=None, names=FUSED):
     return md, out
 
 
-def gate_v18a(ctrl, treat, path=None):
+def gate_v18a(ctrl, treat, path=None, title="v18a gates (written before the run; decided on the paired test CI of the treatment against the in-run control)", bests=None):
     """The criteria written down before the run (also in the notebook's introduction).
 
     G1 content: treatment super_llm - control super_llm > 0 with the paired CI above 0.
@@ -84,8 +85,10 @@ def gate_v18a(ctrl, treat, path=None):
         if d is None:
             return "NOT RUN"
         return "PASS" if d[1] > 0 else ("WORSE" if d[2] < 0 else "NO GAIN")
+    bests = bests or {"super_llm": BEST_CONTENT, "stack_meta": BEST_OFFLINE, "stack_pop": BEST_ONLINE}
     gates = []
-    for g, n, best in (("G1 content (super_llm)", "super_llm", BEST_CONTENT), ("G2 offline (stack_meta)", "stack_meta", BEST_OFFLINE), ("G3 online (stack_pop)", "stack_pop", BEST_ONLINE)):
+    for g, n, best in (("G1 content (super_llm)", "super_llm", bests["super_llm"]), ("G2 offline (stack_meta)", "stack_meta", bests["stack_meta"]),
+                       ("G3 online (stack_pop)", "stack_pop", bests["stack_pop"])):
         d = paired(treat, n, ctrl, n)
         t = row_val(treat, n)
         if n == "stack_meta":
@@ -95,8 +98,8 @@ def gate_v18a(ctrl, treat, path=None):
             t_best = t
         gates.append({"gate": g, "row": n, "verdict": verdict(d), "d": None if d is None else [float(x) for x in d], "treatment": t, "treatment_best": t_best,
                       "best_so_far": best, "beats_best_so_far": None if t_best is None else bool(t_best > best)})
-    lines = ["# v18a gates (written before the run; decided on the paired test CI of the treatment against the in-run control)", "",
-             "| gate | Δ treatment - control [95% CI] | verdict | treatment | best so far (v16b) | above it? |", "|---|---|---|---|---|---|"]
+    lines = [f"# {title}", "",
+             "| gate | Δ treatment - control [95% CI] | verdict | treatment | best so far | above it? |", "|---|---|---|---|---|---|"]
     for g in gates:
         lines.append(f"| {g['gate']} | {fmt_ci(g['d'])} | **{g['verdict']}** | {_f(g['treatment_best'])} | {g['best_so_far']:.4f} | "
                      f"{'-' if g['beats_best_so_far'] is None else ('yes' if g['beats_best_so_far'] else 'no')} |")

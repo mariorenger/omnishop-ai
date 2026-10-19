@@ -21,7 +21,9 @@ honours a custom 4D mask is checked at run time (``probe_masks``); a variant who
 """
 from __future__ import annotations
 
+import copy
 import math
+import threading
 import time
 
 import numpy as np
@@ -136,6 +138,19 @@ class UserTower:
             z = (h * m).sum(1) / m.sum(1).clamp(min=1)
         return z.float()
 
+    def clone_to(self, device):
+        """A copy of the (trained) tower on another device, with its own tokenizer, for encoding in parallel."""
+        from transformers import AutoTokenizer
+        other = copy.copy(self)
+        other.tok = AutoTokenizer.from_pretrained(self.name)
+        if self.decoder:
+            other.tok.padding_side = "left"
+        other.model = copy.deepcopy(self.model).to(device)
+        other.model.eval()
+        other.device = device
+        other.amp = str(device).startswith("cuda") and self.amp
+        return other
+
     @torch.no_grad()
     def encode(self, texts, bs=64, mode=None, lam=1.0, deadline=None):
         """Normalised vectors, sorted by length to keep padding small.  Un-encoded rows (deadline hit) stay zero."""
@@ -154,6 +169,59 @@ class UserTower:
             out[ix] = z
         self.model.train(was)
         return out if out is not None else np.zeros((len(texts), 1), np.float32)
+
+
+def encode_parallel(tower, texts, bs=64, devices=None, deadline=None, log=log):
+    """``UserTower.encode`` spread over several GPUs: the same batches (texts sorted by length, consecutive slices of ``bs``), batch ``k`` on
+    ``devices[k % n]`` -- ``devices[0]`` is the tower's own device, every other one gets a copy of the trained tower -- one thread per device.
+    Rows not reached before ``deadline`` stay zero.  One device (or a failed copy) falls back to ``tower.encode``."""
+    devices = [d for d in (devices or []) if d]
+    if len(devices) < 2:
+        return tower.encode(texts, bs=bs, deadline=deadline)
+    try:
+        towers = [tower] + [tower.clone_to(d) for d in devices[1:]]
+    except Exception as e:                                             # out of memory on the second GPU, or a model that cannot be copied
+        log(f"      [tower] no copy on the other GPU ({repr(e)[:120]}) - encoding on one")
+        return tower.encode(texts, bs=bs, deadline=deadline)
+    if len(towers) < 2:
+        return tower.encode(texts, bs=bs, deadline=deadline)
+    was = tower.model.training
+    tower.model.eval()
+    order = np.argsort([len(t) for t in texts])
+    starts = list(range(0, len(texts), bs))
+    out = [None]
+    lock = threading.Lock()
+    errors = []
+
+    def work(i):
+        try:
+            with torch.no_grad():
+                for s in starts[i::len(towers)]:
+                    if deadline is not None and time.time() > deadline:
+                        break
+                    ix = order[s:s + bs]
+                    z = F.normalize(towers[i].embed([texts[j] for j in ix], None, 1.0), dim=-1).cpu().numpy()
+                    with lock:
+                        if out[0] is None:
+                            out[0] = np.zeros((len(texts), z.shape[1]), np.float32)
+                    out[0][ix] = z
+        except BaseException as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(len(towers))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    tower.model.train(was)
+    del towers[1:]
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if errors:
+        raise errors[0]
+    if deadline is not None and time.time() > deadline:
+        log("      [tower] deadline reached while encoding - remaining queries left at zero")
+    return out[0] if out[0] is not None else np.zeros((len(texts), 1), np.float32)
 
 
 @torch.no_grad()
@@ -239,13 +307,16 @@ def fit_batch_size(tower, texts, bs, params, log=log):
 
 
 def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=16, lr=1e-4, tau=0.05, r=16,
-                     seed=0, eval_fn=None, eval_at=(0.33, 0.67, 1.0), ramp=0.5, warmup=50, shared_negs=True, deadline=None, log=log):
+                     seed=0, eval_fn=None, eval_at=(0.33, 0.67, 1.0), ramp=0.5, warmup=50, shared_negs=True, deadline=None, log=log,
+                     minutes=None, probe_steps=20):
     """Contrastive fine-tuning of the user tower.
 
     ``query_fn(hist) -> str``: history ids -> query text;  ``rows``: train_core ``(user, hist, pos, negs)``;
     ``E_doc``: frozen document vectors [n_news, d] (torch, on the device).  ``eval_fn(tower) -> float`` (higher is better,
     typically validation nDCG@10) is called at the fractions ``eval_at`` of training and may leave anything it computed
-    in ``tower.eval_payload``; the weights (and payload) of the best evaluation are restored/returned.  Returns ``info``."""
+    in ``tower.eval_payload``; the weights (and payload) of the best evaluation are restored/returned.  ``minutes``: train for that long
+    instead of exactly ``steps`` -- after ``probe_steps`` steps the step count is set to what fits (at most ``steps``) and the cosine
+    schedule and the evaluation points are laid over that count, so the run still ends with a fully decayed learning rate.  Returns ``info``."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     n_train = tower.attach_peft(kind, r)
@@ -253,8 +324,9 @@ def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=1
     named = tower.trainable()
     params = [p for _, p in named]
     opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
+    total = [steps]                                                   # the planned step count (shrinks once, when ``minutes`` is set)
     sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: min(1.0, (s + 1) / max(warmup, 1)) * 0.5 * (1 + math.cos(math.pi * min(s, steps) / steps)))
+        opt, lambda s: min(1.0, (s + 1) / max(warmup, 1)) * 0.5 * (1 + math.cos(math.pi * min(s, total[0]) / total[0])))
     scaler = torch.amp.GradScaler("cuda", enabled=tower.amp)
     usable = [i for i, rw in enumerate(rows) if len(rw[1])]
     order = rng.permutation(usable)
@@ -267,9 +339,13 @@ def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=1
     tot, nb, first, t0, done, losses, bad = 0.0, 0, None, time.time(), 0, [], 0
     dims = None
     tower.model.train()
+    deadline_hit = False
     for step in range(1, steps + 1):
+        if step > total[0]:
+            break
         if deadline is not None and time.time() > deadline:
-            log(f"      [tower] deadline reached at step {step - 1}/{steps}")
+            log(f"      [tower] deadline reached at step {step - 1}/{total[0]}")
+            deadline_hit = True
             break
         tower.lam = min(1.0, (step - 1) / max(ramp * steps, 1)) if tower.mode == "soft" else 1.0     # step 1 is exactly causal
         ix = order[(step - 1) * bs:step * bs]
@@ -293,8 +369,15 @@ def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=1
         tot += loss.item(); nb += 1; done = step
         losses.append(loss.item())
         first = losses[0]
+        if minutes and step == probe_steps and total[0] > probe_steps:
+            per = (time.time() - t0) / step                            # includes the first steps' warm-up: a slightly conservative estimate
+            fit = max(probe_steps + 1, min(total[0], int(minutes * 60.0 / max(per, 1e-6))))
+            total[0] = fit
+            marks = sorted({max(1, int(round(f * fit))) for f in eval_at})
+            log(f"      [tower] {per:.2f} s per step -> {fit} steps ({fit * bs:,} histories) fit in {minutes:.0f} min; cosine schedule over {fit} steps, "
+                f"evaluations at {marks}")
         if step % 50 == 0:
-            log(f"        step {step}/{steps} loss={tot / nb:.4f} lam={tower.lam:.2f} ({time.time() - t0:.0f}s)")
+            log(f"        step {step}/{total[0]} loss={tot / nb:.4f} lam={tower.lam:.2f} ({time.time() - t0:.0f}s)")
             tot, nb = 0.0, 0
         if eval_fn is not None and step in marks:
             tower.lam = 1.0
@@ -315,5 +398,6 @@ def train_user_tower(tower, query_fn, rows, E_doc, kind="lora", steps=1000, bs=1
                 p.copy_(best[1][n])
     tower.lam = 1.0
     tower.model.eval()
-    return {"best_step": best[2], "val": float(best[0]) if best[1] is not None else float("nan"), "steps": done, "trainable": n_train,
-            "first_loss": first, "train_s": time.time() - t0, "losses": losses, "payload": best[3]}
+    return {"best_step": best[2], "val": float(best[0]) if best[1] is not None else float("nan"), "steps": done, "planned_steps": int(total[0]),
+            "deadline_hit": deadline_hit, "trainable": n_train, "batch": int(bs), "first_loss": first, "train_s": time.time() - t0, "losses": losses,
+            "payload": best[3]}
