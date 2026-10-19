@@ -1,4 +1,4 @@
-"""Tests (63)-(67) of the v19 additions.  Called by ``selftest.main()``.
+"""Tests (63)-(68) of the v19 additions.  Called by ``selftest.main()``.
 
     (63)  --min-stack-s gates only the stack stage: with little budget left the supermodel still runs and the stacker is skipped (v18b lost both to
           --min-stage-s); the flag is not part of the saved state's signature
@@ -9,6 +9,10 @@
           'reader' that the supermodel and the stacker read; --llm-user-minutes is not part of the saved state's signature; H1 subset sizes (--hq-val-n /
           --hq-test-n)
     (67)  report_v18.gate_v18a(bests=...) compares with the given best-so-far numbers
+    (68)  fusion_only (v19c): the output of another notebook is found (a full run before a QUICK one), the arms are laid out with links (control without the
+          H5 tower, treatment with it and with the readers trained harder; the supermodel's loader sees the right run tags), a stage exporting into an arm
+          replaces the link and never touches the source, missing inputs build nothing, two notebooks' copies are compared file by file, and the seed table
+          (seed noise, per-seed effects, 2-seed means of the stackers' saved test scores)
 """
 from __future__ import annotations
 
@@ -180,9 +184,98 @@ def test_gate_bests():
     ok("(67) gate_v18a(bests=...): the verdicts come from the paired CI, 'above the best so far' from the given numbers (v19 uses 0.4373 / 0.4570 / 0.4731)")
 
 
+# ------------------------------------------------------------------------------------------------ (68)
+def test_fusion_inputs(tmp):
+    import fusion_only as FO
+    import selftest_v18 as T18
+    import supermodel as SM
+    root = os.path.join(tmp, "fusion_in")
+    shutil.rmtree(root, ignore_errors=True)
+    ptr = np.array([0, 3, 5, 9, 12, 14], np.int64)
+
+    def comp(d, name, seed):
+        rag = {"ids": np.arange(5), "ptr": ptr, "flat": np.random.default_rng(seed).random(14).astype(np.float32)}
+        common.save_scores(d, name, rag, rag, {"kind": "reader"})
+
+    kin = os.path.join(root, "kaggle_input")
+    A, Aq, B = (os.path.join(kin, s, r, "scores") for s, r in (("v19a-x", "results_v19a"), ("v19a-q", "results_v19a_quick"), ("v19b-x", "results_v19b")))
+    seeds = {"bge": 10, "cat": 20, "qwen3": 30}
+    for run, sd in seeds.items():
+        for i, nm in enumerate(("frozen", "um_frozen")):
+            comp(os.path.join(A, run), nm, sd + i)
+            comp(os.path.join(B, run), nm, sd + i)
+    comp(os.path.join(A, "catplus"), "um_knn_rag", 1)
+    comp(os.path.join(A, "bgeplus"), "um_knn_rag", 2)
+    comp(os.path.join(B, "qwen3"), "ut_causal", 5)
+    comp(os.path.join(Aq, "bge"), "frozen", 99)
+    comp(os.path.join(B, "cat"), "frozen", 77)                                       # one file of B's copy differs
+    assert FO.find_scores("a", [kin]) == os.path.normpath(A), "a full run's output comes before a QUICK one"
+    assert FO.find_scores("b", [kin]) == os.path.normpath(B) and FO.find_scores("c", [kin]) is None and FO.find_scores("a", [], override=Aq) == Aq
+    work = os.path.join(root, "work")
+    P = FO.prepare(work, A, B, arms=("ctrl_s0", "treat_s0", "ctrl_s1"))
+    assert not P["missing"] and P["tower"] == ["ut_causal"]
+    assert P["checks"]["bge"]["identical"] == 2 and P["checks"]["cat"]["differ"] == ["frozen"] and P["checks"]["qwen3"]["identical"] == 2
+    ctrl, treat = P["arms"]["ctrl_s0"], P["arms"]["treat_s0"]
+    assert FO.components(os.path.join(ctrl["work"], "scores")) == ["frozen", "um_frozen"], "the control has no H5 tower"
+    assert FO.components(os.path.join(treat["work"], "scores")) == ["frozen", "um_frozen", "ut_causal"]
+    assert [os.path.basename(d) for d in ctrl["super"]] == ["bge", "cat"] and [os.path.basename(d) for d in treat["super"]] == ["bge", "cat", "catplus", "bgeplus"]
+    sd_t = os.path.join(treat["work"], "scores")
+    assert os.path.basename(treat["work"]) == "qwen3" and all(os.path.islink(os.path.join(sd_t, f)) for f in os.listdir(sd_t))
+    keys = sorted(c.key for c in SM.load_components([treat["work"]] + treat["super"]))
+    assert keys == ["bge:frozen", "bge:um_frozen", "bgeplus:um_knn_rag", "cat:frozen", "cat:um_frozen", "catplus:um_knn_rag", "qwen3:frozen", "qwen3:um_frozen",
+                    "qwen3:ut_causal"], keys
+    src = os.path.join(B, "qwen3", "frozen.npz")
+    before = open(src, "rb").read()
+    comp(os.path.join(ctrl["work"], "scores"), "frozen", 1234)                       # the controls stage exports 'frozen' into the arm
+    assert not os.path.islink(os.path.join(ctrl["work"], "scores", "frozen.npz")) and open(src, "rb").read() == before
+    assert os.path.islink(os.path.join(sd_t, "frozen.npz")), "another arm keeps its link"
+    shutil.rmtree(os.path.join(A, "bgeplus"))
+    P2 = FO.prepare(os.path.join(root, "work2"), A, B)
+    assert P2["missing"] == ["v19a:bgeplus"] and not P2["arms"] and not os.path.exists(os.path.join(root, "work2")), "missing inputs build nothing"
+    comp(os.path.join(A, "bgeplus"), "um_knn_rag", 2)
+    os.remove(os.path.join(B, "qwen3", "ut_causal.npz"))
+    assert FO.prepare(os.path.join(root, "work3"), A, B)["missing"] == ["v19b:qwen3:ut_* (the H5 tower)"]
+    # the seed table over stand-ins: the seed noise, the per-seed effects and the 'above' flags
+    rng = np.random.default_rng(4)
+    base = rng.random(3000) * 0.8
+    c0, c1 = T18._fake_suite({"stack_meta": base, "stack_pop": base + 0.02}), T18._fake_suite({"stack_meta": base + 0.001, "stack_pop": base + 0.019})
+    t0, t1 = T18._fake_suite({"stack_meta": base + 0.01, "stack_pop": base + 0.03}), T18._fake_suite({"stack_meta": base + 0.011, "stack_pop": base + 0.031})
+    md_, out = FO.seed_table({"ctrl_s0": c0, "ctrl_s1": c1, "treat_s0": t0, "treat_s1": t1}, {}, bests={"stack_meta": 0.4570, "stack_pop": 0.4731})
+    assert abs(out["stack_meta"]["d_seed_ctrl"][0] - 0.001) < 1e-9 and abs(out["stack_pop"]["d_s1"][0] - 0.012) < 1e-9 and abs(out["stack_meta"]["d_s0"][0] - 0.01) < 1e-9
+    assert out["stack_meta"]["d_mean"] is None and "stack_llm" not in out and "at seed 0: yes, at seed 1: yes" in md_ and "best so far 0.4731" in md_
+    # 2-seed means of the stackers' saved test scores: the mean of the two files' scores, candidate by candidate
+    f0, f1 = os.path.join(root, "s0.npz"), os.path.join(root, "s1.npz")
+    a0, a1 = rng.random(14).astype(np.float32), rng.random(14).astype(np.float32)
+    np.savez_compressed(f0, test_ptr=ptr, stack_pop__test=a0)
+    np.savez_compressed(f1, test_ptr=ptr, stack_pop__test=a1)
+    seen = {}
+
+    class Eval:
+        device = "cpu"
+
+        def run(self, scorer, split):
+            b = {"rows": np.arange(5), "cand": np.zeros((5, 4))}
+            seen["scores"] = scorer(b).numpy()
+            return {"mean": {"ndcg@10": 0.5}}
+
+    assert FO.seed_mean(Eval(), [f0, f1], "stack_pop") == {"mean": {"ndcg@10": 0.5}}
+    want = (a0.astype(np.float64) + a1) / 2
+    assert np.allclose(seen["scores"][1, :2], want[3:5]) and seen["scores"][1, 2] == 0.0 and np.allclose(seen["scores"][3, :3], want[9:12])
+    assert FO.seed_mean(Eval(), [f0, os.path.join(root, "missing.npz")], "stack_pop") is None and FO.seed_mean(Eval(), [f0, f1], "stack_llm") is None
+    np.savez_compressed(f1, test_ptr=ptr + 1, stack_pop__test=a1)
+    try:
+        FO.seed_mean(Eval(), [f0, f1], "stack_pop")
+        raise AssertionError("different candidates must be refused")
+    except ValueError:
+        pass
+    ok("(68) fusion_only: inputs found (full before QUICK), arms laid out with links (control without the tower, treatment with it and with the readers trained "
+       "harder; supermodel run tags right), an export replaces the link not the source, missing inputs build nothing, copies compared, seed table and 2-seed means")
+
+
 def run_all(tmp, mind, enc_dir, dec_dir, cache_dir, run_args, texts):
     test_stack_gate(tmp, mind, enc_dir, cache_dir, run_args)
     test_time_boxed_training()
     test_encode_parallel(dec_dir, texts)
     test_h5_full_split(tmp, mind, dec_dir, cache_dir, run_args)
     test_gate_bests()
+    test_fusion_inputs(tmp)

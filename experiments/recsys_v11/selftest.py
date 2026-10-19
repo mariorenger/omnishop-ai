@@ -28,7 +28,8 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
      a few non-finite rows, --base-text (own vectors on 'cta', composites served from the cache), --rerun of the supermodel and the stacker after new components, the
      reader 'sca', the decaying learning rate / improvement threshold of the readers, the control-vs-treatment table and gates of v18a.
   13. v19 (``selftest_v19.py``): --min-stack-s gates only the stacker, H5 trained for a number of minutes (cosine schedule over the steps that fit), the tower
-     encoded over several devices == one device, H5 scored on the whole split and exported as a reader (supermodel + stacker), H1 subset sizes, gate bests.
+     encoded over several devices == one device, H5 scored on the whole split and exported as a reader (supermodel + stacker), H1 subset sizes, gate bests;
+     the fusion-only inputs of v19c (other notebooks' scores linked as run directories, control without the tower) and its seed table.
 
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """

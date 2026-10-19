@@ -112,11 +112,11 @@ def gate_v18a(ctrl, treat, path=None, title="v18a gates (written before the run;
     return md, gates
 
 
-def vs_v16b_table(rows, path=None, title="v18b vs v16b (another run on the same test split; no paired CI, training noise not included)"):
-    """v18b: ``rows`` = [(label, suite, row name, v16b key)] -> table of the measured number next to v16b's and their difference."""
-    lines = [f"# {title}", "", "| row | v18b nDCG@10 | v16b nDCG@10 | difference | AUC | per seed |", "|---|---|---|---|---|---|"]
+def vs_v16b_table(rows, path=None, title="v18b vs v16b (another run on the same test split; no paired CI, training noise not included)", label="v18b"):
+    """``rows`` = [(label, suite, row name, v16b key)] -> table of the measured number next to v16b's and their difference (``label``: the column of this run)."""
+    lines = [f"# {title}", "", f"| row | {label} nDCG@10 | v16b nDCG@10 | difference | AUC | per seed |", "|---|---|---|---|---|---|"]
     out = []
-    for label, s, name, key in rows:
+    for name_, s, name, key in rows:
         v = row_val(s, name)
         if v is None:
             continue
@@ -126,10 +126,11 @@ def vs_v16b_table(rows, path=None, title="v18b vs v16b (another run on the same 
         except Exception:
             seeds = []
         auc = row_val(s, name, "auc")
-        out.append({"row": label, "v18b": v, "v16b": ref, "diff": None if ref is None else v - ref})
-        lines.append(f"| `{label}` | {v:.4f} | {_f(ref)} | {'-' if ref is None else f'{v - ref:+.4f}'} | {_f(auc)} | {', '.join(f'{x:.4f}' for x in seeds) or '-'} |")
-    lines += ["", f"Best so far: offline {BEST_OFFLINE:.4f} (v16b stack_meta_v15cfg; the pre-registered stack_meta was {V16B['stack_meta']:.4f}), online {BEST_ONLINE:.4f} (stack_pop), "
-              f"content only {BEST_CONTENT:.4f} (super_llm).  A difference to another run below ~0.003 (fused rows) or ~0.005 (a reader, two seeds) is within run-to-run noise."]
+        out.append({"row": name_, "v18b": v, "v16b": ref, "diff": None if ref is None else v - ref})
+        lines.append(f"| `{name_}` | {v:.4f} | {_f(ref)} | {'-' if ref is None else f'{v - ref:+.4f}'} | {_f(auc)} | {', '.join(f'{x:.4f}' for x in seeds) or '-'} |")
+    lines += ["", f"v16b's best numbers: offline {BEST_OFFLINE:.4f} (stack_meta_v15cfg; the pre-registered stack_meta was {V16B['stack_meta']:.4f}), online {BEST_ONLINE:.4f} (stack_pop), "
+              f"content only {BEST_CONTENT:.4f} (super_llm); later runs: {', '.join(f'{k} {v:.4f}' for k, v in globals().get('BEST_V19', BEST_V18).items())}.  "
+              "A difference to another run below ~0.003 (fused rows) or ~0.005 (a reader, two seeds) is within run-to-run noise."]
     md = "\n".join(lines)
     if path:
         with open(path, "w", encoding="utf-8") as f:
