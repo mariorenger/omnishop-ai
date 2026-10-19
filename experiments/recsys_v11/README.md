@@ -25,6 +25,8 @@ Bộ đo của V11 thì đúng (khớp `metrics.py`, khớp `bge_zeroshot` của
 
 **Mã mới:** `--base-text`, `--enc-dtype`, `--rerun` (suite.py); `adapt.params_b / resolve_dtype / keep_fp32_residual / encode_multi / embed_batch` (batch hết bộ nhớ GPU thì chia đôi); `fields.embed_texts` dùng mọi GPU thấy được và mã hoá lại trên CPU fp32 vài hàng không hữu hạn; reader `sca` và `--um-lr-decay / --um-decay-after / --um-min-delta` (usermodel.py); `report_v18.py` (bảng đối chứng / thí nghiệm, cổng, bảng so với v16b, bảng epoch); `make_notebook_v18.py`; test (55)–(62) ở `selftest_v18.py`. Mặc định của mọi tham số mới giữ nguyên công thức v16b.
 
+**Kết quả v18b (đo thật, `RESULTS_v18b_large.md`; 5,13 giờ trên 2 × T4):** reader `catplus:um_knn_rag` **0,4316** so với 0,4226 của v16b (+0,0090; cả hai seed cao hơn cả hai seed cũ; các hàng công thức v16b trong cùng lần chạy trùng v16b đến 4 chữ số); `um_frozen` 0,4251 (+0,0028); `sca` − `ca` −0,0005 [−0,0009, −0,0001] (không hơn). **Supermodel và stacker không chạy** (hết ngân sách: reader `catplus` mất 2,3 giờ vì có 2,71 triệu mẫu, và ngưỡng thời gian của stacker chặn cả supermodel), nên mức hệ thống của v18b **chưa đo**.
+
 **Dự đoán ghi trước (chủ quan):** v18a — reader `cat4` hơn `cat` ~60%; G1 PASS ~55%; G2 PASS ~25% (v16b: nội dung lên stacker rất ít); G3 PASS ~20%. v18b — reader `catplus` hơn số v16b ≥ 0,005 ~50%; `sca` hơn `ca` ~35%; `stack_meta` hơn 0,4543 ~20%.
 
 **Chưa đo trước khi chạy:** thời gian mã hoá 104 k bài bằng 4B trên 2 T4 (ước 0,8–1,3 giờ), RAM của run nối 3 584 chiều và của stacker có thêm ~11 cột, độ ổn định fp16 của 4B (có đường dự phòng: hàng không hữu hạn được mã hoá lại trên CPU).
