@@ -30,6 +30,9 @@ reader profiles, LLM judge, paired CIs, exports, resume, wall-clock budget) and 
   13. v19 (``selftest_v19.py``): --min-stack-s gates only the stacker, H5 trained for a number of minutes (cosine schedule over the steps that fit), the tower
      encoded over several devices == one device, H5 scored on the whole split and exported as a reader (supermodel + stacker), H1 subset sizes, gate bests;
      the fusion-only inputs of v19c (other notebooks' scores linked as run directories, control without the tower) and its seed table.
+  14. v20 (``selftest_v20.py``): generation split over devices == one generator, H6 on every article (kar_full) and readers on the augmented
+     vectors (--news-emb), Semantic IDs scored per code level (== v7's score when summed) with the shuffled-history control, H1 + learned heads
+     (identity at step 0), the v20c inputs (control = v19c's treatment, only the new rows of the v20 runs).
 
     python selftest.py            # ~12 min on an idle 4-core CPU (about 30 min when the machine is shared)
 """
@@ -71,6 +74,7 @@ import selftest_v16 as T16
 import selftest_v17 as T17
 import selftest_v18 as T18
 import selftest_v19 as T19
+import selftest_v20 as T20
 
 
 def build_fixture(root, seed=0, n_users=120, T=6):
@@ -1190,6 +1194,9 @@ def main():
 
     # ---------------- v19: the stack-only time gate, time-boxed H5 training, the tower encoded over several devices, H5 on the whole split as a reader
     T19.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1], texts)
+
+    # ---------------- v20: H6 on every article (generation over devices), readers on augmented vectors, SID per level, H1 + learned heads, v20c inputs
+    T20.run_all(tmp, mind, enc_dir, dec_dir, cache_a, RUN_A[:-1], texts)
 
     # ---------------- run B (decoder-only LLM encoder + generative LLM): H5 / H6 / H9 / H4b / learned user model
     outB = os.path.join(tmp, "outB")

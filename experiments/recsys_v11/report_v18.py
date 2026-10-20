@@ -26,6 +26,9 @@ BEST_ONLINE = V16B["stack_pop"]                                            # 0.4
 BEST_CONTENT = V16B["super_llm"]                                           # 0.4373: content + history only
 BEST_V18 = {"super_llm": 0.4373, "stack_meta": 0.4570, "stack_pop": 0.4731}  # after v18a (RESULTS_v18a_large.md): offline best is stack_meta_v15cfg 0.4570
 BEST_V19 = {"super_llm": 0.4380, "stack_meta": 0.4570, "stack_pop": 0.4731}  # after v19a / v19b (RESULTS_v19a_large.md): content only 0.4380 (v19a treatment)
+# the treatment of v19c (RESULTS_v19c_large.md, stacker seed 0) = the system that v20c's control must reproduce
+V19C_TREAT = {"super_base": 0.4260, "super_zs": 0.4373, "super_llm": 0.4380, "stack_llm": 0.4358, "stack_meta": 0.4531, "stack_meta_v15cfg": 0.4562,
+              "super_llm+pop": 0.4634, "stack_pop": 0.4731}
 FUSED = ("super_base", "super_zs", "super_llm", "stack_llm", "stack_meta", "stack_meta_v15cfg", "super_llm+pop", "stack_pop")
 
 
@@ -113,15 +116,18 @@ def gate_v18a(ctrl, treat, path=None, title="v18a gates (written before the run;
     return md, gates
 
 
-def vs_v16b_table(rows, path=None, title="v18b vs v16b (another run on the same test split; no paired CI, training noise not included)", label="v18b"):
-    """``rows`` = [(label, suite, row name, v16b key)] -> table of the measured number next to v16b's and their difference (``label``: the column of this run)."""
-    lines = [f"# {title}", "", f"| row | {label} nDCG@10 | v16b nDCG@10 | difference | AUC | per seed |", "|---|---|---|---|---|---|"]
+def vs_v16b_table(rows, path=None, title="v18b vs v16b (another run on the same test split; no paired CI, training noise not included)", label="v18b",
+                  ref_numbers=None, ref_label="v16b"):
+    """``rows`` = [(label, suite, row name, v16b key)] -> table of the measured number next to v16b's (or ``ref_numbers``, called ``ref_label``) and their
+    difference (``label``: the column of this run)."""
+    refs = V16B if ref_numbers is None else ref_numbers
+    lines = [f"# {title}", "", f"| row | {label} nDCG@10 | {ref_label} nDCG@10 | difference | AUC | per seed |", "|---|---|---|---|---|---|"]
     out = []
     for name_, s, name, key in rows:
         v = row_val(s, name)
         if v is None:
             continue
-        ref = V16B.get(key)
+        ref = refs.get(key)
         try:
             seeds = s.row(name).get("ndcg10_per_seed") or []
         except Exception:

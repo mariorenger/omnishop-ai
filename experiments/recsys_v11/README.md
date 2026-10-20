@@ -13,6 +13,10 @@ Bộ đo của V11 thì đúng (khớp `metrics.py`, khớp `bge_zeroshot` của
 > ⚠️ **Trạng thái trung thực.** Code được kiểm thử trên CPU với dữ liệu đúng định dạng MIND và các mô hình ngẫu nhiên tí hon; sandbox phát triển không có GPU/MIND/weight.
 > Các con số trên MIND thật (và thời gian) đến từ **các lần chạy Kaggle của bạn** (v4 đầy đủ trên Tesla T4: 3,2 giờ); README không chép lại kết quả — xem `results.md`, `leaderboard*.md`, `direct_comparisons.md` của lần chạy.
 
+## 0g. v20: các hướng LLM-text ở quy mô đủ, ghép vào hệ tốt nhất
+
+**v20a** (`v20a_mindlarge_kar.ipynb`, stage `kar_full`): Qwen3-1,7B viết mở rộng cho **mọi** bài (chia 2 GPU, `stages_v20.generate_parallel`), nhúng và cộng vào vector bài; hàng `kar_item` / `kar_item_lse` / `kar_exp` trên toàn bộ test; reader học trên vector đã mở rộng (`qwen3kar`, và `catkarplus` = (Qwen3 + KAR) ⊕ BGE-large theo công thức của `catplus`). **v20b** (`v20b_mindlarge_sid_histq.ipynb`): SID v2 (stage `sid2`: mã từ vector `cta`, điểm theo từng tầng mã chọn trên validation, đối chứng lịch sử xáo trộn) và `histq_mlp` (H1 + đầu MLP residual học như reader; bước 0 = H1). **v20c** (`v20c_mindlarge_fusion.ipynb`): chỉ ghép; đối chứng = thí nghiệm của v19c (hệ tốt nhất), thí nghiệm = + mọi thành phần v20 (`fusion_only.prepare_v20`; thành phần v20 tới qua dataset riêng tư gồm file phẳng `<a|b>__<run>__<thành phần>.npz`), quy tắc chọn theo validation không trọng số được đăng ký trước như quy tắc phụ, bảng so sánh từng thành phần (`component_table`). Test (69)–(72) ở `selftest_v20.py`; mô phỏng "Run All" của cả ba notebook chạy hết.
+
 ## 0f. v19: reader huấn luyện kỹ hơn vào hệ thống (v19a) và H5 — tháp người dùng LLM đọc lịch sử dạng văn bản (v19b)
 
 **Vì sao:** v18b cho reader tốt nhất +0,0090 (0,4226 → 0,4316) nhưng supermodel và stacker không chạy; v18a cho thấy encoder LLM lớn hơn không giúp reader. Hướng LLM "đọc văn bản" có lý do mạnh nhất để thử lại trên MIND-large là **H5** (v14: 800 bước ≈ `pool_lse`, validation còn tăng).

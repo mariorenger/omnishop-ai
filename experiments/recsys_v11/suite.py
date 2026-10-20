@@ -42,6 +42,7 @@ import rep_eval as R
 import semgraph as G
 import stages_ext as X
 import stages_ref as SR
+import stages_v20 as V20
 import stacker as ST
 import supermodel as SM
 from common import HistQueries, avg_results, fuse, log, query_prefix  # noqa: F401  (re-exported for callers)
@@ -516,7 +517,7 @@ def stage_histquery(S, args):
 STAGES = {"controls": stage_controls, "pooling": X.stage_pooling, "moredata": X.stage_moredata, "graph": stage_graph, "head": stage_head,
           "histquery": stage_histquery, "sid": X.stage_sid, "encoder": stage_encoder, "llm_user": X.stage_llm_user,
           "usermodel": X.stage_usermodel, "sweep": X.stage_sweep, "graphrag_llm": X.stage_graphrag_llm,
-          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, "stack": ST.stage_stack, "finetune": FT.stage_finetune, **SR.STAGES}
+          "augment": X.stage_augment, "rerank": X.stage_rerank, "supermodel": SM.stage_supermodel, "stack": ST.stage_stack, "finetune": FT.stage_finetune, **SR.STAGES, **V20.STAGES}
 
 
 # --------------------------------------------------------------------- output
@@ -931,6 +932,7 @@ def build_parser():
     ap.add_argument("--rerank-test-n", type=int, default=2000)
     ap.add_argument("--rerank-minutes", type=float, default=35.0)
     ap.add_argument("--rerank-ws", type=float, nargs="+", default=[0.5, 1.0, 2.0])
+    V20.add_args(ap)                                       # v20: kar_full, sid2, histq_mlp
     return ap
 
 

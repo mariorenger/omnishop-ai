@@ -132,6 +132,61 @@ def prepare(work, a_root, b_root, arms=("ctrl_s0", "treat_s0"), tower_prefix="ut
     return out
 
 
+# ----------------------------------------------------------------------------------------------- v20c
+NEW_INCLUDE = {"kar": ("kar_",), "sidq": ("sid_", "histq_")}   # v20 runs that repeat the main encoder: only their new rows join the fusion
+
+
+def find_scores_v20(tag, roots=("/kaggle/input",), override=None):
+    """``results_v20<tag>[_quick]/scores`` (see ``find_scores``)."""
+    if override:
+        return override if os.path.isdir(override) else None
+    hits = set()
+    for r in roots:
+        if r and os.path.isdir(r):
+            hits.update(os.path.normpath(h) for h in glob.glob(os.path.join(r, "**", f"results_v20{tag}*", "scores"), recursive=True) if os.path.isdir(h))
+    return sorted(hits, key=lambda h: ("_quick" in h, len(h), h))[0] if hits else None
+
+
+def prepare_v20(work, a_root, b_root, new_roots, arms=("ctrl_s0", "treat_s0"), include=None):
+    """v20c: the CONTROL is v19c's treatment -- the main run of v19b with the H5 tower + v19a's bge, cat, catplus, bgeplus -- and the TREATMENT adds every run
+    found under ``new_roots`` (the v20 notebooks' score folders).  A new run that repeats the main encoder (``include``: tag -> name prefixes) brings only
+    those rows; any other new run brings everything but its plain mean-pool row 'frozen'.  -> like ``prepare`` (``new``: {tag: [components]})."""
+    include = NEW_INCLUDE if include is None else include
+    A, B = runs_in(a_root), runs_in(b_root)
+    missing = [f"v19a:{t}" for t in CONTROL_RUNS + NEW_READERS if t not in A] + ([] if MAIN in B else [f"v19b:{MAIN}"])
+    new = {}
+    for root in new_roots:
+        found = runs_in(root)
+        if not found:
+            missing.append(f"v20:{root}")
+        for t, d in found.items():
+            if t in new or t in A or t == MAIN:
+                missing.append(f"v20:{t} (a run tag used twice)")
+            new[t] = d
+    out = {"a": a_root, "b": b_root, "new_roots": list(new_roots), "missing": missing, "tower": [], "checks": {}, "arms": {}, "new": {}}
+    if missing:
+        return out
+    out["tower"] = [nm for nm in components(B[MAIN]) if nm.startswith("ut_")]
+    for t in CONTROL_RUNS + (MAIN,):
+        if t in A and t in B:
+            out["checks"][t] = same_scores(A[t], B[t])
+    runs = os.path.join(work, "runs")
+    for t in CONTROL_RUNS + NEW_READERS:
+        link_run(A[t], os.path.join(runs, t))
+    for t, d in new.items():
+        pre = include.get(t)
+        drop = ["frozen"] if pre is None else [nm for nm in components(d) if not nm.startswith(pre)]
+        out["new"][t] = link_run(d, os.path.join(runs, t), exclude=tuple(drop))
+    super_ctrl = [os.path.join(runs, t) for t in CONTROL_RUNS + NEW_READERS]           # the order of v19c's treatment
+    super_treat = super_ctrl + [os.path.join(runs, t) for t in new]
+    for arm in arms:
+        treat = arm.startswith("treat")
+        d = os.path.join(work, arm, MAIN)
+        names = link_run(B[MAIN], d)
+        out["arms"][arm] = {"work": d, "super": super_treat if treat else super_ctrl, "components": len(names), "treat": treat}
+    return out
+
+
 # ----------------------------------------------------------------------------------------------- reports
 def _f(x):
     return "-" if x is None else f"{x:.4f}"
@@ -183,7 +238,7 @@ def seed_table(arms, files, S_eval=None, path=None, bests=None, rows=STACK_ROWS)
     -> (markdown, {row: {...}})."""
     c0, c1, t0, t1 = (arms.get(k) for k in ("ctrl_s0", "ctrl_s1", "treat_s0", "treat_s1"))
     bests = bests or {}
-    lines = ["# v19c: the stacker trained with two seeds (row and column subsampling 0.7 / 0.7)", "",
+    lines = ["# The stacker trained with two seeds (row and column subsampling 0.7 / 0.7)", "",
              "| row | control s0 | control s1 | Δ control s1 - s0 [95% CI] (seed noise) | treatment s0 | treatment s1 | Δ treatment - control, s0 | Δ treatment - control, s1 "
              "| control 2-seed mean | treatment 2-seed mean | Δ treatment - control, 2-seed means |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     out = {}
@@ -276,14 +331,15 @@ def stack_table(S, path=None, title="Stacker of the treatment: features and what
     return md
 
 
-def explore_table(arms, path=None, rows=SUPER_ROWS):
+def explore_table(arms, path=None, rows=SUPER_ROWS, header=None):
     """The supermodel rows with the base and weights chosen on the cold-weighted validation (``ctrl_s0`` / ``treat_s0``, the pre-registered rule) next to the
     same rows chosen on the plain validation (``ctrl_cw0`` / ``treat_cw0``), with the paired differences.  EXPLORATORY: the plain rule was picked after
     v19a's test result, so a gain here is a lead for a pre-registered run, not a result.  -> (markdown, {row: {...}})."""
     c0, t0, cp, tp = (arms.get(k) for k in ("ctrl_s0", "treat_s0", "ctrl_cw0", "treat_cw0"))
-    lines = ["# v19c, EXPLORATORY: supermodel chosen on the plain validation mean (--cold-target 0) instead of the cold-weighted one", "",
-             "The rule was picked AFTER v19a's test result (the cold-weighted validation ranked the readers trained harder below the old ones, the test above), "
-             "so these rows are a lead for a pre-registered run, not a result.", ""]
+    lines = header or ["# v19c, EXPLORATORY: supermodel chosen on the plain validation mean (--cold-target 0) instead of the cold-weighted one", "",
+                       "The rule was picked AFTER v19a's test result (the cold-weighted validation ranked the readers trained harder below the old ones, the test above), "
+                       "so these rows are a lead for a pre-registered run, not a result.", ""]
+    lines = list(lines)
     bases = []
     for lab, s in (("control, cold-weighted", c0), ("treatment, cold-weighted", t0), ("control, plain", cp), ("treatment, plain", tp)):
         st = (getattr(s, "kv", None) or {}).get("supermodel") if s is not None else None
@@ -307,3 +363,61 @@ def explore_table(arms, path=None, rows=SUPER_ROWS):
         with open(path, "w", encoding="utf-8") as f:
             f.write(md + "\n")
     return md, out
+
+
+def component_table(S_eval, pairs, path=None, title="v20c: the new components against the ones they should beat, on the whole test day (paired)"):
+    """Paired comparisons between COMPONENTS (their saved test scores replayed through the evaluator): ``pairs = [((run_dir, name), (run_dir, name)), ...]``.
+    ``S_eval``: a run whose data are still loaded.  Components that are missing or cover a subset only are reported as such.  -> (markdown, rows)."""
+    cache, rows = {}, []
+
+    def res(d, nm):
+        k = (d, nm)
+        if k not in cache:
+            p = os.path.join(d, "scores", nm + ".npz") if os.path.isdir(os.path.join(d, "scores")) else os.path.join(d, nm + ".npz")
+            if not os.path.exists(p):
+                cache[k] = None
+            else:
+                z = common.load_scores(p)["test"]
+                n = len(S_eval.data.test)
+                cache[k] = S_eval.run(common.ragged_scorer(z, np.arange(n), S_eval.device), "test") if len(z["ids"]) == n else None
+        return cache[k]
+    lines = [f"# {title}", "", "| A | B | A nDCG@10 | B nDCG@10 | Δ nDCG@10 (A-B) [95% CI] | Δ AUC [95% CI] | Δ cold AUC [95% CI] |", "|---|---|---|---|---|---|---|"]
+    for (da, na), (db, nb) in pairs:
+        ra, rb = res(da, na), res(db, nb)
+        la, lb = f"{os.path.basename(da.rstrip('/'))}:{na}", f"{os.path.basename(db.rstrip('/'))}:{nb}"
+        if ra is None or rb is None:
+            lines.append(f"| {la} | {lb} | {'missing' if ra is None else _f(ra['mean']['ndcg@10'])} | {'missing' if rb is None else _f(rb['mean']['ndcg@10'])} | - | - | - |")
+            continue
+        d, da_, dc = R.compare(ra, rb, "ndcg@10"), R.compare(ra, rb, "auc"), R.compare_slice(ra, rb, "cold")
+        rows.append({"a": la, "b": lb, "a_ndcg": ra["mean"]["ndcg@10"], "b_ndcg": rb["mean"]["ndcg@10"], "d": [float(x) for x in d]})
+        lines.append(f"| {la} | {lb} | {_f(ra['mean']['ndcg@10'])} | {_f(rb['mean']['ndcg@10'])} | {_ci(d)} | {_ci(da_)} | {_ci(dc)} |")
+    md = "\n".join(lines) + "\n\nThe CI is paired over the test impressions (sampling noise of the test day only); trained components carry 0.001-0.007 of seed noise on top.\n"
+    if path:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(md)
+    return md, rows
+
+
+def unflatten_inputs(src, dst_root, sep="__"):
+    """A private Kaggle dataset carries the v20 components as flat files ``<tag>__<run>__<component>.npz`` (``tag`` = a / b).  Lay them out as the folders the
+    notebooks wrote (``dst_root/results_v20<tag>/scores/<run>/<component>.npz``, symbolic links) -> ``{tag: scores folder}``."""
+    out = {}
+    if not src or not os.path.isdir(src):
+        return out
+    for dirpath, _, files in os.walk(src):
+        for fn in sorted(files):
+            if not _is_comp(fn) or fn.count(sep) < 2:
+                continue
+            tag, run, comp = fn[:-4].split(sep, 2)
+            d = os.path.join(dst_root, f"results_v20{tag}", "scores", run)
+            os.makedirs(d, exist_ok=True)
+            dst = os.path.join(d, comp + ".npz")
+            if os.path.lexists(dst):
+                os.remove(dst)
+            os.symlink(os.path.abspath(os.path.join(dirpath, fn)), dst)
+            out[tag] = os.path.join(dst_root, f"results_v20{tag}", "scores")
+    return out
+
+
+def flatten_name(tag, run, comp, sep="__"):
+    return f"{tag}{sep}{run}{sep}{comp}.npz"

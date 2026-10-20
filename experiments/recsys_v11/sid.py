@@ -283,3 +283,76 @@ def sid_scorer(model, codes, n_max=30, pmi=False, rows_budget=2048, device="cpu"
             out[sl] = lp
         return out - base[b["cand"]] if pmi else out
     return f
+
+
+# ------------------------------------------------------------- v20: scores per code level
+@torch.no_grad()
+def history_free_level_logprob(model, codes_t, n_items, bs=4096):
+    """log P(code_l(article) | empty history, codes < l) for every article and level -> [n, L] (``history_free_logprob`` is its row sum)."""
+    L, K, dev = model.L, model.K, codes_t.device
+    out = torch.zeros(n_items, L, device=dev)
+    for s in range(0, n_items, bs):
+        c = codes_t[s:s + bs]
+        seq = torch.cat([torch.full((len(c), 1), model.BOS, device=dev), c + torch.arange(L, device=dev) * K], 1)
+        out[s:s + bs] = model.code_logprob(model(seq[:, :-1]).float(), seq[:, 1:])
+    return out
+
+
+@torch.no_grad()
+def sid_level_scorer(model, codes, n_max=30, rows_budget=2048, device="cpu", shuffle=False):
+    """Like ``sid_scorer`` but keeps the log-probability of every code level apart: ``f(batch) -> [B, C, L]``.  Summing the levels is v7's score; a coarse
+    prefix (level 1 = the topic cluster) is the part that can generalise to the cold articles, whose fine codes the model never saw clicked.
+    ``shuffle``: every row reads the history of the next row of its batch (a control: a model that uses the history must lose accuracy)."""
+    L, K = model.L, model.K
+    codes_t = torch.from_numpy(codes).to(device)
+    amp = str(device).startswith("cuda")
+
+    @torch.no_grad()
+    def f(b):
+        model.eval()
+        B, C = b["cand"].shape
+        hist, mask = b["hist"], b["hist_mask"]
+        if shuffle and B > 1:
+            hist, mask = torch.roll(hist, 1, 0), torch.roll(mask, 1, 0)
+        items, valid = right_align(hist, mask, n_max)
+        out = torch.empty(B, C, L, device=device)
+        step = max(1, rows_budget // C)
+        for s in range(0, B, step):
+            sl = slice(s, s + step)
+            n = items[sl].shape[0]
+            ht = with_bos(item_tokens(codes_t, items[sl], valid[sl], K, L), valid[sl], L, model.BOS, model.PAD)
+            ct = codes_t[b["cand"][sl]] + torch.arange(L, device=device) * K
+            seq = torch.cat([ht[:, None, :].expand(n, C, ht.shape[1]), ct], -1).view(n * C, -1)
+            with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
+                logits = model(seq[:, :-1], last_n=L)
+            out[sl] = model.code_logprob(logits.float(), seq[:, -L:]).view(n, C, L)
+        return out
+    return f
+
+
+class LevelCache:
+    """Per-level scores of every impression of an EvalSet, computed once (``f(batch) -> [B, C, L]``); ``scorer(levels, base)`` sums the chosen levels and
+    subtracts the history-free per-level log-probabilities ``base`` [n_news, L] of the same levels (PMI) when given."""
+
+    def __init__(self, evalset, level_fn):
+        self.rows = [None] * evalset.n
+        for b in evalset:
+            s = level_fn(b).float().cpu().numpy()
+            cm = b["cand_mask"].cpu().numpy()
+            for k, r in enumerate(b["rows"]):
+                self.rows[r] = s[k, :int(cm[k].sum())].copy()
+
+    def scorer(self, levels, device, base=None):
+        lv = [l - 1 for l in levels]
+
+        def f(b):
+            C = b["cand"].shape[1]
+            out = np.zeros((len(b["rows"]), C), np.float32)
+            for k, r in enumerate(b["rows"]):
+                v = self.rows[r][:, lv].sum(1)
+                out[k, :len(v)] = v
+            out = torch.from_numpy(out).to(device)
+            if base is not None:
+                out = out - base[b["cand"]][:, :, lv].sum(-1)
+            return out
+        return f
