@@ -106,7 +106,7 @@
 \newcommand{\PART}{\nhan{partc}{CÓ ĐIỀU KIỆN}}
 \newcommand{\FAIL}{\nhan{failc}{KHÔNG HIỆU QUẢ}}
 \newcommand{\NA}{\nhan{nac}{CHƯA ĐO}}
-\newcommand{\ychinh}[1]{\par\vspace{4pt}\noindent{\setlength{\fboxsep}{4pt}\fcolorbox{keyc}{softc}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{\scriptsize\textbf{\color{keyc}Ý chính.} #1}}}\par}
+\newcommand{\ychinh}[1]{}
 \newcommand{\ghichu}[1]{\par\vspace{2pt}{\tiny\color{nac}#1\par}}
 \newcommand{\code}[1]{\texttt{#1}}
 \newcommand{\effbar}[4]{\fill[#3] (0,#1-0.34) rectangle (#2,#1+0.34);\node[anchor=east,align=right] at (\lx,#1) {#4};}
@@ -114,7 +114,7 @@
 \newcommand{\hop}[3]{\fcolorbox{#1}{#1!5}{\parbox[t][#2][t]{\dimexpr0.5\linewidth-2\fboxsep-2\fboxrule-3pt\relax}{#3}}}
 
 \title[LLMRec]{Gợi ý tin tức sử dụng các kỹ thuật LLM}
-\subtitle{Mười hai hướng LLM trên dữ liệu MIND: hướng nào hiệu quả, hướng nào không}
+\subtitle{Mười hai hướng tiếp cận LLM trên dữ liệu MIND: hướng nào hiệu quả, hướng nào không}
 \author[N.\,N. Hán, N.\,P. Nguyên, L.\,V. Đức]{\texorpdfstring{%
     \begin{tabular}{rl}
         \textbf{Người thực hiện:} & Nguyễn Nam Hán -- 20252095M \\
@@ -142,22 +142,22 @@
 \begin{enumerate}
   \setlength{\itemsep}{0.5em}
   \item Bài toán, dữ liệu và câu hỏi nghiên cứu
-  \item Cách tiếp cận: quy trình 4 bước, 12 họ giả thuyết, giao thức đánh giá
+  \item Cách tiếp cận: quy trình 4 bước, 12 nhóm giả thuyết, giao thức đánh giá
   \item Bức tranh tổng thể: hướng nào thành công, hướng nào không
-  \item Chẩn đoán điểm nghẽn: bộ mã hóa hay tầng tổng hợp lịch sử
+  \item Chẩn đoán điểm nghẽn: bộ mã hóa (encoder) hay tầng tổng hợp lịch sử
 \end{enumerate}
 \column{0.5\textwidth}
 \begin{enumerate}
   \setcounter{enumi}{4}
   \setlength{\itemsep}{0.5em}
-  \item Các hướng thành công và vì sao
-  \item Các hướng không thành công và vì sao
-  \item Từ thành phần đến hệ thống: hợp nhất, GBDT, rò rỉ thời gian
-  \item Kết quả, so sánh với công bố, giới hạn và kết luận
+  \item Các hướng thành công và nguyên nhân
+  \item Các hướng không thành công và nguyên nhân
+  \item Từ thành phần đến hệ thống: kết hợp tuyến tính, GBDT, rò rỉ thời gian
+  \item Kết quả, so sánh với các công bố, giới hạn và kết luận
 \end{enumerate}
 \end{columns}
 \vspace{0.6cm}
-{\footnotesize\color{nac} Phụ lục: thuật ngữ \textperiodcentered{} câu hỏi có thể gặp \textperiodcentered{} các lần chạy và nguồn số liệu \textperiodcentered{} tài liệu tham khảo}
+{\footnotesize\color{nac} Phụ lục: thuật ngữ \textperiodcentered{} câu hỏi thường gặp \textperiodcentered{} các lần chạy và nguồn số liệu \textperiodcentered{} tài liệu tham khảo}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bài trình bày đi theo đúng trình tự nghiên cứu: đặt bài toán, thử các hướng, xem hướng nào đứng vững, chẩn đoán vì sao, rồi ghép các hướng đứng vững thành hệ thống cuối. Phần 3 là phần quan trọng nhất: một bảng cho biết mỗi hướng H1--H12 thành công hay thất bại.}
 \end{frame}
@@ -166,19 +166,19 @@
 \begin{frame}[shrink]{Tóm tắt trong một trang}
 \hop{keyc}{2.45cm}{{\footnotesize\bfseries\color{keyc}Bài toán}\par\vspace{2pt}\scriptsize
 Dự đoán độc giả sẽ click bài nào trong danh sách ứng viên, dựa trên lịch sử đọc (bộ dữ liệu MIND của Microsoft).
-Khó nhất: \textbf{82.25\%} click ở tập test rơi vào \textbf{bài mới} chưa từng xuất hiện khi huấn luyện, nên phải hiểu nội dung bài thay vì nhớ ID.}\hfill
+Thách thức lớn nhất: \textbf{82.25\%} click ở tập test rơi vào \textbf{bài mới} chưa từng xuất hiện khi huấn luyện, nên mô hình phải hiểu nội dung bài thay vì nhớ ID.}\hfill
 \hop{accentc}{2.45cm}{{\footnotesize\bfseries\color{accentc}Cách làm}\par\vspace{2pt}\scriptsize
-Mã hóa văn bản bài báo bằng LLM / encoder \textbf{giữ cố định trọng số}. Thử \textbf{12 họ kỹ thuật LLM 2024--2026} (H1--H12) và nhóm dữ liệu đầu vào (F):
-sàng lọc trên MIND-small, xác nhận trên MIND-large. Mọi so sánh đều ghép cặp, có khoảng tin cậy, chia dữ liệu theo thời gian.}
+Mã hóa văn bản bài báo bằng LLM / encoder \textbf{đóng băng trọng số (frozen)}. Thử nghiệm \textbf{12 nhóm kỹ thuật LLM 2024--2026} (H1--H12) và nhóm dữ liệu đầu vào (F):
+sàng lọc trên MIND-small, kiểm chứng trên MIND-large. Mọi so sánh đều bắt cặp (paired), có khoảng tin cậy và chia dữ liệu theo thời gian.}
 
 \vspace{6pt}
 \hop{okc}{2.45cm}{{\footnotesize\bfseries\color{okc}Kết quả}\par\vspace{2pt}\scriptsize
-\textbf{2} hướng thành công rõ (H8, H10), \textbf{2} hướng có điều kiện (F, H3), \textbf{10} hướng không hơn đối chứng mạnh.
-Hệ thống 3 tầng (embedding cố định $\to$ reader $\to$ GBDT): nDCG@10 \textbf{0.3787 $\to$ 0.4516} ở chế độ offline; \textbf{0.4731} khi dùng thêm click trong ngày (online).}\hfill
+\textbf{2} hướng thành công rõ rệt (H8, H10), \textbf{2} hướng hiệu quả có điều kiện (F, H3), \textbf{10} hướng không vượt qua baseline mạnh.
+Hệ thống 3 tầng (embedding cố định $\to$ reader $\to$ GBDT): nDCG@10 tăng từ \textbf{0.3787 $\to$ 0.4516} ở chế độ offline; đạt \textbf{0.4731} khi dùng thêm tín hiệu click trong ngày (online).}\hfill
 \hop{partc}{2.45cm}{{\footnotesize\bfseries\color{partc}Bài học}\par\vspace{2pt}\scriptsize
-(1) Điểm nghẽn là \textbf{tầng tổng hợp lịch sử đọc}, không phải kích thước bộ mã hóa.
+(1) Điểm nghẽn nằm ở \textbf{tầng tổng hợp lịch sử đọc}, không phải kích thước bộ mã hóa.
 (2) Các kỹ thuật \textbf{nén hoặc viết lại} biểu diễn bằng LLM làm mất chi tiết của bài mới.
-(3) Phải đánh giá trung thực: validation có trọng số theo tỷ lệ bài mới, cross-validation theo khối thời gian.}
+(3) Cần đánh giá sát thực tế: tập validation có trọng số theo tỷ lệ bài mới, cross-validation theo khối thời gian.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Nếu chỉ nhớ một slide thì là slide này. Bài toán khó vì hơn 82\% click rơi vào bài mới. Nhóm giữ bộ mã hóa cố định và thử 12 họ kỹ thuật LLM; chỉ hai họ thành công rõ ràng, hai họ có điều kiện, mười họ không hơn đối chứng mạnh. Ghép các hướng đứng vững cho nDCG@10 tăng từ 0.3787 lên 0.4516.}
 \end{frame}
@@ -186,19 +186,18 @@ Hệ thống 3 tầng (embedding cố định $\to$ reader $\to$ GBDT): nDCG@10 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Bài toán và dữ liệu}
 %% ============================================================================ Bài toán
-\begin{frame}[shrink]{Bài toán khuyến nghị tin tức}
+\begin{frame}[shrink]{Bài toán gợi ý tin tức}
 \begin{columns}[T,onlytextwidth]
 \column{0.56\textwidth}
 \footnotesize
 Mỗi \textbf{lượt hiển thị} (impression) gồm lịch sử đọc $\mathcal H_u=[d_1,\dots,d_L]$ của độc giả $u$ và danh sách ứng viên $\mathcal C_u$.
-Mô hình chấm điểm $s_\theta(u,c)$ cho từng ứng viên để xếp hạng; nhãn là bài nào được click. Ba đặc điểm làm bài toán khó:
+Mô hình chấm điểm $s_\theta(u,c)$ cho từng ứng viên để xếp hạng; nhãn là bài báo được click. Ba đặc điểm làm bài toán trở nên thách thức:
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item \textbf{Bài mới chiếm đa số (cold-start):} phần lớn click rơi vào bài chưa có trong dữ liệu huấn luyện, nên lọc cộng tác theo ID hoạt động kém.
-  \item \textbf{Giá trị tin giảm nhanh theo thời gian:} phân phối dữ liệu dịch chuyển giữa quá khứ (huấn luyện) và tương lai (test).
-  \item \textbf{Ràng buộc độ trễ khi phục vụ:} không thể chạy LLM nhiều tỷ tham số cho từng lượt hiển thị.
+  \item \textbf{Bài mới chiếm đa số (cold-start):} phần lớn click rơi vào bài chưa từng có trong tập huấn luyện, khiến lọc cộng tác (collaborative filtering) dựa trên ID hoạt động kém.
+  \item \textbf{Giá trị tin tức giảm nhanh theo thời gian:} phân phối dữ liệu dịch chuyển liên tục giữa quá khứ (huấn luyện) và tương lai (test).
+  \item \textbf{Ràng buộc độ trễ khi phục vụ (serving):} không thể chạy trực tiếp LLM nhiều tỷ tham số cho từng lượt hiển thị.
 \end{itemize}
-\ychinh{cần biểu diễn \emph{nội dung} bài báo đủ tốt để xếp hạng cả bài chưa từng thấy, với chi phí phục vụ thấp.}
 \column{0.41\textwidth}
 \centering
 \begin{tikzpicture}[font=\scriptsize,>=Stealth,
@@ -220,7 +219,7 @@ Mô hình chấm điểm $s_\theta(u,c)$ cho từng ứng viên để xếp hạ
 \end{frame}
 
 %% ============================================================================ Dữ liệu
-\begin{frame}[shrink]{Dữ liệu MIND và cách chấm điểm}
+\begin{frame}[shrink]{Dữ liệu MIND và độ đo đánh giá}
 \begin{columns}[T,onlytextwidth]
 \column{0.5\textwidth}
 \scriptsize
@@ -235,19 +234,19 @@ Impression huấn luyện & -- & 2.232.748\\
 Impression test & 73.152 & 376.471\\
 Cặp ứng viên test & -- & 14.085.557\\
 Click test vào bài mới & 85.9\% & 82.25\%\\
-Dùng để & sàng lọc & xác nhận\\
+Mục đích sử dụng & sàng lọc & kiểm chứng\\
 \bottomrule
 \end{tabularx}
-\ghichu{Test = tập \code{*\_dev} (nhãn của test chính thức không công khai), chỉ chạm một lần ở cuối. Validation là ngày cuối của tập huấn luyện.}
+\ghichu{Test = tập \code{*\_dev} (nhãn của tập test chính thức không công khai), chỉ đánh giá một lần ở bước cuối. Validation là ngày cuối của tập huấn luyện.}
 \column{0.47\textwidth}
-\begin{block}{Cách đọc các chỉ số}
+\begin{block}{Ý nghĩa các chỉ số đánh giá}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{2pt}
   \item \textbf{AUC}: xác suất một bài được click xếp trên một bài không được click trong cùng lượt hiển thị (0.5 là ngẫu nhiên).
-  \item \textbf{MRR}: trung bình của 1\,/\,thứ hạng các bài được click.
-  \item \textbf{nDCG@10} (chỉ số chính): chất lượng 10 vị trí đầu; bài được click càng lên cao, điểm càng lớn.
-  \item \textbf{Cold AUC / Warm AUC}: AUC chỉ tính trên các bài được click \emph{chưa từng} / \emph{đã từng} xuất hiện khi huấn luyện.
+  \item \textbf{MRR}: trung bình nghịch đảo thứ hạng của bài được click đầu tiên.
+  \item \textbf{nDCG@10} (chỉ số chính): chất lượng 10 vị trí đầu; bài được click xếp càng cao, điểm càng lớn.
+  \item \textbf{Cold AUC / Warm AUC}: AUC tính riêng trên các bài được click \emph{chưa từng} / \emph{đã từng} xuất hiện khi huấn luyện.
 \end{itemize}
 \end{block}
 \end{columns}
@@ -263,14 +262,13 @@ Dùng để & sàng lọc & xác nhận\\
 \toprule
  & \textbf{Câu hỏi} & \textbf{Trả lời ở}\\
 \midrule
-\textbf{RQ1} & Embedding LLM giữ cố định đứng ở đâu so với NRMS, NAML, Fastformer được huấn luyện lại đúng cách? & Phần 4\\
-\textbf{RQ2} & Điểm nghẽn nằm ở bộ mã hóa, ở dữ liệu đầu vào, hay ở tầng tổng hợp lịch sử đọc? & Phần 4, 5\\
-\textbf{RQ3} & Các hướng LLM 2024--2026 (H1--H12) có còn hiệu quả khi đánh giá chặt trên tin tức? & Phần 3, 5, 6\\
-\textbf{RQ4} & Ở quy mô MIND-large: hợp nhất tuyến tính hay GBDT, và làm sao để điểm validation đáng tin? & Phần 7\\
-\textbf{RQ5} & Tinh chỉnh bộ mã hóa có thu hẹp khoảng cách với các PLM tinh chỉnh end-to-end không? & Phần 6, 8\\
+\textbf{RQ1} & Embedding LLM cố định đứng ở đâu so với NRMS, NAML, Fastformer khi được huấn luyện lại chuẩn xác? & Phần 4\\
+\textbf{RQ2} & Điểm nghẽn nằm ở bộ mã hóa (encoder), dữ liệu đầu vào, hay tầng tổng hợp lịch sử đọc? & Phần 4, 5\\
+\textbf{RQ3} & Các hướng tiếp cận LLM 2024--2026 (H1--H12) có thực sự hiệu quả khi đánh giá nghiêm ngặt trên bài toán tin tức? & Phần 3, 5, 6\\
+\textbf{RQ4} & Ở quy mô MIND-large: nên kết hợp tuyến tính hay dùng GBDT, và làm sao để điểm validation đáng tin cậy? & Phần 7\\
+\textbf{RQ5} & Tinh chỉnh (fine-tune) bộ mã hóa có thu hẹp được khoảng cách với các mô hình PLM tinh chỉnh end-to-end không? & Phần 6, 8\\
 \bottomrule
 \end{tabularx}
-\ychinh{mỗi phần sau trả lời một hoặc vài câu hỏi; slide kết luận trả lời lại cả năm câu một cách ngắn gọn.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Năm câu hỏi này là khung của cả bài. Câu hỏi quan trọng nhất là RQ3: các hướng LLM mới có đứng vững không. RQ1 và RQ2 giải thích vì sao; RQ4 và RQ5 nói về việc xây hệ thống và giới hạn còn lại.}
 \end{frame}
@@ -278,115 +276,112 @@ Dùng để & sàng lọc & xác nhận\\
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Cách tiếp cận}
 %% ============================================================================ Văn liệu -> giả thuyết
-\begin{frame}[shrink]{Quy trình nghiên cứu: bốn bước, mỗi bước giữ lại những gì đứng vững}
+\begin{frame}[shrink]{Quy trình nghiên cứu: bốn bước sàng lọc và tích hợp}
 \centering
 \begin{tikzpicture}[font=\scriptsize,>=Stealth,
   stp/.style={draw=keyc,fill=keyc!5,rounded corners=2pt,text width=2.9cm,minimum height=2.7cm,align=left,inner sep=4pt,anchor=north west},
   res/.style={draw=okc,fill=okc!6,rounded corners=2pt,text width=2.9cm,minimum height=1.3cm,align=left,inner sep=4pt,anchor=north west}]
-\node[stp] (b1) at (0,0) {{\footnotesize\bfseries\color{keyc}1. Dựng baseline đúng}\par
+\node[stp] (b1) at (0,0) {{\footnotesize\bfseries\color{keyc}1. Dựng baseline chuẩn}\par
   {\tiny\color{nac}MIND-small \textperiodcentered{} lần chạy v7}\par\vspace{3pt}
-  Huấn luyện lại NRMS, NAML, Fastformer theo công thức bài gốc; thang ablation từng thay đổi (RQ1).};
-\node[stp,right=0.35cm of b1.north east,anchor=north west] (b2) {{\footnotesize\bfseries\color{keyc}2. Sàng lọc 12 họ}\par
+  Huấn luyện lại NRMS, NAML, Fastformer theo đúng cấu hình bài báo gốc; ablation từng bước (RQ1).};
+\node[stp,right=0.35cm of b1.north east,anchor=north west] (b2) {{\footnotesize\bfseries\color{keyc}2. Sàng lọc 12 nhóm}\par
   {\tiny\color{nac}MIND-small \textperiodcentered{} v7, v13}\par\vspace{3pt}
-  Mỗi họ H1--H12 so với đối chứng mạnh nhất cùng điều kiện; CI ghép cặp; đo nhiễu seed (RQ2, RQ3).};
-\node[stp,right=0.35cm of b2.north east,anchor=north west] (b3) {{\footnotesize\bfseries\color{keyc}3. Xác nhận quy mô lớn}\par
+  Đánh giá H1--H12 so với baseline mạnh nhất cùng điều kiện; tính CI bắt cặp; đo phương sai theo seed (RQ2, RQ3).};
+\node[stp,right=0.35cm of b2.north east,anchor=north west] (b3) {{\footnotesize\bfseries\color{keyc}3. Kiểm chứng quy mô lớn}\par
   {\tiny\color{nac}MIND-large \textperiodcentered{} v14--v16b}\par\vspace{3pt}
-  Chạy lại các họ còn đứng vững trên dữ liệu gấp khoảng 14 lần; thêm BGE-large và vector nối hai encoder.};
-\node[stp,right=0.35cm of b3.north east,anchor=north west] (b4) {{\footnotesize\bfseries\color{keyc}4. Ghép thành hệ thống}\par
+  Chạy lại các hướng hiệu quả trên tập dữ liệu lớn gấp $\sim$14 lần; bổ sung BGE-large và nối (concat) hai encoder.};
+\node[stp,right=0.35cm of b3.north east,anchor=north west] (b4) {{\footnotesize\bfseries\color{keyc}4. Tích hợp hệ thống}\par
   {\tiny\color{nac}MIND-large \textperiodcentered{} v15--v17}\par\vspace{3pt}
-  Hợp nhất tuyến tính, GBDT; sửa validation lệch và rò rỉ trong ngày; thử tinh chỉnh encoder (RQ4, RQ5).};
+  Kết hợp tuyến tính, GBDT; xử lý lệch phân phối validation và rò rỉ trong ngày; thử fine-tune encoder (RQ4, RQ5).};
 \foreach \a/\b in {b1/b2,b2/b3,b3/b4} \draw[->,thick,keyc] (\a.east)--(\b.west);
-\node[res,below=0.22cm of b1.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} NRMS refit 0.4078 là mốc thật (công thức cũ V10: 0.3685).};
-\node[res,below=0.22cm of b2.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} H8 (LSE) thắng rõ; đa số hướng sinh hoặc nén bằng LLM thất bại.};
-\node[res,below=0.22cm of b3.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} H10 vượt LSE khi đủ dữ liệu; F, H3 chỉ có điều kiện.};
-\node[res,below=0.22cm of b4.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} 0.4516 nDCG@10 offline, 0.4731 online.};
+\node[res,below=0.22cm of b1.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} NRMS refit đạt 0.4078 là mốc chuẩn (cấu hình cũ V10: 0.3685).};
+\node[res,below=0.22cm of b2.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} H8 (LSE) vượt trội; đa số hướng sinh văn bản hoặc nén bằng LLM thất bại.};
+\node[res,below=0.22cm of b3.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} H10 vượt LSE khi đủ dữ liệu; F và H3 chỉ hiệu quả có điều kiện.};
+\node[res,below=0.22cm of b4.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} đạt 0.4516 nDCG@10 offline, 0.4731 online.};
 \end{tikzpicture}
-\ychinh{nghiên cứu đi theo kiểu phễu: thử rộng trên dữ liệu nhỏ, chỉ mang các hướng đứng vững lên dữ liệu lớn, rồi ghép chúng thành hệ thống. Bảng các lần chạy ở phụ lục.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide này trả lời câu hỏi ``nhóm đã nghiên cứu như thế nào''. Bước 1: dựng baseline đúng, vì so với baseline yếu thì kỹ thuật nào cũng trông tốt. Bước 2: sàng lọc 12 họ trên MIND-small, mỗi họ so với đối chứng mạnh nhất. Bước 3: mang các họ còn đứng vững lên MIND-large để xác nhận. Bước 4: ghép các họ đứng vững thành hệ thống và sửa hai lỗi đánh giá là validation lệch và rò rỉ trong ngày.}
 \end{frame}
 
 %% ============================================================================ Văn liệu -> giả thuyết
-\begin{frame}[shrink]{Các hướng LLM 2024--2026 và giả thuyết tương ứng}
+\begin{frame}[shrink]{Các hướng nghiên cứu LLM 2024--2026 và giả thuyết tương ứng}
 \scriptsize
 \renewcommand{\arraystretch}{1.08}
 \begin{tabularx}{\textwidth}{@{}P{3.5cm}YP{2.4cm}@{}}
 \toprule
-\textbf{Hướng trong văn liệu} & \textbf{Công trình đại diện} & \textbf{Giả thuyết}\\
+\textbf{Hướng tiếp cận} & \textbf{Công trình tiêu biểu} & \textbf{Giả thuyết}\\
 \midrule
-LLM làm bộ mã hóa & LLM2Vec (COLM'24), LLMEmb (AAAI'25), LLM2Rec (KDD'25) & RQ2, H2, H12\\
-Biểu diễn độc giả & EmbSum (RecSys'24) & H1, H5\\
-Tri thức do LLM sinh & KAR (RecSys'24), ONCE (WSDM'24), Yada \& Yamana & H6, F\\
+LLM làm bộ mã hóa (encoder) & LLM2Vec (COLM'24), LLMEmb (AAAI'25), LLM2Rec (KDD'25) & RQ2, H2, H12\\
+LLM tóm tắt lịch sử người dùng & EmbSum (RecSys'24) & H1, H5\\
+Bổ sung tri thức sinh bởi LLM & KAR (RecSys'24), ONCE (WSDM'24), Yada \& Yamana & H6, F\\
 RAG, GraphRAG & GraphRAG (Edge và cs.\ '24), KG-RAG (ACL'25) & H3, H4, H4b\\
 Semantic ID & TIGER (NeurIPS'23), LETTER (CIKM'24), RPG (KDD'25) & H7, SID-News\\
-LLM xếp hạng & LLMRank (ECIR'24), LLM4Rerank (WWW'25) & H9\\
-Tương tác muộn & ColBERT (SIGIR'20) & H8\\
-Mô hình theo ứng viên & CAUM (SIGIR'22) & H10\\
-Đa sở thích & ComiRec (KDD'20), MINER (Findings ACL'22) & H11\\
-Tinh chỉnh PLM & PLM-NR (SIGIR'21), UNBERT (IJCAI'21) & H12\\
-Ngữ nghĩa + cộng tác & PAD (SIGIR'25) & T\\
+LLM làm bộ xếp hạng (reranker) & LLMRank (ECIR'24), LLM4Rerank (WWW'25) & H9\\
+Tương tác muộn (Late Interaction) & ColBERT (SIGIR'20) & H8\\
+Attention theo ứng viên & CAUM (SIGIR'22) & H10\\
+Biểu diễn đa sở thích & ComiRec (KDD'20), MINER (Findings ACL'22) & H11\\
+Tinh chỉnh PLM end-to-end & PLM-NR (SIGIR'21), UNBERT (IJCAI'21) & H12\\
+Kết hợp ngữ nghĩa + cộng tác & PAD (SIGIR'25) & T\\
 \bottomrule
 \end{tabularx}
-\ychinh{mỗi mã H là một câu hỏi ``hướng này có giúp tin tức không?'' và được so với đối chứng mạnh nhất cùng điều kiện. SID-News và T là hai hướng đã thiết kế nhưng chưa đo.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide này cho biết mỗi giả thuyết đến từ đâu. Nhóm không tự nghĩ ra các hướng: mỗi H tương ứng một dòng công trình 2024--2026 ở các hội nghị lớn. Cột cuối là mã giả thuyết; phần 3 sẽ cho kết luận của từng mã.}
 \end{frame}
 
 %% ============================================================================ Mô hình cơ sở
-\begin{frame}[shrink]{Mô hình cơ sở và các bộ mã hóa được khảo sát}
+\begin{frame}[shrink]{Mô hình cơ sở (Baselines) và các bộ mã hóa được khảo sát}
 \begin{columns}[T,onlytextwidth]
 \column{0.49\textwidth}
-\begin{block}{Baseline học từ log click}
+\begin{block}{Baseline học từ lịch sử click}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item \textbf{NRMS} (EMNLP 2019): self-attention nhiều đầu cho bài báo và người dùng.
-  \item \textbf{NAML} (IJCAI 2019): CNN đa góc nhìn trên tiêu đề, tóm tắt, chuyên mục.
-  \item \textbf{Fastformer} (2021): additive attention, độ phức tạp tuyến tính.
-  \item Cả ba được \textbf{huấn luyện lại} với vector từ GloVe-300 như bài gốc; \textbf{NRMS refit} học thêm các ngày validation.
-  \item \textbf{PLM-NR}, \textbf{UNBERT} (2021): tinh chỉnh PLM end-to-end; chỉ dùng số đã công bố.
+  \item \textbf{NRMS} (EMNLP 2019): multi-head self-attention cho bài báo và người dùng.
+  \item \textbf{NAML} (IJCAI 2019): mạng CNN đa góc nhìn trên tiêu đề, tóm tắt, chuyên mục.
+  \item \textbf{Fastformer} (2021): additive attention với độ phức tạp tuyến tính.
+  \item Cả ba được \textbf{huấn luyện lại} với embedding từ GloVe-300 theo đúng bài báo gốc; \textbf{NRMS refit} được huấn luyện gộp thêm ngày validation.
+  \item \textbf{PLM-NR}, \textbf{UNBERT} (2021): tinh chỉnh PLM end-to-end; trích dẫn kết quả từ bài báo gốc.
 \end{itemize}
 \end{block}
 \column{0.48\textwidth}
-\begin{block}{Bộ mã hóa văn bản giữ cố định}
+\begin{block}{Bộ mã hóa văn bản đóng băng (Frozen Encoders)}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item \textbf{BGE-small / base / large} (384 / 768 / 1024 chiều): encoder hai chiều kiểu BERT, lấy vector CLS.
-  \item \textbf{Qwen3-Embedding-0.6B} (1024 chiều): xây trên LLM decoder, lấy vector token cuối.
-  \item \textbf{TF-IDF + LSA} (256 chiều): đối chứng chỉ dùng từ vựng.
-  \item \textbf{Qwen3-1.7B}: LLM sinh văn bản, chỉ dùng cho H6 (viết hồ sơ) và H9 (chấm điểm).
+  \item \textbf{BGE-small / base / large} (384 / 768 / 1024 chiều): encoder hai chiều kiến trúc BERT, lấy vector CLS.
+  \item \textbf{Qwen3-Embedding-0.6B} (1024 chiều): kiến trúc LLM decoder, lấy vector ở token cuối.
+  \item \textbf{TF-IDF + LSA} (256 chiều): baseline đối chứng dựa trên thống kê từ vựng.
+  \item \textbf{Qwen3-1.7B}: LLM sinh văn bản, chỉ dùng cho H6 (sinh hồ sơ) và H9 (chấm điểm).
 \end{itemize}
 \end{block}
 \end{columns}
-\ychinh{mọi kỹ thuật LLM được so với baseline huấn luyện lại đúng cách, không phải với số cũ yếu (NRMS theo công thức cũ V10 chỉ đạt 0.3685 nDCG@10).}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Điểm khác biệt về phương pháp: nhóm huấn luyện lại NRMS, NAML, Fastformer theo đúng công thức bài báo, nên các so sánh với LLM là công bằng. Bộ mã hóa văn bản luôn giữ cố định; ta chỉ học các tầng nhẹ phía trên.}
 \end{frame}
 
 %% ============================================================================ Giao thức
-\begin{frame}[shrink]{Giao thức đánh giá và cách đọc một kết quả}
+\begin{frame}[shrink]{Giao thức đánh giá và cách đọc kết quả thống kê}
 \begin{columns}[T,onlytextwidth]
 \column{0.52\textwidth}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{3pt}
-  \item \textbf{Chia theo thời gian:} validation là ngày cuối của tập huấn luyện; test (\code{*\_dev}) chỉ chạm một lần ở cuối. Mọi lựa chọn (tham số, epoch, trọng số ghép, cấu hình stacker) chỉ dùng validation.
-  \item \textbf{So sánh ghép cặp theo từng impression:} báo $\Delta$ và khoảng tin cậy (CI) 95\% xấp xỉ chuẩn, $\pm1.96\cdot$SE; Cold/Warm AUC dùng SE theo cụm impression.
-  \item \textbf{Chọn đại diện của $m$ họ trên validation}, kết luận có hiệu chỉnh Bonferroni: $z_{\mathrm{adj}}=\Phi^{-1}\!\left(1-\frac{0.05}{2m}\right)$.
-  \item Báo cáo riêng \textbf{Cold AUC / Warm AUC}; mô hình có huấn luyện chạy 2--3 seed.
-  \item \textbf{73 kiểm thử tự động} trước mỗi lần chạy (đúng chỉ số, rò rỉ nhãn, bộ nhớ); dự đoán kết quả được ghi lại trước khi chạy.
+  \item \textbf{Chia theo thời gian:} validation là ngày cuối của tập huấn luyện; tập test (\code{*\_dev}) chỉ đánh giá một lần duy nhất ở cuối. Mọi siêu tham số, epoch, trọng số kết hợp và cấu hình stacker đều chọn trên validation.
+  \item \textbf{So sánh bắt cặp (paired) trên từng impression:} báo cáo mức chênh lệch $\Delta$ và khoảng tin cậy (CI) 95\% xấp xỉ chuẩn ($\pm1.96\cdot$SE); Cold/Warm AUC tính SE phân cụm theo impression.
+  \item \textbf{Chọn cấu hình tốt nhất của $m$ nhóm trên validation}, kiểm định có hiệu chỉnh Bonferroni: $z_{\mathrm{adj}}=\Phi^{-1}\!\left(1-\frac{0.05}{2m}\right)$.
+  \item Báo cáo tách biệt \textbf{Cold AUC / Warm AUC}; các mô hình có huấn luyện được chạy 2--3 seed.
+  \item \textbf{73 unit test tự động} trước mỗi lần chạy (kiểm tra công thức độ đo, chống rò rỉ nhãn, giới hạn bộ nhớ); giả thuyết kỳ vọng được ghi nhận trước khi chạy.
 \end{itemize}
 \column{0.45\textwidth}
 \begin{exampleblock}{Cách đọc ``$\Delta$ [CI 95\%]''}
 \scriptsize
-BGE-large so với Qwen3 (cùng reader):\\
-\quad $+0.0102\ [+0.0095, +0.0108]$ \;$\Rightarrow$ CI không chứa 0: \textbf{khác biệt có ý nghĩa}.\par\vspace{3pt}
-kNN trong reader, trên vector nối:\\
-\quad $+0.0003\ [-0.0001, +0.0007]$ \;$\Rightarrow$ CI chứa 0: \textbf{coi như không khác}.
+BGE-large so với Qwen3 (cùng kiến trúc reader):\\
+\quad $+0.0102\ [+0.0095, +0.0108]$ \;$\Rightarrow$ CI không chứa 0: \textbf{khác biệt có ý nghĩa thống kê}.\par\vspace{3pt}
+kNN trong reader, trên vector concat:\\
+\quad $+0.0003\ [-0.0001, +0.0007]$ \;$\Rightarrow$ CI chứa 0: \textbf{khác biệt không có ý nghĩa thống kê (n.s.)}.
 \end{exampleblock}
-\begin{alertblock}{Lưu ý: nhiễu seed}
-\scriptsize CI chỉ tính nhiễu của mẫu test. Hai seed của cùng một mô hình lệch \textbf{0.007--0.014} nDCG@10 trên MIND-small, nên chênh nhỏ hơn mức này giữa hai mô hình đã huấn luyện chưa phải kết luận.
+\begin{alertblock}{Lưu ý: phương sai theo seed huấn luyện}
+\scriptsize CI chỉ phản ánh sai số lấy mẫu trên tập test. Hai seed của cùng một mô hình có thể lệch \textbf{0.007--0.014} nDCG@10 trên MIND-small, nên mức chênh nhỏ hơn ngưỡng này giữa hai mô hình có huấn luyện chưa đủ để kết luận.
 \end{alertblock}
 \end{columns}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
@@ -394,29 +389,28 @@ kNN trong reader, trên vector nối:\\
 \end{frame}
 
 %% ============================================================================ Kiến trúc
-\begin{frame}[shrink]{Hệ thống cuối cùng: ba tầng, gắn với các giả thuyết}
+\begin{frame}[shrink]{Kiến trúc hệ thống cuối cùng: ba tầng gắn với các giả thuyết}
 \centering
 \begin{tikzpicture}[>=Stealth,font=\scriptsize,
   box/.style={draw=keyc,fill=keyc!5,rounded corners=2pt,align=center,inner sep=4pt,minimum height=2.75cm,thick,text width=3.45cm}]
-\node[box] (s1) {{\footnotesize\bfseries\color{keyc}Tầng 1: mã hóa offline}\\[5pt]
-  văn bản có chuyên mục \tg{partc}{F}\\[2pt]
+\node[box] (s1) {{\footnotesize\bfseries\color{keyc}Tầng 1: Mã hóa offline}\\[5pt]
+  văn bản kèm chuyên mục \tg{partc}{F}\\[2pt]
   Qwen3-Emb $\oplus$ BGE-large\\
-  (giữ cố định, 2048 chiều)\\[2pt]
-  + vector tăng cường kNN \tg{partc}{H3}};
-\node[box,right=0.72cm of s1] (s2) {{\footnotesize\bfseries\color{keyc}Tầng 2: chấm điểm}\\[5pt]
+  (đóng băng, 2048 chiều)\\[2pt]
+  + làm giàu vector bằng kNN \tg{partc}{H3}};
+\node[box,right=0.72cm of s1] (s2) {{\footnotesize\bfseries\color{keyc}Tầng 2: Chấm điểm}\\[5pt]
   tương tác muộn LSE \tg{okc}{H8}\\[2pt]
   reader theo ứng viên \tg{okc}{H10}\\[2pt]
-  prior bài báo\\(không dùng lịch sử)};
+  item prior\\(không dùng lịch sử)};
 \node[box,right=0.72cm of s2] (s3) {{\footnotesize\bfseries\color{keyc}Tầng 3: GBDT stacker}\\[5pt]
-  99 đặc trưng: điểm thành phần, ngữ cảnh slate, exposure\\[2pt]
-  chọn trên validation có trọng số bài mới, CV theo khối thời gian};
+  99 đặc trưng: điểm thành phần, ngữ cảnh slate, độ phủ hiển thị (exposure)\\[2pt]
+  chọn mô hình trên validation có trọng số bài mới, CV theo khối thời gian};
 \draw[->,thick,keyc] (s1)--node[above=1pt,font=\tiny,text=black,inner sep=0pt]{vector} (s2);
 \draw[->,thick,keyc] (s2)--node[above=1pt,font=\tiny,text=black,inner sep=0pt]{điểm} (s3);
 \draw[->,thick,accentc] (s3.east)--++(0.95,0) node[midway,above=1pt,font=\tiny\bfseries,text=accentc,inner sep=0pt]{xếp hạng};
-\node[below=3pt of s1,font=\tiny,text width=3.5cm,align=center] {mỗi bài mã hóa một lần: $\approx$4 ms (BGE-large) đến 10 ms (Qwen3) trên 1 GPU T4 (đo được)};
-\node[below=3pt of s3,font=\tiny,text width=3.5cm,align=center] {lúc phục vụ chỉ có tích vô hướng và duyệt cây; độ trễ đầu-cuối \textbf{chưa đo}};
+\node[below=3pt of s1,font=\tiny,text width=3.5cm,align=center] {mỗi bài chỉ mã hóa một lần: $\approx$4 ms (BGE-large) đến 10 ms (Qwen3) trên 1 GPU T4};
+\node[below=3pt of s3,font=\tiny,text width=3.5cm,align=center] {khi phục vụ chỉ tính tích vô hướng và duyệt cây; độ trễ end-to-end \textbf{chưa đo}};
 \end{tikzpicture}
-\ychinh{ba tầng được ghép từ các hướng đứng vững: \tg{okc}{H8} \tg{okc}{H10} thành công và \tg{partc}{F} \tg{partc}{H3} có điều kiện. Mọi hướng khác bị loại sau khi đánh giá.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đây là hệ thống cuối, để thầy cô thấy trước đích đến. Tầng 1 mã hóa mỗi bài một lần bằng hai encoder giữ cố định. Tầng 2 tạo nhiều góc nhìn về độ phù hợp giữa người dùng và bài, trong đó quan trọng nhất là LSE và reader theo ứng viên. Tầng 3 là GBDT ghép các điểm này với đặc trưng ngữ cảnh và exposure. Các nhãn màu cho biết mỗi thành phần đến từ giả thuyết nào.}
 \end{frame}
@@ -431,31 +425,30 @@ kNN trong reader, trên vector nối:\\
 \node[col,draw=okc,fill=okc!5,text width=3.6cm] (c1) at (0,0) {%
   {\footnotesize\bfseries\color{okc}Thành công (2)}\par\vspace{4pt}
   \textbf{H8} \textperiodcentered{} LSE, top-k\par
-  {\color{black!70}+0.011 đến +0.014 so với mean pooling; không thêm tham số; lặp lại trên 2 encoder, 2 quy mô}\par\vspace{5pt}
+  {\color{black!70}+0.011 đến +0.014 so với mean pooling; không cần tham số học; nhất quán trên 2 encoder, 2 quy mô}\par\vspace{5pt}
   \textbf{H10} \textperiodcentered{} Reader theo ứng viên\par
-  {\color{black!70}+0.0105 so với LSE (MIND-large); thành phần mạnh nhất. MIND-small: chỉ hơn LSE với Qwen3}};
+  {\color{black!70}+0.0105 so với LSE (MIND-large); thành phần đơn lẻ mạnh nhất. MIND-small: vượt LSE trên Qwen3}};
 \node[col,draw=partc,fill=partc!5,text width=3.6cm,right=0.15cm of c1.north east,anchor=north west] (c2) {%
   {\footnotesize\bfseries\color{partc}Có điều kiện (2)}\par\vspace{4pt}
-  \textbf{F} \textperiodcentered{} Chuyên mục trong văn bản\par
-  {\color{black!70}+0.0186 với Qwen3; không giúp BGE, không giúp bài mới}\par\vspace{5pt}
+  \textbf{F} \textperiodcentered{} Ghép chuyên mục vào văn bản\par
+  {\color{black!70}+0.0186 với Qwen3; không cải thiện trên BGE, không cải thiện bài mới}\par\vspace{5pt}
   \textbf{H3} \textperiodcentered{} Truy hồi kNN\par
-  {\color{black!70}+0.0037 khi đưa qua reader, chủ yếu tăng Cold AUC; dùng thẳng thì giảm}};
+  {\color{black!70}+0.0037 khi đưa qua reader, chủ yếu tăng Cold AUC; cộng trực tiếp làm giảm điểm}};
 \node[col,draw=failc,fill=failc!5,text width=5.3cm,right=0.15cm of c2.north east,anchor=north west] (c3) {%
   {\footnotesize\bfseries\color{failc}Không hiệu quả (10)}\par\vspace{3pt}
   \textbf{H1} lịch sử dạng văn bản: $-0.0211$\par
   \textbf{H2}$^{\dagger}$ LoRA/DoRA cho encoder: chỉ +0.003\par
-  \textbf{H4} GraphRAG: val dương, test $-0.0066$\par
-  \textbf{H4b} LLM tóm tắt cụm: không khác\par
-  \textbf{H5}$^{\dagger}$ tháp LoRA: hơn LSE, kém reader\par
-  \textbf{H6}$^{\dagger}$ hồ sơ do LLM viết: $-0.0308$\par
+  \textbf{H4} GraphRAG: val tăng, test $-0.0066$\par
+  \textbf{H4b} LLM tóm tắt cụm: không đổi\par
+  \textbf{H5}$^{\dagger}$ User Tower LoRA: hơn LSE, kém reader\par
+  \textbf{H6}$^{\dagger}$ hồ sơ do LLM sinh: $-0.0308$\par
   \textbf{H7} Semantic ID: ngang ngẫu nhiên\par
   \textbf{H9}$^{\dagger}$ LLM chấm điểm: $-0.0112$\par
   \textbf{H11} đa sở thích: thấp hơn LSE\par
   \textbf{H12}$^{\dagger}$ mở khóa encoder: +0.0005 (n.s.)};
 \end{tikzpicture}
 \par\vspace{3pt}
-{\scriptsize\color{nac}\textbf{Chưa đo:} T (cổng cold/warm) và SID-News: đã có mã, chưa có lần chạy đo kết quả. \quad $^{\dagger}$ \textbf{chưa chạy đủ dữ liệu} (xem slide quy mô dữ liệu).}
-\ychinh{``thành công'' = hơn \emph{đối chứng mạnh nhất} cùng điều kiện (không chỉ hơn mean pooling), CI không chứa 0 và được giữ trong hệ thống cuối.}
+
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đây là câu trả lời trực tiếp cho câu hỏi ``hướng nào thành công''. Thành công rõ chỉ có H8 và H10: cả hai đều thuộc tầng tổng hợp lịch sử. F và H3 có ích trong điều kiện cụ thể. Mười hướng còn lại không hơn đối chứng mạnh; nhiều hướng trong số đó vẫn hơn mean pooling, nhưng mean pooling là đối chứng yếu, nên không tính là thành công. Họ T và SID-News chưa có số đo nên không xếp loại.}
 \end{frame}
@@ -467,59 +460,57 @@ kNN trong reader, trên vector nối:\\
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}P{0.9cm}P{3.85cm}YP{2.15cm}@{}}
 \toprule
-\textbf{Mã} & \textbf{Hướng đã thử} & \textbf{Kết quả chính (so với đối chứng mạnh nhất)} & \textbf{Kết luận}\\
+\textbf{Mã} & \textbf{Hướng thử nghiệm} & \textbf{Kết quả chính (so với đối chứng mạnh nhất)} & \textbf{Kết luận}\\
 \midrule
-H1 & Lịch sử đọc thành văn bản & small $-0.0211$ đến $-0.0014$; large $-0.0101$ so với mean pooling & \FAILs\\
+H1 & Chuyển lịch sử đọc thành văn bản & small $-0.0211$ đến $-0.0014$; large $-0.0101$ so với mean pooling & \FAILs\\
 H2 & LoRA/DoRA cho encoder$^{\dagger}$ & +0.0016 đến +0.0029; Cold AUC giảm & \FAILs\\
-H3 & kNN bổ sung vector bài & qua reader +0.0037; dùng thẳng thì giảm & \PARTs\\
-H4 & GraphRAG (tâm cụm) & val +0.0199 nhưng test $-0.0066$ & \FAILs\\
-H4b & LLM tóm tắt mỗi cụm & không khác biệt thống kê & \FAILs\\
-H5 & Tháp người dùng (LoRA)$^{\dagger}$ & 0.5\% dữ liệu: bằng LSE; 3.5\%: hơn LSE +0.0085, kém reader $-0.0048$; không giúp hợp nhất & \FAILs\\
-H6 & LLM sinh hồ sơ, mô tả bài$^{\dagger}$ & hồ sơ $-0.0308$ / $-0.0278$ (small / large); mô tả bài +0.0079 / +0.0043 (n.s.) & \FAILs\\
+H3 & Làm giàu vector bài bằng kNN & qua reader +0.0037; cộng trực tiếp vào vector bài thì giảm & \PARTs\\
+H4 & GraphRAG (tâm cụm đồ thị) & val +0.0199 nhưng test $-0.0066$ & \FAILs\\
+H4b & LLM tóm tắt chủ đề mỗi cụm & không khác biệt có ý nghĩa thống kê & \FAILs\\
+H5 & User Tower dùng LoRA$^{\dagger}$ & 0.5\% dữ liệu: ngang LSE; 3.5\%: hơn LSE +0.0085, kém reader $-0.0048$; không cải thiện khi kết hợp & \FAILs\\
+H6 & LLM sinh hồ sơ, mở rộng bài$^{\dagger}$ & hồ sơ $-0.0308$ / $-0.0278$ (small / large); mở rộng bài +0.0079 / +0.0043 (n.s.) & \FAILs\\
 H7 & Semantic ID + SID-GPT & 0.2898, ngang vector ngẫu nhiên (0.2897) & \FAILs\\
-\textbf{H8} & \textbf{Tương tác muộn (LSE)} & \textbf{+0.011 đến +0.014, ở 2 encoder và 2 quy mô} & \OKs\\
-H9 & LLM chấm điểm ứng viên$^{\dagger}$ & small $-0.0112$; large $-0.0092$ (n.s.); cả hai $n=2.000$ & \FAILs\\
-\textbf{H10} & \textbf{Reader theo ứng viên} & \textbf{hơn LSE +0.008 đến +0.013 (trừ BGE-small)} & \OKs\\
-H11 & Đa sở thích & K-Means $-0.0024$ so với LSE; reader $K=4$ n.s. & \FAILs\\
-H12 & Mở khóa 2 tầng BGE-large$^{\dagger}$ & +0.0005 (n.s.); Cold AUC $-0.0069$ & \FAILs\\
-F & Chuyên mục trong văn bản & Qwen3 +0.0186, BGE $-0.0024$ so với LSE & \PARTs\\
+\textbf{H8} & \textbf{Tương tác muộn (LSE)} & \textbf{+0.011 đến +0.014, nhất quán trên 2 encoder và 2 quy mô} & \OKs\\
+H9 & LLM chấm điểm ứng viên$^{\dagger}$ & small $-0.0112$; large $-0.0092$ (n.s.); cả hai trên $n=2.000$ & \FAILs\\
+\textbf{H10} & \textbf{Reader theo ứng viên} & \textbf{vượt LSE +0.008 đến +0.013 (trừ BGE-small)} & \OKs\\
+H11 & Biểu diễn đa sở thích & K-Means $-0.0024$ so với LSE; reader $K=4$ n.s. & \FAILs\\
+H12 & Mở khóa 2 tầng cuối BGE-large$^{\dagger}$ & +0.0005 (n.s.); Cold AUC $-0.0069$ & \FAILs\\
+F & Thêm chuyên mục vào văn bản & Qwen3 +0.0186, BGE $-0.0024$ so với LSE & \PARTs\\
 \bottomrule
 \end{tabularx}
-\ghichu{\NAs\ T (cổng cold/warm kiểu PAD) và SID-News (Semantic ID cải tiến): đã có mã, chưa có lần chạy đo. Đo trên MIND-small: H2, H4b, H7; trên MIND-large: H4, H12, F; cả hai: H1, H3, H5, H6, H8, H9, H10, H11. n.s. = không có ý nghĩa thống kê. $^{\dagger}$ chưa chạy đủ dữ liệu: kết luận chỉ đúng trong ngân sách đã thử (slide sau).}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bảng này dùng để tra cứu khi chuẩn bị hoặc khi bị hỏi về một hướng cụ thể. Đọc theo hàng: hướng đã thử, con số quan trọng nhất so với đối chứng mạnh nhất, và kết luận. Chỉ H8 và H10 thành công; F và H3 có điều kiện; T và SID-News chưa đo.}
 \end{frame}
 
 %% ============================================================================ Quy mô dữ liệu của các hướng LLM
-\begin{frame}[shrink]{Các hướng LLM đã chạy trên bao nhiêu dữ liệu?}
+\begin{frame}[shrink]{Quy mô dữ liệu thực nghiệm của từng hướng LLM}
 \scriptsize
 \renewcommand{\arraystretch}{1.0}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}P{3.75cm}YP{2.55cm}P{1.45cm}@{}}
 \toprule
-\textbf{Hướng (cách dùng LLM)} & \textbf{Dữ liệu huấn luyện đã dùng} & \textbf{Đánh giá trên test} & \textbf{Mức độ}\\
+\textbf{Hướng tiếp cận} & \textbf{Dữ liệu huấn luyện đã dùng} & \textbf{Đánh giá trên test} & \textbf{Mức độ}\\
 \midrule
-Qwen3-0.6B, BGE-large làm encoder (H8, H10, F) & mã hóa cả 104.151 bài; reader 1.2 triệu mẫu (bản kỹ hơn: đủ 2.71 triệu) & toàn bộ 376.471 & \DUs\\
-Qwen3-4B làm encoder (RQ2, v18a) & mã hóa cả 104.151 bài; reader 1.2 triệu mẫu & toàn bộ & \DUs\\
-H1 lịch sử thành văn bản & không cần huấn luyện (zero-shot) & small 41\%; large 16\% & \DUs\\
-H4b LLM tóm tắt cụm & không cần huấn luyện; tóm tắt mọi cụm & toàn bộ (small) & \DUs\\
+Qwen3-0.6B, BGE-large làm encoder (H8, H10, F) & mã hóa toàn bộ 104.151 bài; reader học 1.2 triệu mẫu (bản mở rộng: đủ 2.71 triệu) & toàn bộ 376.471 & \DUs\\
+Qwen3-4B làm encoder (RQ2, v18a) & mã hóa toàn bộ 104.151 bài; reader học 1.2 triệu mẫu & toàn bộ & \DUs\\
+H1 chuyển lịch sử thành văn bản & không cần huấn luyện (zero-shot) & small 41\%; large 16\% & \DUs\\
+H4b LLM tóm tắt cụm & không cần huấn luyện; tóm tắt toàn bộ cụm & toàn bộ (small) & \DUs\\
 \midrule
-H2 LoRA/DoRA cho encoder & $\le$ 1.500 bước $\times$ 32 = 48.000 cặp co-click; chỉ small & toàn bộ (small) & \MOTPHANs\\
-H5 tháp người dùng LLM + LoRA & v14: 12.800 lịch sử (0.5\%); v19b: 93.952 (3.5\%), 200 phút & v14: 30.000; v19b: toàn bộ & \MOTPHANs\\
-H12 mở khóa 2 tầng BGE-large & 576.000 mẫu ($\approx$ nửa epoch); gradient chỉ phía ứng viên & toàn bộ & \MOTPHANs\\
-H6 LLM mở rộng bài, viết hồ sơ & zero-shot; chỉ trên nền mean pooling, chưa vào hệ thống & 2.500 (large: 0.7\%) & \TAPCONs\\
-H9 LLM chấm Có/Không & zero-shot; chỉ xếp lại top-10 của mean pooling & 2.000 (large: 0.5\%) & \TAPCONs\\
-H7 Semantic ID + SID-GPT & 3 epoch (small) & toàn bộ (small) & \NGHIs\\
+H2 LoRA/DoRA cho encoder & $\le$ 1.500 bước $\times$ 32 = 48.000 cặp đồng click (co-click); chỉ trên small & toàn bộ (small) & \MOTPHANs\\
+H5 User Tower LLM + LoRA & v14: 12.800 lịch sử (0.5\%); v19b: 93.952 (3.5\%), 200 phút & v14: 30.000; v19b: toàn bộ & \MOTPHANs\\
+H12 mở khóa 2 tầng BGE-large & 576.000 mẫu ($\approx$ 0.5 epoch); truyền ngược gradient phía ứng viên & toàn bộ & \MOTPHANs\\
+H6 LLM mở rộng bài, viết hồ sơ & zero-shot; thử trên nền mean pooling, chưa tích hợp vào hệ thống & 2.500 (large: 0.7\%) & \TAPCONs\\
+H9 LLM chấm điểm Có/Không & zero-shot; chỉ rerank top-10 của mean pooling & 2.000 (large: 0.5\%) & \TAPCONs\\
+H7 Semantic ID + SID-GPT & 3 epoch (small) & toàn bộ (small) & \\\
 \bottomrule
 \end{tabularx}
-\ghichu{LLM nhúng: Qwen3-Embedding-0.6B (H1, H5); LLM sinh: Qwen3-1.7B (H4b, H6, H9). Phần trăm: của test (73.152 impression ở small, 376.471 ở large) hoặc của 2.71 triệu mẫu huấn luyện. Ước tính để chạy đủ, từ tốc độ đo trên T4: H5 một epoch khoảng 87 giờ; H9 trên toàn bộ test khoảng 38 giờ; mở rộng cả 104.151 bài khoảng 3--4 giờ. Một phiên Kaggle tối đa 12 giờ.}
-\ychinh{các hướng thành công (H8, H10) đều chạy trên toàn bộ dữ liệu. Các hướng huấn luyện LLM (H2, H5, H12) mới dùng một phần dữ liệu; LLM sinh văn bản và chấm điểm (H6, H9) mới đo trên tập con nhỏ, trên nền mean pooling. Với các dòng này, ``không hiệu quả'' chỉ có nghĩa là \textbf{chưa hơn đối chứng mạnh nhất trong ngân sách đã thử}, chưa phải kết luận về phương pháp.}
+\ghichu{LLM embedding: Qwen3-Embedding-0.6B (H1, H5); LLM sinh: Qwen3-1.7B (H4b, H6, H9). Tỷ lệ phần trăm tính trên tập test (73.152 impression ở small, 376.471 ở large) hoặc trên 2.71 triệu mẫu huấn luyện. Ước tính thời gian chạy toàn bộ trên GPU T4: H5 (1 epoch) $\approx$ 87 giờ; H9 trên toàn bộ test $\approx$ 38 giờ; mở rộng cả 104.151 bài $\approx$ 3--4 giờ. Giới hạn một phiên Kaggle là 12 giờ.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide này để đánh giá công bằng các hướng LLM. Các hướng thành công đều chạy trên toàn bộ dữ liệu. Ngược lại, các hướng huấn luyện LLM mới dùng một phần nhỏ: tháp người dùng mới thấy 3.5\% dữ liệu huấn luyện, mở khóa encoder khoảng nửa epoch. LLM sinh văn bản và LLM chấm điểm chỉ đo trên vài nghìn impression và đặt trên nền mean pooling. Vì vậy với các hướng này, nhóm chỉ kết luận trong ngân sách đã thử; chạy đủ cần nhiều GPU hơn một phiên Kaggle, ví dụ một epoch của tháp người dùng ước khoảng 87 giờ trên T4.}
 \end{frame}
 
 %% ============================================================================ Biểu đồ độ lớn
-\begin{frame}[shrink]{Độ lớn tác động của từng họ (\texorpdfstring{$\Delta$}{Delta} nDCG@10)}
+\begin{frame}[shrink]{Mức độ tác động của từng nhóm kỹ thuật (\texorpdfstring{$\Delta$}{Delta} nDCG@10)}
 \centering
 \begin{tikzpicture}[x=133cm,y=-0.33cm,font=\tiny]
 \def\lx{-0.0362}
@@ -531,13 +522,13 @@ H7 Semantic ID + SID-GPT & 3 epoch (small) & toàn bộ (small) & \NGHIs\\
 \effbar{4}{0.0037}{partc!85}{H3 \textperiodcentered{} kNN trong reader (BGE-large)}
 \effbar{5}{0.0029}{failc!80}{H2 \textperiodcentered{} LoRA/DoRA (so với mean pooling, MIND-small)}
 \effbar{6}{0.0005}{failc!80}{H12 \textperiodcentered{} mở khóa 2 tầng (so với nhánh đóng băng)}
-\effbar{7}{-0.0002}{failc!80}{H5 \textperiodcentered{} thêm tháp LoRA vào bộ hợp nhất}
+\effbar{7}{-0.0002}{failc!80}{H5 \textperiodcentered{} thêm User Tower LoRA vào bộ kết hợp}
 \effbar{8}{-0.0024}{partc!85}{F \textperiodcentered{} chuyên mục, BGE (so với LSE, MIND-large)}
 \effbar{9}{-0.0024}{failc!80}{H11 \textperiodcentered{} K-Means $K{=}5$ (so với LSE, BGE-large)}
 \effbar{10}{-0.0066}{failc!80}{H4 \textperiodcentered{} GraphRAG (so với mean pooling, MIND-large)}
 \effbar{11}{-0.0112}{failc!80}{H9 \textperiodcentered{} LLM chấm điểm (MIND-small, $n{=}2.000$)}
 \effbar{12}{-0.0211}{failc!80}{H1 \textperiodcentered{} lịch sử dạng văn bản (MIND-small)}
-\effbar{13}{-0.0308}{failc!80}{H6 \textperiodcentered{} hồ sơ do LLM viết (MIND-small)}
+\effbar{13}{-0.0308}{failc!80}{H6 \textperiodcentered{} hồ sơ do LLM sinh (MIND-small)}
 \effbar{14}{-0.0340}{failc!80}{H7 \textperiodcentered{} SID-GPT (so với mean pooling, MIND-small)}
 \node[anchor=west] at (0.0188,1) {+0.0186};
 \node[anchor=west] at (0.0115,2) {+0.0113};
@@ -547,65 +538,38 @@ H7 Semantic ID + SID-GPT & 3 epoch (small) & toàn bộ (small) & \NGHIs\\
 \node[anchor=west] at (0.0007,6) {+0.0005};
 \foreach \y/\lab in {7/$-0.0002$,8/$-0.0024$,9/$-0.0024$,10/$-0.0066$,11/$-0.0112$,12/$-0.0211$,13/$-0.0308$}
   \node[anchor=west] at (0.0006,\y) {\lab};
-\node[anchor=west] at (0.0006,14) {$-0.1011$ (thanh bị cắt bớt)};
+\node[anchor=west] at (0.0006,14) {$-0.1011$ (thanh bị cắt gọn)};
 \draw[white,line width=1.2pt] (-0.0318,13.62)--(-0.0326,14.38);
 \draw[white,line width=1.2pt] (-0.0328,13.62)--(-0.0336,14.38);
 \foreach \v/\lab in {-0.03/$-0.03$,-0.02/$-0.02$,-0.01/$-0.01$,0/0,0.01/+0.01,0.02/+0.02} \node[below] at (\v,14.6) {\lab};
 \end{tikzpicture}
-\ghichu{Mỗi thanh so với đối chứng của chính nó (ghi trong nhãn). Biểu đồ dùng để thấy chiều và độ lớn; không so trực tiếp giữa các họ. Màu: xanh = thành công, vàng = có điều kiện, đỏ = không hiệu quả.}
+\ghichu{Mỗi thanh được so với đối chứng trực tiếp của chính nó (ghi trong nhãn). Biểu đồ minh họa chiều hướng và biên độ tác động; không dùng để so sánh ngang giữa các nhóm khác đối chứng. Màu: xanh = thành công, vàng = có điều kiện, đỏ = không hiệu quả.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Biểu đồ cho thấy độ lớn. Các thanh dương lớn nhất đều thuộc tầng tổng hợp lịch sử và dữ liệu đầu vào. Các hướng dùng LLM để sinh hoặc nén biểu diễn nằm ở phía âm; Semantic ID giảm tới 0.1011 nên thanh bị cắt bớt. F xuất hiện hai lần để cho thấy vì sao nó chỉ có điều kiện: dương với Qwen3, âm với BGE.}
 \end{frame}
 
 %% ============================================================================ Vì sao thất bại
-\begin{frame}[shrink]{Vì sao nhiều hướng LLM không hiệu quả trên MIND?}
+\begin{frame}[shrink]{Vì sao nhiều hướng tiếp cận LLM không hiệu quả trên MIND?}
 \hop{failc}{2.5cm}{{\footnotesize\bfseries\color{failc}1. Nén hoặc viết lại biểu diễn bài báo}\par\vspace{2pt}\scriptsize
-GraphRAG thay bài bằng tâm cụm, Semantic ID lượng tử hóa thành mã rời rạc, LLM viết lại lịch sử và hồ sơ thành đoạn văn.
-Khi 82.25\% click là bài mới, mất chi tiết riêng của từng bài là mất điểm (GraphRAG: Cold AUC $-0.0181$).}\hfill
-\hop{partc}{2.5cm}{{\footnotesize\bfseries\color{partc}2. Chỉ thắng đối chứng yếu}\par\vspace{2pt}\scriptsize
-K-Means đa sở thích: +0.0090 so với mean pooling nhưng $-0.0024$ so với LSE. Tháp người dùng LoRA (0.5\% dữ liệu) hơn mean pooling nhưng chỉ bằng LSE.
-LSE không tham số đã lấy được phần lợi ích này.}
+GraphRAG thay bài báo bằng tâm cụm, Semantic ID lượng tử hóa thành mã rời rạc, LLM tóm tắt lịch sử và hồ sơ thành đoạn văn.
+Khi 82.25\% click rơi vào bài mới, việc làm mất chi tiết đặc trưng của từng bài sẽ làm giảm chất lượng xếp hạng (GraphRAG: Cold AUC $-0.0181$).}\hfill
+\hop{partc}{2.5cm}{{\footnotesize\bfseries\color{partc}2. Chỉ vượt qua baseline yếu}\par\vspace{2pt}\scriptsize
+K-Means đa sở thích: +0.0090 so với mean pooling nhưng $-0.0024$ so với LSE. User Tower LoRA (0.5\% dữ liệu) vượt mean pooling nhưng chỉ ngang LSE.
+Bản thân phép gộp LSE (không tham số) đã thu được phần lợi ích này.}
 
 \vspace{6pt}
-\hop{keyc}{2.5cm}{{\footnotesize\bfseries\color{keyc}3. Validation ``ấm'' đánh lừa}\par\vspace{2pt}\scriptsize
-Ở lần chạy v14, so với mean pooling: kNN RAG $+0.0130$ trên validation nhưng $-0.0037$ trên test; GraphRAG $+0.0199 \to -0.0066$;
-reader + kNN $+0.0653 \to +0.0302$. Validation có ít bài mới hơn test rất nhiều.}\hfill
-\hop{nac}{2.5cm}{{\footnotesize\bfseries\color{nac}4. Tinh chỉnh với ngân sách nhỏ}\par\vspace{2pt}\scriptsize
-Mở khóa 2 tầng cuối BGE-large ($\approx$ nửa epoch): +0.0005 (n.s.), Cold AUC $-0.0069$.
-Tháp LoRA: 0.5\% dữ liệu thì bằng LSE, 3.5\% thì hơn LSE +0.0085 nhưng kém reader. Cả hai \textbf{chưa chạy đủ dữ liệu}: chưa đủ để kết luận về phương pháp.}
+\hop{keyc}{2.5cm}{{\footnotesize\bfseries\color{keyc}3. Tập validation ``ấm'' gây sai lệch}\par\vspace{2pt}\scriptsize
+Ở lần chạy v14, so với mean pooling: kNN RAG đạt $+0.0130$ trên validation nhưng giảm $-0.0037$ trên test; GraphRAG từ $+0.0199 \to -0.0066$;
+reader + kNN từ $+0.0653 \to +0.0302$. Nguyên nhân do validation có tỷ lệ bài mới thấp hơn test rất nhiều.}\hfill
+\hop{nac}{2.5cm}{{\footnotesize\bfseries\color{nac}4. Tinh chỉnh với ngân sách tính toán hạn chế}\par\vspace{2pt}\scriptsize
+Mở khóa 2 tầng cuối BGE-large ($\approx$ 0.5 epoch): +0.0005 (n.s.), Cold AUC $-0.0069$.
+User Tower LoRA: học 0.5\% dữ liệu chỉ ngang LSE, học 3.5\% vượt LSE +0.0085 nhưng vẫn kém reader. Cả hai \textbf{chưa chạy hết dữ liệu}, nên chưa đủ cơ sở bác bỏ bản chất phương pháp.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bốn mẫu thất bại lặp lại nhiều lần. Một: nén hoặc viết lại biểu diễn làm mất chi tiết của bài mới. Hai: nhiều hướng chỉ thắng mean pooling, còn LSE không tham số đã làm được điều đó. Ba: validation có ít bài mới nên đánh giá quá cao các mô hình mạnh ở bài cũ. Bốn: tinh chỉnh trong ngân sách GPU nhỏ chưa đủ để thay đổi kết quả.}
 \end{frame}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Chẩn đoán điểm nghẽn}
-%% ============================================================================ RQ1 NRMS
-\begin{frame}[shrink]{RQ1 \textperiodcentered{} Baseline huấn luyện lại: GloVe là yếu tố quyết định}
-\scriptsize
-Thang ablation của NRMS trên MIND-small (mỗi bậc thêm một thay đổi vào bậc trước):\par\vspace{2pt}
-\renewcommand{\arraystretch}{1.07}
-\setlength{\tabcolsep}{4pt}
-\begin{tabularx}{\textwidth}{@{}P{2.45cm}YQ{0.95cm}Q{1.32cm}P{3.72cm}@{}}
-\toprule
-\textbf{Bậc} & \textbf{Thay đổi so với bậc trước} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{$\Delta$ nDCG@10 [CI 95\%]}\\
-\midrule
-0 \code{ladder0} & công thức V10 cũ, cài đặt lại & 0.6156 & 0.3694 & mốc\\
-1 \code{ladder1} & tách từ regex, mask padding, bốc lại negative & 0.6102 & 0.3661 & $-0.0033\ [-0.0051, -0.0015]$\\
-2 \code{ladder2} & cỡ như bài báo (300 chiều, 16 đầu), vector từ ngẫu nhiên & 0.5818 & 0.3447 & $-0.0213\ [-0.0229, -0.0197]$\\
-\textbf{3 \code{nrms\_ref}} & \textbf{khởi tạo vector từ bằng GloVe-300} & \textbf{0.6392} & \textbf{0.3937} & $\mathbf{+0.0490}\ [+0.0471, +0.0509]$\\
-4 \code{nrms\_ref\_refit} & huấn luyện thêm các ngày validation & 0.6555 & 0.4078 & $+0.0141\ [+0.0126, +0.0156]$\\
-\bottomrule
-\end{tabularx}
-\begin{itemize}
-  \setlength{\itemsep}{1pt}
-  \item Bậc 2 \textbf{chưa hội tụ}, nên +0.0490 có phần phóng đại; GloVe vẫn là yếu tố lớn nhất.
-  \item Huấn luyện lại đúng cách nâng NRMS từ 0.3694 (công thức V10) lên 0.3937 (một seed) và 0.4078 (refit); so sánh với embedding cố định ở slide sau.
-\end{itemize}
-\ychinh{baseline yếu ở V10 là do công thức huấn luyện, không do mô hình: thêm GloVe là bước tăng lớn nhất.}
-\par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Trước khi đánh giá LLM, nhóm phải có baseline đúng. NRMS theo công thức cũ yếu vì thiếu vector từ huấn luyện sẵn; thêm GloVe là bước tăng lớn nhất. Lưu ý bậc 2 chưa hội tụ nên con số 0.049 có phần phóng đại. Kết quả RQ1: embedding cố định chỉ ngang, chưa vượt NRMS refit, vì khoảng tin cậy chứa 0.}
-\end{frame}
-
 %% ============================================================================ RQ1 baseline đầy đủ
 \begin{frame}[shrink]{RQ1 \textperiodcentered{} NRMS, NAML, Fastformer huấn luyện lại so với embedding cố định}
 \scriptsize
@@ -613,13 +577,13 @@ Thang ablation của NRMS trên MIND-small (mỗi bậc thêm một thay đổi 
 \setlength{\tabcolsep}{4pt}
 \begin{tabularx}{\textwidth}{@{}YQ{1.1cm}Q{1.0cm}Q{1.32cm}Q{1.35cm}Q{1.05cm}@{}}
 \toprule
-\textbf{Mô hình (MIND-small)} & \textbf{Học?} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{Cold AUC} & \textbf{Nguồn}\\
+\textbf{Mô hình (MIND-small)} & \textbf{Huấn luyện?} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{Cold AUC} & \textbf{Nguồn}\\
 \midrule
 NRMS, seed 0 & có & 0.6392 & 0.3937 & 0.6471 & v7\\
 NRMS, seed 1 & có & 0.6501 & 0.4005 & 0.6630 & v7\\
 NAML & có & 0.6471 & 0.4006 & 0.6698 & v7\\
 Fastformer (trung bình 2 seed) & có & 0.6426 & 0.3927 & 0.6623 & v13\\
-NRMS refit (học thêm các ngày validation) & có & 0.6555 & 0.4078 & 0.6700 & v7\\
+NRMS refit (học gộp thêm ngày validation) & có & 0.6555 & 0.4078 & 0.6700 & v7\\
 Fastformer refit & có & 0.6550 & 0.4033 & 0.6767 & v13\\
 \midrule
 BGE-small + LSE (H8) & không & 0.6386 & 0.4037 & 0.6675 & v7\\
@@ -628,21 +592,20 @@ Qwen3 + chuyên mục + LSE (F, H8) & không & 0.6556 & \textbf{0.4094} & 0.6637
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item LSE hơn NRMS seed 0 (+0.010) và Fastformer (+0.011), ngang NAML và NRMS seed 1 (+0.003; hai seed NRMS lệch nhau 0.0068); thua NRMS refit $-0.0041\ [-0.0061, -0.0021]$.
-  \item Qwen3 + chuyên mục + LSE ngang NRMS refit (+0.0016, CI chứa 0), hơn Fastformer refit $+0.0061\ [+0.0022, +0.0100]$.
+  \item LSE vượt NRMS seed 0 (+0.010) và Fastformer (+0.011), tương đương NAML và NRMS seed 1 (+0.003; hai seed NRMS lệch nhau 0.0068); kém NRMS refit $-0.0041\ [-0.0061, -0.0021]$.
+  \item Qwen3 + chuyên mục + LSE ngang với NRMS refit (+0.0016, CI chứa 0) và vượt Fastformer refit $+0.0061\ [+0.0022, +0.0100]$.
 \end{itemize}
-\ghichu{GloVe-300, công thức bài gốc. V10 cũ: NRMS 0.3685, NAML 0.3953, Fastformer 0.3642. Bài báo (thứ cấp): NRMS 0.410--0.412, NAML 0.412--0.415.}
-\ychinh{(RQ1) embedding cố định + LSE \textbf{ngang} NRMS, NAML, Fastformer học lại; chỉ NRMS refit hơn.}
+\ghichu{Dùng GloVe-300 theo đúng bài báo gốc. Kết quả bản cũ V10: NRMS 0.3685, NAML 0.3953, Fastformer 0.3642. Số liệu tham khảo từ các bài báo: NRMS 0.410--0.412, NAML 0.412--0.415.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đây là câu trả lời đầy đủ cho RQ1. Cả ba baseline NRMS, NAML, Fastformer đều được huấn luyện lại theo công thức bài gốc với GloVe. Embedding cố định cộng LSE, không học tham số nào, ngang các baseline huấn luyện một lần; chỉ NRMS khi được học thêm các ngày validation là còn hơn. Bản zero-shot tốt nhất, Qwen3 cộng chuyên mục cộng LSE, ngang NRMS refit và hơn Fastformer refit có ý nghĩa thống kê.}
 \end{frame}
 
 %% ============================================================================ RQ2 encoder sweep
-\begin{frame}[shrink]{RQ2 \textperiodcentered{} Bộ mã hóa lớn hơn không giúp mean pooling}
+\begin{frame}[shrink]{RQ2 \textperiodcentered{} Tăng kích thước bộ mã hóa không cải thiện được mean pooling}
 \begin{columns}[T,onlytextwidth]
 \column{0.53\textwidth}
 \scriptsize
-Cố định cách tổng hợp là mean pooling, đổi bộ mã hóa (MIND-small):\par\vspace{2pt}
+Giữ cố định phép gộp mean pooling, thay đổi bộ mã hóa (MIND-small):\par\vspace{2pt}
 \renewcommand{\arraystretch}{1.18}
 \setlength{\tabcolsep}{4pt}
 \begin{tabularx}{\linewidth}{@{}YQ{1.35cm}R{1.85cm}@{}}
@@ -661,13 +624,12 @@ BGE-large (1024) & 0.3924 & $+0.0015$ (n.s.)\\
 \footnotesize
 \begin{itemize}
   \setlength{\itemsep}{3pt}
-  \item Tăng khoảng 10 lần số tham số (BGE-small $\to$ BGE-large) chỉ được +0.0015, không có ý nghĩa; BGE-base còn kém BGE-small.
-  \item Trên MIND-large, khi làm đầu vào cho reader, BGE-large (335M tham số) vẫn hơn Qwen3-Embedding-0.6B: $+0.0102\ [+0.0095, +0.0108]$.
-  \item MIND-large, v18a: \textbf{Qwen3-Embedding-4B} làm đầu vào reader chỉ ngang bản 0.6B ($+0.0006$) và kém BGE-large ($-0.005$ đến $-0.009$).
-  \item Khoảng cách tới NRMS refit (0.4078) nằm ở \textbf{cách tổng hợp}: mean pooling chia đều mọi bài đã đọc, còn NRMS học attention để lọc nhiễu.
+  \item Tăng gấp $\sim$10 lần số tham số (BGE-small $\to$ BGE-large) chỉ tăng +0.0015 (n.s.); BGE-base thậm chí thấp hơn BGE-small.
+  \item Trên MIND-large, khi làm đầu vào cho reader, BGE-large (335M tham số) vẫn vượt Qwen3-Embedding-0.6B: $+0.0102\ [+0.0095, +0.0108]$.
+  \item Trên MIND-large (v18a): \textbf{Qwen3-Embedding-4B} làm đầu vào reader chỉ ngang bản 0.6B ($+0.0006$) và kém BGE-large ($-0.005$ đến $-0.009$).
+  \item Khoảng cách tới NRMS refit (0.4078) nằm ở \textbf{tầng tổng hợp lịch sử}: mean pooling cào bằng mọi bài đã đọc, trong khi NRMS học trọng số attention để lọc nhiễu.
 \end{itemize}
 \end{columns}
-\ychinh{(RQ2) điểm nghẽn là tầng tổng hợp lịch sử đọc, không phải kích thước bộ mã hóa. Vì vậy phần 5 bắt đầu từ H8 và H10.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Nếu LLM lớn hơn tự động tốt hơn thì Qwen3 0.6B phải hơn BGE-small; thực tế ngược lại. Tăng kích thước BGE lên 10 lần cũng gần như không đổi. Vậy phần đáng cải thiện là cách gộp lịch sử đọc thành điểm số, và đó là chỗ H8, H10 tác động.}
 \end{frame}
@@ -675,7 +637,7 @@ BGE-large (1024) & 0.3924 & $+0.0015$ (n.s.)\\
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Các hướng thành công}
 %% ============================================================================ H8 trực giác
-\begin{frame}[shrink]{H8 \textperiodcentered{} Vì sao mean pooling làm loãng sở thích ngách}
+\begin{frame}[shrink]{H8 \textperiodcentered{} Vì sao mean pooling làm loãng các sở thích ngách}
 \scriptsize
 \[
 s_{\mathrm{mean}}(u,c)=\frac{1}{|\mathcal H_u|}\sum_{i\in\mathcal H_u}\langle\mathbf v_i,\mathbf v_c\rangle
@@ -692,23 +654,22 @@ s_{\mathrm{LSE}}(u,c)=\tau\Big(\log\sum_{i\in\mathcal H_u}\exp\big(\langle\mathb
   Ứng viên là bài tài chính: $s_{\mathrm{mean}}=\frac{40\cdot0.1+5\cdot0.8}{45}\approx\mathbf{0.178}$: bị 40 bài thể thao lấn át.};
 \node[pane,draw=okc,fill=okc!5,thick] (R) at (6.75,0) {%
   {\bfseries\color{okc}LSE (smooth-max, ví dụ $\tau=0.1$)}\par\vspace{3pt}
-  Khuếch đại theo hàm mũ $\exp(\langle\mathbf v_i,\mathbf v_c\rangle/\tau)$ trước khi cộng, nên vài bài rất giống ứng viên chiếm ưu thế.\par
+  Khuếch đại theo hàm mũ $\exp(\langle\mathbf v_i,\mathbf v_c\rangle/\tau)$ trước khi cộng, giúp vài bài khớp chủ đề chiếm ưu thế.\par
   Cùng ứng viên: $s_{\mathrm{LSE}}\approx\mathbf{0.58}$: giữ được sở thích ngách.};
 \end{tikzpicture}
 \end{center}
 \vspace{-4pt}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item Độc giả đọc nhiều chủ đề: độ tương đồng cao với vài bài cùng chủ đề bị chia nhỏ theo hệ số $1/|\mathcal H_u|$.
-  \item LSE nằm giữa trung bình ($\tau$ lớn) và MaxSim ($\tau\to0$); $\tau$ thực tế chọn trên validation (số trong hai khung chỉ là ví dụ). Top-k (trung bình $k$ bài giống nhất) có cùng ý tưởng.
+  \item Độc giả thường đọc nhiều chủ đề: độ tương đồng cao với một vài bài cùng chủ đề bị chia nhỏ bởi hệ số $1/|\mathcal H_u|$.
+  \item LSE nội suy mượt giữa trung bình cộng ($\tau$ lớn) và MaxSim ($\tau\to0$); $\tau$ thực tế được chọn trên tập validation. Phép gộp Top-k (trung bình $k$ bài giống nhất) hoạt động theo cùng nguyên lý.
 \end{itemize}
-\ychinh{H8 không thêm tham số học nào; chỉ thay cách gộp các độ tương đồng giữa ứng viên và từng bài đã đọc.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Ví dụ: độc giả đọc 40 bài thể thao và 5 bài tài chính. Với ứng viên tài chính, mean pooling cho điểm thấp vì 40 bài thể thao kéo trung bình xuống. LSE khuếch đại các bài rất giống ứng viên nên giữ được sở thích ngách. Đây là thay đổi không có tham số học.}
 \end{frame}
 
 %% ============================================================================ H8 kết quả
-\begin{frame}[shrink]{H8 \textperiodcentered{} Kết quả: LSE và top-k tăng ổn định, không cần huấn luyện}
+\begin{frame}[shrink]{H8 \textperiodcentered{} Kết quả: LSE và top-k cải thiện ổn định, không cần huấn luyện}
 \scriptsize
 \renewcommand{\arraystretch}{1.05}
 \setlength{\tabcolsep}{4pt}
@@ -718,26 +679,25 @@ s_{\mathrm{LSE}}(u,c)=\tau\Big(\log\sum_{i\in\mathcal H_u}\exp\big(\langle\mathb
 (không tham số) & & BGE-small & BGE-large & so với mean pooling\\
 \midrule
 \code{frozen} (đối chứng) & trung bình mọi bài đã đọc & 0.3909 & 0.3933 & mốc\\
-\code{pool\_recency} & trọng số giảm theo thời gian & 0.3917 & 0.3933 & $-0.0000\ [-0.0002, +0.0001]$\\
+\code{pool\_recency} & trọng số giảm dần theo thời gian & 0.3917 & 0.3933 & $-0.0000\ [-0.0002, +0.0001]$\\
 \code{pool\_maxsim} & chỉ lấy bài giống nhất ($k=1$) & 0.3941 & 0.3916 & $-0.0017\ [-0.0025, -0.0009]$\\
-\code{pool\_km5} (H11) & gom lịch sử thành 5 cụm & 0.4007 & 0.4023 & $+0.0090\ [+0.0085, +0.0094]$\\
+\code{pool\_km5} (H11) & phân cụm lịch sử thành 5 tâm & 0.4007 & 0.4023 & $+0.0090\ [+0.0085, +0.0094]$\\
 \textbf{\code{pool\_topk}} & \textbf{trung bình $k$ bài giống nhất} & \textbf{0.4016} & \textbf{0.4045} & $\mathbf{+0.0111}\ [+0.0105, +0.0118]$\\
 \textbf{\code{pool\_lse}} & \textbf{smooth-max (LogSumExp)} & \textbf{0.4037} & \textbf{0.4047} & $\mathbf{+0.0113}\ [+0.0107, +0.0119]$\\
 \bottomrule
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item Lặp lại trên Qwen3-Embedding (MIND-large): top-k +0.0143, LSE +0.0130. Cold AUC của LSE cũng tăng (BGE-large 0.6632 $\to$ 0.6713).
-  \item MaxSim cứng nhạy với các click nhiễu đơn lẻ; K-Means luôn nằm giữa mean pooling và LSE (xem H11).
+  \item Nhất quán trên Qwen3-Embedding (MIND-large): top-k +0.0143, LSE +0.0130. Cold AUC của LSE cũng tăng rõ (BGE-large: 0.6632 $\to$ 0.6713).
+  \item MaxSim cứng ($k=1$) dễ bị nhiễu bởi một lượt click ngẫu nhiên; K-Means luôn nằm giữa mean pooling và LSE (xem H11).
   \item Trên MIND-small, LSE thu hẹp khoảng 3/4 khoảng cách giữa BGE-small mean pooling (0.3909) và NRMS refit (0.4078).
 \end{itemize}
-\ychinh{\OK\ tăng ổn định trên 2 encoder, 2 quy mô, không tốn tham số; từ đây LSE là \emph{đối chứng mạnh}.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Trên cả hai quy mô và hai bộ mã hóa, LSE và top-k đều tăng khoảng 0.011 đến 0.014 nDCG@10 mà không học gì thêm. MaxSim cứng thì giảm vì quá nhạy với một click nhiễu. Từ đây, LSE được dùng làm đối chứng mạnh: một hướng mới phải hơn LSE mới được coi là có ích.}
 \end{frame}
 
 %% ============================================================================ H8 so với attention học được
-\begin{frame}[shrink]{H8 so với attention học được trên cùng vector cố định}
+\begin{frame}[shrink]{H8 so với các tầng attention có huấn luyện trên cùng vector cố định}
 \scriptsize
 \renewcommand{\arraystretch}{1.02}
 \setlength{\tabcolsep}{4pt}
@@ -750,42 +710,41 @@ s_{\mathrm{LSE}}(u,c)=\tau\Big(\log\sum_{i\in\mathcal H_u}\exp\big(\langle\mathb
 mean pooling & không & 0.3909 & 0.3784 & 0.3933 & 0.3787\\
 \textbf{LSE (H8)} & không & \textbf{0.4037} & 0.3912 & 0.4047 & 0.3916\\
 \midrule
-reader kiểu NRMS & có & 0.3862 & -- & -- & --\\
-reader kiểu Fastformer & có & 0.3939 & 0.3944 & -- & --\\
+reader kiến trúc NRMS & có & 0.3862 & -- & -- & --\\
+reader kiến trúc Fastformer & có & 0.3939 & 0.3944 & -- & --\\
 reader $K=4$ truy vấn (H11) & có & 0.3944 & \textbf{0.4029} & -- & --\\
 reader theo ứng viên (H10) & có & 0.3968 & 0.3996 & 0.4152 & 0.4050\\
 reader theo ứng viên + kNN & có & 0.4033 & -- & \textbf{0.4189} & \textbf{0.4095}\\
 \bottomrule
 \end{tabularx}
-\ghichu{Test nDCG@10, cùng bảng embedding cố định. Trung bình 2--3 seed (kiểu NRMS, + kNN trên MIND-small: 1 seed). Nguồn v7, v13, v16b; ``--'': chưa chạy hoặc log không ghi.}
+\ghichu{Test nDCG@10 trên cùng bảng embedding cố định. Trung bình 2--3 seed (riêng NRMS reader và + kNN trên MIND-small chạy 1 seed). Nguồn: v7, v13, v16b; ``--'': không chạy thực nghiệm.}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item \textbf{BGE-small, MIND-small:} LSE hơn mọi reader học được, +0.007 đến +0.018 (reader + kNN chỉ ngang).
-  \item \textbf{Qwen3 hoặc MIND-large:} reader theo ứng viên hơn LSE, +0.008 đến +0.013.
-  \item Kiểu attention ít quan trọng hơn encoder và lượng dữ liệu; reader kiểu NAML chưa chạy riêng.
+  \item \textbf{BGE-small, MIND-small:} LSE vượt mọi biến thể reader có huấn luyện từ +0.007 đến +0.018 (bản reader + kNN chỉ tương đương).
+  \item \textbf{Qwen3 hoặc MIND-large:} reader theo ứng viên vượt LSE từ +0.008 đến +0.013.
+  \item Kiến trúc attention cụ thể ít ảnh hưởng hơn lựa chọn bộ mã hóa và quy mô dữ liệu huấn luyện.
 \end{itemize}
-\ychinh{trong nhóm không tham số, LSE tốt nhất; so với attention học được thì tùy encoder và lượng dữ liệu.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide này trả lời câu hỏi: LSE có thắng được attention học được không. Trên cùng vector cố định, nhóm thử reader kiểu NRMS, kiểu Fastformer, nhiều truy vấn và theo ứng viên. Với BGE-small trên MIND-small, LSE thắng tất cả. Nhưng với Qwen3, và khi có nhiều dữ liệu ở MIND-large, reader theo ứng viên thắng LSE. Kiểu attention cụ thể không quan trọng bằng encoder và lượng dữ liệu. Ví dụ trên BGE-small, LSE hơn reader 4 truy vấn $+0.0093$, CI $[+0.0075, +0.0112]$; với Qwen3 trên MIND-small, cả hai seed của reader theo ứng viên đều trên LSE. Hệ thống cuối vì vậy dùng cả hai: reader làm nền, LSE làm thành phần phụ. Reader kiểu NAML chưa được chạy riêng; NAML chỉ được chạy như baseline đầy đủ ở phần RQ1.}
 \end{frame}
 
 %% ============================================================================ H10 thiết kế
-\begin{frame}[shrink]{H10 \textperiodcentered{} Reader: dùng ứng viên làm câu hỏi để đọc lịch sử}
+\begin{frame}[shrink]{H10 \textperiodcentered{} Reader theo ứng viên: dùng ứng viên làm truy vấn đọc lịch sử}
 \begin{columns}[T,onlytextwidth]
 \column{0.57\textwidth}
 \scriptsize
-Tầng nhẹ có huấn luyện, đặt trên bảng embedding cố định $\mathbf E$:
+Tầng mạng nhẹ có huấn luyện đặt trên bảng embedding cố định $\mathbf E$:
 \begin{itemize}
   \setlength{\itemsep}{2pt}
-  \item \textbf{Reader theo ứng viên} (\code{um\_frozen}, \code{um\_knn\_rag}): chiếu vector qua MLP hai tầng, $\mathbf h_i=f(\mathbf E_{\mathrm{hist},i})$, $\mathbf c=f(\mathbf E_{\mathrm{cand}})$, rồi dùng $\mathbf c$ làm truy vấn:
+  \item \textbf{Reader theo ứng viên} (\code{um\_frozen}, \code{um\_knn\_rag}): chiếu vector qua MLP hai tầng, $\mathbf h_i=f(\mathbf E_{\mathrm{hist},i})$, $\mathbf c=f(\mathbf E_{\mathrm{cand}})$, rồi dùng $\mathbf c$ làm truy vấn (query):
   \[
   \alpha_i=\mathrm{softmax}_i\!\Big(\tfrac{\langle\mathbf W_c\mathbf c,\mathbf h_i\rangle}{\sqrt d}\Big),\quad
   s_{\mathrm{CA}}(u,c)=\Big\langle\textstyle\sum_i\alpha_i\mathbf h_i,\ \mathbf c\Big\rangle .
   \]
-  \item \textbf{Reader nén một vector} (\code{um\_nrms}, \code{um\_ff}): khối NRMS hoặc Fastformer nén cả lịch sử thành một vector $\mathbf u$ trước khi biết ứng viên.
-  \item \textbf{Prior} (\code{um\_prior}): chỉ nhìn bài báo; làm đặc trưng cho GBDT.
+  \item \textbf{Reader nén một vector} (\code{um\_nrms}, \code{um\_ff}): dùng khối NRMS hoặc Fastformer nén toàn bộ lịch sử thành một vector $\mathbf u$ duy nhất trước khi xét đến ứng viên.
+  \item \textbf{Item prior} (\code{um\_prior}): chỉ dựa vào biểu diễn bài báo, dùng làm đặc trưng cho GBDT.
 \end{itemize}
-Huấn luyện: softmax trên bài được click và các bài không được click cùng lượt:
+Hàm mất mát: cross-entropy với softmax trên bài được click và các mẫu âm (negative) trong cùng lượt hiển thị:
 \[
 \mathcal L=-\log\frac{\exp s(u,c^+)}{\exp s(u,c^+)+\sum_{c^-}\exp s(u,c^-)} .
 \]
@@ -805,11 +764,11 @@ Huấn luyện: softmax trên bài được click và các bài không được 
 \end{frame}
 
 %% ============================================================================ H10 kết quả
-\begin{frame}[shrink]{H10 \textperiodcentered{} Reader theo ứng viên hơn LSE trên MIND-large và trên Qwen3}
+\begin{frame}[shrink]{H10 \textperiodcentered{} Reader theo ứng viên vượt LSE trên MIND-large và trên Qwen3}
 \begin{columns}[T,onlytextwidth]
 \column{0.53\textwidth}
 \scriptsize
-\textbf{Reader theo ứng viên so với LSE, cùng encoder} (test nDCG@10):\par\vspace{2pt}
+\textbf{Reader theo ứng viên so với LSE trên cùng encoder} (test nDCG@10):\par\vspace{2pt}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{@{}YQ{1.05cm}Q{1.15cm}R{1.3cm}@{}}
@@ -820,81 +779,78 @@ MIND-small, BGE-small & 0.4037 & 0.3968 & $-0.0069$\\
 MIND-small, Qwen3 & 0.3912 & 0.3996 & $+0.0084$\\
 MIND-large, BGE-large & 0.4047 & 0.4152 & $\mathbf{+0.0105}$\\
 MIND-large, Qwen3 & 0.3916 & 0.4050 & $\mathbf{+0.0134}$\\
-MIND-large, vector nối & -- & \textbf{0.4223} & --\\
+MIND-large, vector concat & -- & \textbf{0.4223} & --\\
 \bottomrule
 \end{tabularx}
-\ghichu{Reader: trung bình 3 seed (BGE-small) hoặc 2 seed; hai seed lệch nhau 0.001--0.013. $\Delta$ của BGE-large là ghép cặp (v16b); các $\Delta$ khác tính từ hai con số.}
+\ghichu{Reader: trung bình 3 seed (BGE-small) hoặc 2 seed; độ lệch giữa hai seed từ 0.001--0.013. $\Delta$ của BGE-large là so sánh bắt cặp (v16b); các $\Delta$ khác tính từ hiệu hai giá trị trung bình.}
 \column{0.44\textwidth}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{2pt}
-  \item Với BGE-small và ít dữ liệu, reader chưa hơn LSE. Với Qwen3, hoặc trên MIND-large (dữ liệu gấp khoảng 14 lần), reader hơn LSE.
-  \item Trên vector nối hai encoder, reader đạt \textbf{0.4223}; bản có kNN (\code{cat:um\_knn\_rag}) là nền của hệ thống.
+  \item Với BGE-small và lượng dữ liệu ít (MIND-small), reader chưa vượt được LSE. Với Qwen3 hoặc trên MIND-large (dữ liệu gấp $\sim$14 lần), reader vượt rõ LSE.
+  \item Khi đặt trên vector concat hai encoder, reader đạt \textbf{0.4223}; biến thể kết hợp kNN (\code{cat:um\_knn\_rag}) trở thành thành phần nòng cốt của hệ thống.
 \end{itemize}
-\begin{alertblock}{Cảnh báo validation ấm}
-\scriptsize Lần chạy v14 (Qwen3), so với mean pooling: reader + kNN \textbf{+0.0653} trên validation nhưng chỉ \textbf{+0.0302} trên test.
+\begin{alertblock}{Lưu ý hiện tượng validation ``ấm''}
+\scriptsize Ở lần chạy v14 (Qwen3), so với mean pooling: reader + kNN tăng \textbf{+0.0653} trên validation nhưng chỉ tăng \textbf{+0.0302} trên tập test.
 \end{alertblock}
 \end{columns}
-\ychinh{\OK\ H10 hơn LSE trên MIND-large (+0.0105 đến +0.0134) và trên Qwen3, là thành phần mạnh nhất của hệ thống. Với BGE-small trên MIND-small thì chưa hơn LSE.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Kết quả của H10 phụ thuộc encoder và lượng dữ liệu. Với BGE-small trên MIND-small, reader chưa hơn LSE. Với Qwen3, reader đã hơn LSE ngay trên MIND-small; và trên MIND-large, với khoảng 14 lần dữ liệu, reader hơn LSE trên cả hai encoder và trở thành thành phần chính của hệ thống. Cần nhớ validation thổi phồng lợi ích của reader, nên mọi kết luận ở đây dựa trên test.}
 \end{frame}
 
 %% ============================================================================ Không gian biểu diễn + H3
-\begin{frame}[shrink]{Không gian biểu diễn: ghép hai encoder; kNN chủ yếu giúp bài mới}
+\begin{frame}[shrink]{Không gian biểu diễn: kết hợp hai encoder; kNN chủ yếu hỗ trợ bài mới}
 \begin{columns}[T,onlytextwidth]
 \column{0.55\textwidth}
 \scriptsize
-Test nDCG@10 trên MIND-large, trung bình 2 seed, cùng đầu reader 128 chiều:\par\vspace{2pt}
+Test nDCG@10 trên MIND-large, trung bình 2 seed, cùng kiến trúc reader 128 chiều:\par\vspace{2pt}
 \renewcommand{\arraystretch}{1.18}
 \begin{tabularx}{\linewidth}{@{}Yccc@{}}
 \toprule
-\textbf{Reader} & \textbf{Qwen3} & \textbf{BGE-large} & \textbf{Nối (2048)}\\
+\textbf{Reader} & \textbf{Qwen3} & \textbf{BGE-large} & \textbf{Concat (2048)}\\
 \midrule
 theo ứng viên (\code{um\_frozen}) & 0.4050 & 0.4152 & \textbf{0.4223}\\
 + kNN (\code{um\_knn\_rag}, H3) & 0.4095 & 0.4189 & \textbf{0.4226}\\
-đọc văn bản có chuyên mục (\code{um\_text}) & 0.4092 & -- & --\\
+văn bản kèm chuyên mục (\code{um\_text}) & 0.4092 & -- & --\\
 \bottomrule
 \end{tabularx}
-\ghichu{Vector nối: $\mathbf e=[\mathbf e_{\mathrm{Qwen3}}\,\Vert\,\mathbf e_{\mathrm{BGE}}]/\sqrt2$. kNN: $\mathbf e'_c=\mathrm{Norm}\big(\mathbf e_c+\beta\,\mathrm{Norm}(\sum_{j\in\mathcal N_k(c)}s_{cj}\mathbf e_j)\big)$, chỉ dùng các bài có trước thời điểm đánh giá. Hai seed của cùng reader lệch 0.001--0.008.}
+\ghichu{Vector concat: $\mathbf e=[\mathbf e_{\mathrm{Qwen3}}\,\Vert\,\mathbf e_{\mathrm{BGE}}]/\sqrt2$. kNN: $\mathbf e'_c=\mathrm{Norm}\big(\mathbf e_c+\beta\,\mathrm{Norm}(\sum_{j\in\mathcal N_k(c)}s_{cj}\mathbf e_j)\big)$, chỉ truy hồi các bài xuất hiện trước thời điểm đánh giá. Hai seed của cùng reader lệch 0.001--0.008.}
 \column{0.42\textwidth}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{3pt}
-  \item BGE-large hơn Qwen3 $+0.0102\ [+0.0095, +0.0108]$; vector nối hơn BGE-large $+0.0071\ [+0.0066, +0.0076]$: \textbf{đa dạng hai không gian} có ích hơn kích thước.
-  \item kNN trong reader: +0.0045 (Qwen3), +0.0037 (BGE-large), nhưng trên vector nối chỉ $+0.0003\ [-0.0001, +0.0007]$; Cold AUC vẫn tăng +0.0088.
-  \item RAG dùng thẳng, không qua reader (BGE-large, so với mean pooling): thực thể $-0.0105$, kNN $-0.0017$, GraphRAG $-0.0079$.
-  \item Huấn luyện reader trên đủ 2.71 triệu mẫu, 6 epoch (v18b, v19a): vector nối + kNN \textbf{0.4316} ($+0.0091$), BGE-large $+0.0099$; đưa vào hệ thống chỉ thêm $+0.0006$ (hợp nhất) đến $+0.0016$ (GBDT).
+  \item BGE-large vượt Qwen3 $+0.0102\ [+0.0095, +0.0108]$; nối (concat) hai vector vượt BGE-large $+0.0071\ [+0.0066, +0.0076]$: \textbf{sự đa dạng giữa hai không gian biểu diễn} quan trọng hơn kích thước đơn lẻ.
+  \item Làm giàu bằng kNN trong reader: +0.0045 (Qwen3), +0.0037 (BGE-large), nhưng trên vector concat chỉ tăng $+0.0003\ [-0.0001, +0.0007]$; dù vậy Cold AUC vẫn tăng +0.0088.
+  \item Áp dụng RAG trực tiếp không qua reader (BGE-large, so với mean pooling): thực thể $-0.0105$, kNN $-0.0017$, GraphRAG $-0.0079$.
+  \item Huấn luyện reader trên toàn bộ 2.71 triệu mẫu trong 6 epoch (v18b, v19a): vector concat + kNN đạt \textbf{0.4316} ($+0.0091$), BGE-large $+0.0099$; khi đưa vào hệ thống tổng thể chỉ tăng thêm $+0.0006$ (kết hợp tuyến tính) đến $+0.0016$ (GBDT).
 \end{itemize}
 \end{columns}
-\ychinh{\PART\ H3: kNN chỉ có ích khi đi qua reader và chủ yếu ở bài mới; vector nối hai encoder là không gian tốt nhất cho reader.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bảng cho thấy ba điều. BGE-large tốt hơn Qwen3 khi làm đầu vào cho reader, và ghép hai encoder còn tốt hơn nữa. kNN giúp trên từng encoder nhưng gần như hết tác dụng trên vector nối, dù vẫn tăng Cold AUC. Còn dùng RAG trực tiếp không qua reader thì đều giảm.}
 \end{frame}
 
 %% ============================================================================ F
-\begin{frame}[shrink]{F \textperiodcentered{} Thêm chuyên mục vào văn bản: giúp Qwen3, không giúp BGE}
+\begin{frame}[shrink]{F \textperiodcentered{} Đưa chuyên mục vào văn bản: cải thiện Qwen3, không cải thiện BGE}
 \scriptsize
-MIND không có toàn văn: tóm tắt trung bình 34.9 từ (5.2\% rỗng), tiêu đề 10.7 từ; 18 chuyên mục, 270 chuyên mục con.
-Mẫu \code{cta}: \code{"Category: \{cat\}. Subcategory: \{subcat\}. \{title\}. \{abstract\}"}.\par\vspace{1pt}
+Dữ liệu MIND không có toàn văn: tóm tắt (abstract) trung bình 34.9 từ (5.2\% bị trống), tiêu đề 10.7 từ; gồm 18 chuyên mục chính và 270 chuyên mục con.
+Mẫu định dạng \code{cta}: \code{"Category: \{cat\}. Subcategory: \{subcat\}. \{title\}. \{abstract\}"}.\par\vspace{1pt}
 \renewcommand{\arraystretch}{1.07}
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
-\textbf{Thay đổi văn bản ($\Delta$ nDCG@10 so với LSE cùng encoder)} & \textbf{Qwen3, small} & \textbf{BGE, small} & \textbf{Qwen3, large} & \textbf{BGE, large}\\
+\textbf{Biến thể văn bản ($\Delta$ nDCG@10 so với LSE cùng encoder)} & \textbf{Qwen3, small} & \textbf{BGE, small} & \textbf{Qwen3, large} & \textbf{BGE, large}\\
 \midrule
-chỉ tiêu đề (bỏ tóm tắt) & $-0.0321$ & $-0.0161$ & -- & --\\
+chỉ dùng tiêu đề (bỏ tóm tắt) & $-0.0321$ & $-0.0161$ & -- & --\\
 + chuyên mục (\code{cta}) & $\mathbf{+0.0182}$ & $+0.0013$ & $\mathbf{+0.0186}$ & $-0.0024$\\
 + tên thực thể (\code{ctae} so với \code{cta}) & -- & $+0.0033$ & -- & --\\
-lịch sử 100 click thay vì 50 & $+0.0013$ & $+0.0011$ & -- & --\\
+mở rộng lịch sử 100 click thay vì 50 & $+0.0013$ & $+0.0011$ & -- & --\\
 \bottomrule
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item Qwen3: validation cùng chiều với test (+0.0129 và +0.0182); BGE: validation ngược chiều ($-0.0096$), không ổn định.
-  \item Phần tăng của Qwen3 nằm ở bài đã biết (Warm AUC 0.4939 $\to$ 0.6180); Cold AUC gần như không đổi (+0.0005, n.s.); với BGE-large, Cold AUC giảm $-0.0277$.
-  \item Tóm tắt rất quan trọng (bỏ đi: $-0.016$ đến $-0.032$); lịch sử dài hơn gần như không giúp.
+  \item Qwen3: kết quả validation đồng nhất với test (+0.0129 và +0.0182); BGE: validation ngược chiều với test ($-0.0096$), kém ổn định.
+  \item Mức tăng của Qwen3 tập trung ở các bài báo cũ (Warm AUC tăng từ 0.4939 $\to$ 0.6180); Cold AUC gần như không đổi (+0.0005, n.s.); với BGE-large, Cold AUC giảm $-0.0277$.
+  \item Phần tóm tắt đóng vai trò rất quan trọng (loại bỏ làm giảm $-0.016$ đến $-0.032$); kéo dài lịch sử đọc hầu như không mang lại khác biệt.
 \end{itemize}
-\ychinh{\PART\ F giúp encoder nhận chỉ dẫn dạng văn bản (Qwen3), không giúp BGE, không giúp bài mới; \code{qwen3:txt\_cta\_lse} vẫn là thành phần zero-shot mạnh nhất.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Nhóm kiểm tra xem dùng thêm trường dữ liệu có giúp không. Chuyên mục giúp Qwen3 khoảng 0.018 ở cả hai quy mô, nhưng không giúp BGE, và phần tăng nằm ở bài đã biết chứ không ở bài mới. Tóm tắt thì rất quan trọng; lịch sử dài hơn gần như không đổi.}
 \end{frame}
@@ -902,72 +858,70 @@ lịch sử 100 click thay vì 50 & $+0.0013$ & $+0.0011$ & -- & --\\
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Các hướng không thành công}
 %% ============================================================================ H2 + H12
-\begin{frame}[shrink]{H2, H12 \textperiodcentered{} Tinh chỉnh bộ mã hóa không mang lại lợi ích rõ}
+\begin{frame}[shrink]{H2, H12 \textperiodcentered{} Tinh chỉnh (fine-tune) bộ mã hóa chưa mang lại lợi ích rõ rệt}
 \scriptsize
-\textbf{H2} (MIND-small): LoRA / DoRA cho encoder, Matryoshka InfoNCE, hard negative từ impression, học trên cặp bài cùng được click:
-\textbf{+0.0016 đến +0.0029} nDCG@10 so với mean pooling, Cold AUC giảm; thêm head MLP $-0.005$.\par\vspace{3pt}
-\textbf{H12} (MIND-large, v17): cache trạng thái ẩn tầng 22 của BGE-large (fp16 $\approx$ 20.5 GB), mở khóa 2 tầng cuối, huấn luyện cùng reader 18.000 bước;
-nhánh đối chứng giữ đóng băng, cùng số bước, cùng thứ tự mẫu.\par\vspace{3pt}
+\textbf{H2} (MIND-small): áp dụng LoRA / DoRA cho encoder với hàm mất mát Matryoshka InfoNCE, lấy hard negative từ cùng impression và học trên các cặp bài đồng click:
+chỉ đạt \textbf{+0.0016 đến +0.0029} nDCG@10 so với mean pooling, trong khi Cold AUC giảm; gắn thêm head MLP làm giảm $-0.005$.\par\vspace{3pt}
+\textbf{H12} (MIND-large, v17): lưu cache trạng thái ẩn tại tầng 22 của BGE-large (fp16 $\approx$ 20.5 GB), mở khóa 2 tầng cuối và huấn luyện đồng thời với reader trong 18.000 bước;
+nhánh đối chứng giữ đóng băng hoàn toàn, chạy cùng số bước và cùng thứ tự mẫu.\par\vspace{3pt}
 \renewcommand{\arraystretch}{1.07}
 \begin{tabularx}{\textwidth}{@{}lYcccc@{}}
 \toprule
 \textbf{Nhánh} & \textbf{BGE-large} & \textbf{Val (trọng số bài mới)} & \textbf{Test AUC} & \textbf{Test nDCG@10} & \textbf{Cold AUC}\\
 \midrule
-\code{ft\_base} (đối chứng) & giữ đóng băng & 0.4476 & 0.6736 & 0.4208 & 0.6883\\
+\code{ft\_base} (đối chứng) & đóng băng hoàn toàn & 0.4476 & 0.6736 & 0.4208 & 0.6883\\
 \code{ft\_reader} & mở khóa 2 tầng cuối & 0.4480 & 0.6710 & 0.4213 & 0.6814\\
 \bottomrule
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item $\Delta$ nDCG@10 $=+0.0005\ [-0.0001, +0.0010]$: không có ý nghĩa; $\Delta$ Cold AUC $=-0.0069\ [-0.0074, -0.0065]$.
-  \item Cổng dừng đăng ký trước khi chạy yêu cầu ít nhất +0.006: \textbf{không qua}. Có thể mô hình khớp vào bài cũ và mất tính tổng quát cho bài mới (chưa kiểm chứng trực tiếp).
+  \item $\Delta$ nDCG@10 $=+0.0005\ [-0.0001, +0.0010]$: không có ý nghĩa thống kê; $\Delta$ Cold AUC $=-0.0069\ [-0.0074, -0.0065]$.
+  \item Không vượt qua ngưỡng dừng đặt trước (+0.006). Hiện tượng giảm Cold AUC gợi ý encoder có thể đã khớp quá mức vào phân phối bài cũ và giảm khả năng tổng quát hóa trên bài mới.
 \end{itemize}
-\ychinh{\FAIL\ H2 và H12, trong ngân sách đã thử: lợi ích nDCG không đáng kể, còn Cold AUC giảm.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đây là thí nghiệm gần nhất với cách làm của PLM-NR: mở khóa hai tầng cuối của BGE-large và huấn luyện cùng reader, có nhánh đối chứng đóng băng chạy cùng điều kiện. Kết quả gần như bằng nhau, Cold AUC còn giảm, và không qua ngưỡng +0.006 đã đặt trước. Vì vậy nhóm không đưa tinh chỉnh vào hệ thống cuối.}
 \end{frame}
 
 %% ============================================================================ H5
-\begin{frame}[shrink]{H5 \textperiodcentered{} Tháp người dùng LLM (LoRA): hơn LSE khi học lâu hơn, vẫn kém reader}
+\begin{frame}[shrink]{H5 \textperiodcentered{} User Tower LLM (LoRA): vượt LSE khi học lâu hơn, nhưng vẫn kém reader}
 \scriptsize
-\textbf{Thiết lập:} Qwen3-Embedding-0.6B đọc lịch sử dưới dạng văn bản, tinh chỉnh bằng LoRA (mặt nạ causal, bidirectional hoặc soft).
-MIND-large, v14: 800 bước $\times$ 16 mẫu = 12.800 mẫu (0.5\% dữ liệu huấn luyện), chỉ đánh giá trên 30.000 impression test.
-v19b: 200 phút, 5.872 bước $\times$ 16 = 93.952 mẫu (\textbf{3.5\%} của 2.71 triệu), chấm \textbf{toàn bộ} 376.471 impression test.\par\vspace{3pt}
+\textbf{Thiết lập:} Qwen3-Embedding-0.6B đọc chuỗi lịch sử dạng văn bản, tinh chỉnh bằng LoRA (với attention mask kiểu causal, bidirectional hoặc soft mask).
+Trên MIND-large, lần chạy v14 dùng 800 bước $\times$ 16 mẫu = 12.800 mẫu (0.5\% tập huấn luyện), đánh giá trên 30.000 impression test.
+Lần chạy v19b huấn luyện 200 phút với 5.872 bước $\times$ 16 = 93.952 mẫu (\textbf{3.5\%} của 2.71 triệu mẫu), đánh giá trên \textbf{toàn bộ} 376.471 impression test.\par\vspace{3pt}
 \renewcommand{\arraystretch}{1.07}
 \setlength{\tabcolsep}{4pt}
 \begin{tabularx}{\textwidth}{@{}P{2.8cm}YQ{0.95cm}Q{1.32cm}P{3.65cm}P{1.75cm}@{}}
 \toprule
 \textbf{Biến thể} & \textbf{Mô tả} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{$\Delta$ nDCG@10 [CI 95\%]} & \textbf{so với}\\
 \midrule
-\code{ut\_causal} (v14) & tháp LoRA, 0.5\% dữ liệu & 0.6272 & 0.3807 & $+0.0065\ [+0.0035, +0.0095]$ & mean pooling\\
-\code{ut\_causal+meanpool} & tháp + mean pooling & 0.6384 & 0.3904 & $+0.0162\ [+0.0138, +0.0187]$ & mean pooling\\
+\code{ut\_causal} (v14) & User Tower LoRA, 0.5\% dữ liệu & 0.6272 & 0.3807 & $+0.0065\ [+0.0035, +0.0095]$ & mean pooling\\
+\code{ut\_causal+meanpool} & User Tower + mean pooling & 0.6384 & 0.3904 & $+0.0162\ [+0.0138, +0.0187]$ & mean pooling\\
  & & & & $-0.0000\ [-0.0027, +0.0026]$ & \textbf{LSE}\\
-\code{super\_apex} & bộ hợp nhất + tháp & 0.6743 & 0.4223 & $-0.0002\ [-0.0009, +0.0006]$ & bộ hợp nhất\\
+\code{super\_apex} & bộ kết hợp + User Tower & 0.6743 & 0.4223 & $-0.0002\ [-0.0009, +0.0006]$ & bộ kết hợp\\
 \midrule
-\code{ut\_causal} (v19b) & tháp LoRA, 3.5\% dữ liệu & 0.6470 & 0.4002 & $\mathbf{+0.0085}\ [+0.0077, +0.0094]$ & \textbf{LSE}\\
+\code{ut\_causal} (v19b) & User Tower LoRA, 3.5\% dữ liệu & 0.6470 & 0.4002 & $\mathbf{+0.0085}\ [+0.0077, +0.0094]$ & \textbf{LSE}\\
  & & & & $-0.0048\ [-0.0055, -0.0040]$ & reader Qwen3\\
-\code{super\_llm} + tháp (v19b) & hợp nhất có thêm tháp & 0.6863 & 0.4373 & $0$; các hàng GBDT $\pm0.001$ & hệ thống không tháp\\
+\code{super\_llm} + tower (v19b) & kết hợp thêm User Tower & 0.6863 & 0.4373 & $0$; các dòng GBDT lệch $\pm0.001$ & hệ thống gốc\\
 \bottomrule
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item MIND-small: tháp + mean pooling $\approx$ LSE của BGE ($-0.0007$, n.s.), thua NRMS refit ($-0.0035$). Khác biệt giữa các mặt nạ nhỏ hơn nhiễu seed (0.010--0.012); mặt nạ soft không lặp lại được (0.4043 $\to$ 0.3956).
-  \item v19b: validation 0.3813 $\to$ 0.3899 $\to$ 0.3906 (bước 1.938 / 3.934 / 5.872), gần phẳng khi learning rate giảm về 0; cùng LLM không huấn luyện (H1) kém hơn $-0.0319$.
+  \item Trên MIND-small: User Tower + mean pooling $\approx$ LSE của BGE ($-0.0007$, n.s.), kém NRMS refit ($-0.0035$). Chênh lệch giữa các kiểu attention mask nhỏ hơn phương sai giữa các seed (0.010--0.012); biến thể soft mask không tái lập được kết quả (0.4043 $\to$ 0.3956).
+  \item Ở v19b: điểm validation tăng 0.3813 $\to$ 0.3899 $\to$ 0.3906 (tại bước 1.938 / 3.934 / 5.872) và bão hòa khi learning rate giảm dần về 0; cùng mô hình LLM nếu không huấn luyện (H1) thấp hơn $-0.0319$.
 \end{itemize}
-\ychinh{\FAIL\ trong ngân sách đã thử: huấn luyện thêm giúp rõ (0.5\% dữ liệu: bằng LSE; 3.5\%: hơn LSE +0.0085), nhưng tháp vẫn kém reader trên vector cố định và không thêm gì cho hệ thống. \textbf{Chưa chạy đủ dữ liệu} (một epoch ước khoảng 87 giờ T4), nên chưa kết luận được về bản thân phương pháp.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Tháp người dùng LLM là hướng trông hứa hẹn trong văn liệu. Với 800 bước, tức 0.5\% dữ liệu, nó chỉ bằng LSE. Ở lần chạy v19b, huấn luyện 200 phút, khoảng 3.5\% dữ liệu, và chấm trên toàn bộ test, nó đã hơn LSE rõ, nhưng vẫn kém reader trên vector cố định và không thêm gì cho hệ thống. Cần nói rõ: mô hình mới thấy 3.5\% dữ liệu; một epoch đầy đủ ước khoảng 87 giờ trên T4, vượt khả năng một phiên Kaggle. Đây là kết luận trong ngân sách đã thử, chưa phải kết luận về phương pháp.}
 \end{frame}
 
 %% ============================================================================ H11
-\begin{frame}[shrink]{H11 \textperiodcentered{} Đa sở thích: tách được sở thích nhưng không tăng điểm}
+\begin{frame}[shrink]{H11 \textperiodcentered{} Biểu diễn đa sở thích: tách được các vector sở thích nhưng không tăng điểm}
 \begin{columns}[T,onlytextwidth]
 \column{0.41\textwidth}
 \scriptsize
-\textbf{K-Means zero-shot} (\code{pool\_km}$K$): gom lịch sử thành $K$ cụm rồi chấm bằng LSE; $K=1$ là mean pooling, $K$ đủ lớn chính là LSE.\par\vspace{2pt}
-MIND-small: $K=2/3/5$ cho 0.3958 / 0.3989 / 0.4007, luôn giữa mean pooling (0.3909) và LSE (0.4037).
-MIND-large: $K=5$ cho 0.4023, thấp hơn LSE (0.4047).\par\vspace{3pt}
-\textbf{Reader $K=4$ truy vấn} (\code{um\_mi4}): mỗi truy vấn đọc lịch sử theo một sở thích; bản \code{mi4d} thêm phạt $\lambda\cos^2(\mathbf u_k,\mathbf u_l)$ giữa các vector sở thích để chúng tách nhau.
+\textbf{K-Means zero-shot} (\code{pool\_km}$K$): phân cụm lịch sử đọc thành $K$ tâm rồi chấm điểm bằng LSE; trường hợp $K=1$ tương ứng mean pooling, còn $K$ đủ lớn hội tụ về chính LSE.\par\vspace{2pt}
+Trên MIND-small: $K=2/3/5$ đạt 0.3958 / 0.3989 / 0.4007, luôn nằm giữa mean pooling (0.3909) và LSE (0.4037).
+Trên MIND-large: $K=5$ đạt 0.4023, vẫn thấp hơn LSE (0.4047).\par\vspace{3pt}
+\textbf{Reader $K=4$ truy vấn} (\code{um\_mi4}): dùng $K$ vector truy vấn học được để trích xuất đa sở thích; bản \code{mi4d} cộng thêm thành phần phạt trực giao $\lambda\cos^2(\mathbf u_k,\mathbf u_l)$ để buộc các vector sở thích tách biệt nhau.
 \column{0.56\textwidth}
 \scriptsize
 \renewcommand{\arraystretch}{1.15}
@@ -982,11 +936,10 @@ MIND-large: $K=5$ cho 0.4023, thấp hơn LSE (0.4047).\par\vspace{3pt}
 \code{mi4d} ($K=4$, có phạt) & 0.3972 & 0.34--0.39 & 0.71--0.72\\
 \bottomrule
 \end{tabularx}
-\ghichu{cos: tương đồng trung bình giữa các vector sở thích; TV: khoảng cách giữa các phân phối attention.}
+\ghichu{cos: độ tương đồng cosine trung bình giữa các vector sở thích; TV: khoảng cách Total Variation giữa các phân phối attention.}
 \par\vspace{2pt}
-Không phạt: 4 vector gần như trùng nhau (cos 0.85--0.87; MIND-large 0.94--0.96). Có phạt: tách ra nhưng không tăng điểm (so với 1 vector: BGE +0.0004, n.s.; Qwen3 $-0.0031$).
+Khi không phạt: cả 4 vector sụp đổ về gần như cùng một hướng (cos 0.85--0.87; trên MIND-large là 0.94--0.96). Khi thêm phạt đa dạng: các nhánh tách biệt rõ nhưng điểm xếp hạng không cải thiện (so với 1 vector: BGE +0.0004, n.s.; Qwen3 $-0.0031$).
 \end{columns}
-\ychinh{\FAIL\ H11: LSE chính là trường hợp $K$ lớn của K-Means; phạt đa dạng làm sở thích tách nhau nhưng không giúp xếp hạng.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đa sở thích là hướng rất tự nhiên với độc giả đọc nhiều chủ đề. Nhưng K-Means luôn kém LSE, vì LSE chính là trường hợp có rất nhiều cụm. Reader nhiều truy vấn thì sụp đổ về một sở thích; thêm phạt đa dạng thì tách được, nhưng điểm xếp hạng không tăng.}
 \end{frame}
@@ -998,70 +951,37 @@ Không phạt: 4 vector gần như trùng nhau (cos 0.85--0.87; MIND-large 0.94-
 \setlength{\tabcolsep}{4pt}
 \begin{tabularx}{\textwidth}{@{}P{2.3cm}P{3.55cm}P{4.55cm}Y@{}}
 \toprule
-\textbf{Họ} & \textbf{Cách làm} & \textbf{Kết quả ($\Delta$ nDCG@10)} & \textbf{Giải thích khả dĩ}\\
+\textbf{Nhóm} & \textbf{Cách làm} & \textbf{Kết quả ($\Delta$ nDCG@10)} & \textbf{Nguyên nhân khả dĩ}\\
 \midrule
-H1: lịch sử thành văn bản & ghép các tiêu đề đã đọc thành một câu truy vấn & small $-0.0211$ đến $-0.0014$ ($n=30.000$); large $-0.0101$ ($n=60.000$) & câu dài làm loãng tín hiệu từng bài\\
-H6: hồ sơ độc giả & Qwen3-1.7B viết hồ sơ sở thích & small $-0.0308$; large $-0.0278$ (cả hai $n=2.500$) & tóm tắt mất sở thích ngách\\
-H6: mô tả bài & LLM viết mô tả mở rộng mỗi bài & small $+0.0079\ [+0.0021, +0.0137]$; large $+0.0043$ (n.s.); $n=2.500$; mất khi có popularity & trùng với độ phổ biến\\
-H9: LLM chấm điểm & Qwen3-1.7B hỏi Yes/No từng ứng viên & small $-0.0112$; large $-0.0092$ (n.s.); cả hai $n=2.000$, top-10 của mean pooling & thiếu hiệu chuẩn; chậm\\
-H7: Semantic ID & mã RQ-KMeans; xếp hạng sinh SID-GPT & hồ sơ SID $+0.0035$; SID-GPT 0.2898 $\approx$ ngẫu nhiên 0.2897 & chưa học được; cần kiểm tra cài đặt\\
-H4: GraphRAG & thay bài bằng tâm cụm của đồ thị kNN & small $+0.0043$; large: val $+0.0199$, test $-0.0066$ & tâm cụm xóa chi tiết riêng của bài mới\\
-H4b: tóm tắt cụm & LLM viết tóm tắt chủ đề mỗi cụm & không khác biệt thống kê & --\\
+H1: lịch sử dạng văn bản & nối các tiêu đề đã đọc thành một chuỗi truy vấn dài & small $-0.0211$ đến $-0.0014$ ($n=30.000$); large $-0.0101$ ($n=60.000$) & chuỗi văn bản dài làm loãng tín hiệu của từng bài riêng lẻ\\
+H6: hồ sơ độc giả & dùng Qwen3-1.7B sinh đoạn văn mô tả sở thích & small $-0.0308$; large $-0.0278$ (cả hai $n=2.500$) & tóm tắt văn bản làm mất các sở thích ngách\\
+H6: mở rộng bài báo & dùng LLM sinh thêm đoạn mô tả cho mỗi bài & small $+0.0079\ [+0.0021, +0.0137]$; large $+0.0043$ (n.s.); $n=2.500$; triệt tiêu khi có popularity & thông tin sinh thêm trùng lặp với tín hiệu độ phổ biến\\
+H9: LLM chấm điểm & dùng Qwen3-1.7B chấm xác suất Yes/No cho ứng viên & small $-0.0112$; large $-0.0092$ (n.s.); cả hai $n=2.000$, rerank top-10 của mean pooling & xác suất sinh chưa được hiệu chuẩn (uncalibrated); tốc độ chậm\\
+H7: Semantic ID & lượng tử hóa RQ-KMeans; xếp hạng sinh bằng SID-GPT & hồ sơ SID $+0.0035$; SID-GPT 0.2898 $\approx$ ngẫu nhiên 0.2897 & mô hình sinh chưa hội tụ; cần kiểm tra lại cài đặt\\
+H4: GraphRAG & thay vector bài bằng tâm cụm trên đồ thị kNN & small $+0.0043$; large: val $+0.0199$, test $-0.0066$ & lấy tâm cụm làm mờ chi tiết đặc trưng của bài mới\\
+H4b: tóm tắt cụm & dùng LLM tóm tắt chủ đề cho mỗi cụm & không khác biệt có ý nghĩa thống kê & --\\
 \bottomrule
 \end{tabularx}
-\ychinh{\FAIL\ không hướng nào cho lợi ích bền vững trên test. H6 và H9 mới đo trên tập con nhỏ (0.5--0.7\% test của MIND-large), trên nền mean pooling, chưa thử trong hệ thống cuối. Riêng SID-GPT ngang vector ngẫu nhiên: cần kiểm tra lại cài đặt trước khi kết luận về Semantic ID.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Nhóm các hướng dùng LLM để viết lại hoặc nén biểu diễn đều không đứng vững. Riêng Semantic ID, mô hình sinh cho kết quả ngang vector ngẫu nhiên; đây là dấu hiệu nó không học được gì, nên nhóm thận trọng: kết luận là ``chưa làm được trong cài đặt này'', chưa phải ``phương pháp không dùng được''.}
 \end{frame}
 
-%% ============================================================================ SID-News + T
-\begin{frame}[shrink]{Hướng đề xuất chưa có số đo: SID-News và cổng cold/warm}
-\begin{columns}[T,onlytextwidth]
-\column{0.5\textwidth}
-\begin{block}{SID-News: sửa các điểm yếu của H7}
-\scriptsize
-Giả thuyết vì sao H7 cơ sở thất bại: (1) mã RQ-KMeans tĩnh làm mất thông tin chuyên mục; (2) lịch sử có nhiều click nhiễu (tiêu đề câu khách);
-(3) giải mã tự do sinh ra mã không có trong danh sách ứng viên.\par\vspace{3pt}
-Thiết kế đề xuất:
-\begin{enumerate}
-  \setlength{\itemsep}{1pt}
-  \item Bổ sung chuyên mục: $\mathbf E_{\mathrm{fused}}=\mathrm{Norm}(\mathbf E_0+0.20\,\mathbf E_{\mathrm{cat}})$.
-  \item $K=4$ truy vấn sở thích, chấm điểm bằng LSE ($\tau=5.0$) để giảm ảnh hưởng click nhiễu.
-  \item Giải mã ràng buộc bằng cây tiền tố (trie): chỉ sinh mã có trong lượt hiển thị.
-\end{enumerate}
-\end{block}
-\column{0.47\textwidth}
-\begin{block}{Họ T: tách ngữ nghĩa và cộng tác}
-\scriptsize
-\begin{itemize}
-  \setlength{\itemsep}{2pt}
-  \item Mô tả ngữ nghĩa của chuyên mục do LLM viết (theo Yada \& Yamana, 2024).
-  \item Cổng kiểu PAD: $s=(1-g_c)\,s_{\mathrm{sem}}+g_c\,s_{\mathrm{collab}}$; với bài mới, $g_c\to0$ nên điểm dựa vào nhánh ngữ nghĩa.
-  \item Adaptor dư kiểu KAR đưa tri thức bổ sung vào vector bài.
-\end{itemize}
-\end{block}
-\begin{alertblock}{Trạng thái: \NA}
-\scriptsize Đã có mã (\code{stages\_innov.py}, notebook v8) nhưng \textbf{chưa có lần chạy đo kết quả}, nên không xếp vào thành công hay thất bại.
-\end{alertblock}
-\end{columns}
-\par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Hai hướng này là đề xuất cho bước tiếp theo, chưa phải kết quả. Nhóm nêu rõ để tránh hiểu lầm: chúng đã có mã nhưng chưa có lần chạy nào đo được. Nếu hội đồng hỏi, câu trả lời là chúng được thiết kế từ chính các thất bại của H7 và từ quan sát về bài mới.}
-\end{frame}
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Từ thành phần đến hệ thống}
 %% ============================================================================ Validation lệch
-\begin{frame}[shrink]{Validation và test khác nhau: 18\% so với 82\% click vào bài mới}
+\begin{frame}[shrink]{Lệch phân phối giữa Validation và Test: 18\% so với 82\% click vào bài mới}
 \centering
 \begin{tikzpicture}[font=\scriptsize,scale=0.9,transform shape]
 \node[anchor=east,font=\scriptsize\bfseries] at (0,0.65) {Validation:};
 \fill[keyc] (0.2,0.45) rectangle (1.65,0.85);
 \node[white,font=\tiny\bfseries] at (0.92,0.65) {18.07\%};
 \fill[black!18] (1.65,0.45) rectangle (8.2,0.85);
-\node[black!75] at (4.9,0.65) {81.93\% click vào bài đã có trong tập huấn luyện};
+\node[black!75] at (4.9,0.65) {81.93\% click rơi vào bài đã xuất hiện trong tập huấn luyện};
 \node[anchor=east,font=\scriptsize\bfseries] at (0,0) {Test:};
 \fill[accentc] (0.2,-0.2) rectangle (6.78,0.2);
-\node[white,font=\scriptsize\bfseries] at (3.5,0) {82.25\% click vào bài mới};
+\node[white,font=\scriptsize\bfseries] at (3.5,0) {82.25\% click rơi vào bài mới};
 \fill[black!18] (6.78,-0.2) rectangle (8.2,0.2);
 \node[black!75,font=\tiny] at (7.49,0) {17.75\%};
 \end{tikzpicture}
@@ -1069,15 +989,15 @@ Thiết kế đề xuất:
 \begin{columns}[T,onlytextwidth]
 \column{0.52\textwidth}
 \scriptsize
-Lợi ích so với mean pooling trên validation và trên test (lần chạy v14, Qwen3):\par\vspace{2pt}
+Mức chênh lệch so với mean pooling trên validation và trên test (lần chạy v14, Qwen3):\par\vspace{2pt}
 \renewcommand{\arraystretch}{1.12}
 \begin{tabularx}{\linewidth}{@{}Ycc@{}}
 \toprule
 \textbf{Thành phần} & \textbf{Validation} & \textbf{Test}\\
 \midrule
 LSE (H8) & $+0.0232$ & $+0.0146$\\
-văn bản có chuyên mục (F) & $+0.0370$ & $+0.0315$\\
-kNN RAG dùng thẳng (H3) & $+0.0130$ & $\mathbf{-0.0037}$\\
+văn bản kèm chuyên mục (F) & $+0.0370$ & $+0.0315$\\
+kNN RAG cộng trực tiếp (H3) & $+0.0130$ & $\mathbf{-0.0037}$\\
 GraphRAG (H4) & $+0.0199$ & $\mathbf{-0.0066}$\\
 reader theo ứng viên (H10) & $+0.0596$ & $+0.0192$\\
 reader + kNN & $+0.0653$ & $+0.0302$\\
@@ -1087,55 +1007,25 @@ reader + kNN & $+0.0653$ & $+0.0302$\\
 \footnotesize
 \begin{itemize}
   \setlength{\itemsep}{3pt}
-  \item Validation là ngày cuối của tập huấn luyện nên ``ấm'': phần lớn click rơi vào bài đã biết.
-  \item Thành phần không huấn luyện giữ được phần lớn lợi ích; reader mất hơn một nửa; RAG và GraphRAG \textbf{đổi dấu}.
-  \item Chọn mô hình theo trung bình validation thông thường vì vậy ưu ái mô hình mạnh ở bài cũ.
+  \item Tập validation là ngày cuối của cửa sổ huấn luyện nên mang tính ``ấm'': đa số click rơi vào các bài báo đã xuất hiện.
+  \item Các thành phần không huấn luyện giữ được phần lớn mức tăng trên test; các mô hình reader mất hơn một nửa biên độ; riêng RAG và GraphRAG \textbf{đảo chiều từ dương sang âm}.
+  \item Việc chọn siêu tham số theo trung bình validation thông thường sẽ thiên vị các mô hình chỉ mạnh trên bài cũ.
 \end{itemize}
 \end{columns}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Đây là phát hiện quan trọng về đánh giá. Validation có chưa tới 20\% click vào bài mới, test có hơn 80\%. Hệ quả là các thành phần mạnh ở bài cũ, như reader hay RAG, trông tốt trên validation hơn hẳn trên test; RAG và GraphRAG còn đổi dấu. Nếu chọn mô hình theo validation thông thường, ta sẽ chọn sai.}
 \end{frame}
 
-%% ============================================================================ Validation có trọng số
-\begin{frame}[shrink]{Validation có trọng số theo tỷ lệ bài mới}
-\footnotesize
-Gán trọng số $w_i$ cho từng impression theo tỷ lệ click vào bài mới $c_i\in[0,1]$ của nó, để tỷ lệ bài mới hiệu dụng chuyển từ $\bar c_{\mathrm{val}}=0.1807$ về mục tiêu $\tau=0.80$:
-\[
-w_i=\frac{\tau}{\bar c_{\mathrm{val}}}\,c_i+\frac{1-\tau}{1-\bar c_{\mathrm{val}}}\,(1-c_i).
-\]
-\begin{columns}[T,onlytextwidth]
-\column{0.5\textwidth}
-\begin{exampleblock}{Bằng chứng: chọn đúng mô hình}
-\scriptsize
-\begin{itemize}
-  \setlength{\itemsep}{2pt}
-  \item v15, validation thông thường: chọn \code{qwen3:um\_text} làm nền (val 0.4090 so với 0.4079 của \code{um\_knn\_rag}), nhưng trên test \code{um\_knn\_rag} tốt hơn (0.4097 so với 0.4026): \textbf{chọn sai}.
-  \item v16b, validation có trọng số: chọn \code{cat:um\_knn\_rag} (0.4573), cũng là thành phần tốt nhất trên test.
-\end{itemize}
-\end{exampleblock}
-\column{0.47\textwidth}
-\begin{alertblock}{Giới hạn}
-\scriptsize
-\begin{itemize}
-  \setlength{\itemsep}{2pt}
-  \item $\tau=0.80$ được chọn gần tỷ lệ quan sát trên test, vốn tính từ nhãn test ở mức tổng hợp. Nên thay bằng ước lượng không dùng nhãn, ví dụ tỷ lệ ứng viên mới trong impression.
-  \item Trọng số giúp chọn đúng, nhưng không làm con số validation khớp test (test thấp hơn 0.030--0.081).
-\end{itemize}
-\end{alertblock}
-\end{columns}
-\par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Cách sửa đơn giản: tăng trọng số các impression có nhiều click vào bài mới để validation giống test hơn. Ở v15, validation thông thường chọn nhầm reader; ở v16b, validation có trọng số chọn đúng thành phần tốt nhất. Cần thừa nhận giới hạn: tham số 0.80 được đặt gần tỷ lệ quan sát trên test.}
-\end{frame}
 
 %% ============================================================================ Hợp nhất tuyến tính
-\begin{frame}[shrink]{Hợp nhất tuyến tính: một reader và ba thành phần zero-shot là đủ}
+\begin{frame}[shrink]{Kết hợp tuyến tính: một reader cùng ba thành phần zero-shot là đủ}
 \scriptsize
-Điểm mỗi thành phần chuẩn hóa z-score trong từng impression; trọng số chọn bằng coordinate ascent trên validation có trọng số bài mới.\par\vspace{3pt}
+Điểm của mỗi thành phần được chuẩn hóa z-score theo từng impression; trọng số được tối ưu bằng coordinate ascent trên tập validation có trọng số bài mới.\par\vspace{3pt}
 \renewcommand{\arraystretch}{1.05}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}P{2.2cm}YQ{0.95cm}Q{0.95cm}Q{1.32cm}Q{1.05cm}@{}}
 \toprule
-\textbf{Bậc} & \textbf{Thành phần được chọn (trọng số)} & \textbf{Val} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{Cold AUC}\\
+\textbf{Cấp độ} & \textbf{Thành phần được chọn (trọng số)} & \textbf{Val} & \textbf{AUC} & \textbf{nDCG@10} & \textbf{Cold AUC}\\
 \midrule
 \code{super\_base} & \code{cat:um\_knn\_rag}, trung bình z-score của 2 seed & 0.4573 & 0.6768 & 0.4260 & 0.7104\\
 \textbf{\code{super\_zs}} & + \code{bge:hist100\_lse} 0.1, \code{bge:pool\_lse} 0.1,\newline\phantom{+} \code{qwen3:txt\_cta\_lse} 0.25 & 0.4676 & 0.6863 & \textbf{0.4373} & 0.7185\\
@@ -1145,56 +1035,54 @@ w_i=\frac{\tau}{\bar c_{\mathrm{val}}}\,c_i+\frac{1-\tau}{1-\bar c_{\mathrm{val}
 \end{tabularx}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item \code{super\_base} cao hơn chính reader của nó (0.4226) nhờ trung bình hai seed (+0.0034).
-  \item Thêm ba thành phần zero-shot: $+0.0114\ [+0.0109, +0.0118]$; các reader khác được trọng số 0; \code{ft\_reader} (H12) chỉ thêm +0.0005.
-  \item Bỏ nhóm zero-shot khỏi \code{super\_llm+pop}: $-0.0092$; bỏ popularity: $-0.0265$.
+  \item \code{super\_base} vượt điểm của từng seed reader đơn lẻ (0.4226) nhờ lấy trung bình hai seed (+0.0034).
+  \item Bổ sung ba thành phần zero-shot giúp tăng $+0.0114\ [+0.0109, +0.0118]$; các reader khác đều nhận trọng số bằng 0; \code{ft\_reader} (H12) chỉ đóng góp thêm +0.0005.
+  \item Nếu bỏ nhóm zero-shot khỏi \code{super\_llm+pop}: giảm $-0.0092$; nếu bỏ popularity: giảm $-0.0265$.
 \end{itemize}
-\ychinh{một reader và ba thành phần zero-shot khác loại cho \textbf{0.4373}; thêm reader cùng loại không giúp. Mọi thành phần là embedding và reader; tên \code{super\_llm} trong mã không có nghĩa là dùng LLM sinh.}
-\ghichu{Val: validation có trọng số bài mới. (*) Lần chạy v17; còn lại v16b (trong mã v16b, \code{super\_zs} mang tên \code{super\_llm}).}
+\ghichu{Val: điểm trên tập validation có trọng số bài mới. (*) Số liệu từ lần chạy v17; các dòng còn lại từ v16b (trong mã nguồn v16b, \code{super\_zs} được đặt tên là \code{super\_llm}).}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bộ hợp nhất tuyến tính rất đơn giản: chuẩn hóa điểm của từng thành phần rồi cộng có trọng số. Kết quả quan trọng: một reader cộng ba thành phần zero-shot khác loại là đủ, đạt 0.4373; thêm reader cùng loại, kể cả encoder đã tinh chỉnh của H12, gần như không đổi. Đây là mức tốt nhất khi chỉ dùng nội dung và lịch sử.}
 \end{frame}
 
 %% ============================================================================ GBDT
-\begin{frame}[shrink]{GBDT stacker: 99 đặc trưng trong 4 nhóm}
+\begin{frame}[shrink]{GBDT stacker: 99 đặc trưng thuộc 4 nhóm thông tin}
 \footnotesize
-\textbf{Vì sao cần GBDT trên các reader và bộ hợp nhất?} Hợp nhất tuyến tính dùng một bộ trọng số chung cho mọi ứng viên; GBDT có thể đổi cách kết hợp theo ngữ cảnh,
-ví dụ theo mức hiển thị (exposure) của từng bài. Các reader không bị thay thế mà trở thành đặc trưng quan trọng nhất.\par\vspace{3pt}
+\textbf{Vì sao cần GBDT phía trên các reader và bộ kết hợp tuyến tính?} Kết hợp tuyến tính áp dụng chung một bộ trọng số cố định cho mọi ứng viên; trong khi GBDT có thể điều chỉnh trọng số linh hoạt theo ngữ cảnh,
+chẳng hạn dựa vào mức độ hiển thị (exposure) của từng bài. Các mô hình reader không bị thay thế mà đóng vai trò là nhóm đặc trưng quan trọng nhất.\par\vspace{3pt}
 \scriptsize
 \renewcommand{\arraystretch}{1.18}
 \begin{tabularx}{\textwidth}{@{}P{3.3cm}cY@{}}
 \toprule
 \textbf{Nhóm} & \textbf{Số cột} & \textbf{Nội dung}\\
 \midrule
-\code{scores} (điểm thành phần) & 59 & z-score trong impression và điểm thô của 41 thành phần, chủ yếu các reader trên Qwen3, BGE-large và vector nối\\
-\code{ctx} (ngữ cảnh slate) & 15 & tương đồng với click gần nhất (\code{last1}, \code{last3}), tỷ lệ trùng chuyên mục, kích thước slate (\code{ctx\_n\_cand}), mức trùng thực thể Wikidata có trọng số IDF\\
-\code{meta} (exposure, offline) & 16 & thống kê từ tập huấn luyện (\code{m\_ctr}, \code{m\_unseen}) và động thái hiển thị không dùng nhãn: tuổi bài (\code{m\_age\_h}), số lần hiển thị trong 1, 6, 24 giờ trước\\
-\code{pop} (chỉ online) & 9 & log-CTR tích lũy và CTR theo cửa sổ 1, 6, 24 giờ, tính từ click trước đó trong chính ngày test\\
+\code{scores} (điểm thành phần) & 59 & điểm chuẩn hóa z-score trong từng impression và điểm thô của 41 mô hình thành phần, chủ yếu là các reader trên Qwen3, BGE-large và vector concat\\
+\code{ctx} (ngữ cảnh slate) & 15 & độ tương đồng với click gần nhất (\code{last1}, \code{last3}), tỷ lệ trùng khớp chuyên mục, số lượng ứng viên trong slate (\code{ctx\_n\_cand}), mức độ trùng thực thể Wikidata có trọng số IDF\\
+\code{meta} (exposure, offline) & 16 & thống kê từ tập huấn luyện (\code{m\_ctr}, \code{m\_unseen}) và động thái hiển thị không dùng nhãn click: tuổi bài báo (\code{m\_age\_h}), tần suất hiển thị trong 1, 6, 24 giờ trước đó\\
+\code{pop} (chỉ dùng online) & 9 & log-CTR tích lũy và CTR trượt theo cửa sổ 1, 6, 24 giờ, tính từ các lượt click xảy ra trước đó trong chính ngày test\\
 \bottomrule
 \end{tabularx}
-\ychinh{ba biến thể: \code{stack\_llm} (\code{scores} + \code{ctx}), \code{stack\_meta} (+ \code{meta}, vẫn là offline) và \code{stack\_pop} (+ \code{pop}, chế độ online).}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{GBDT nhận 99 đặc trưng chia làm 4 nhóm. Nhóm meta là thông tin hiển thị của bài lấy từ log mà không dùng nhãn, nên vẫn thuộc chế độ offline. Nhóm pop dùng click của chính ngày test nên chỉ thuộc chế độ online. Ba biến thể tương ứng ba mức thông tin.}
 \end{frame}
 
 %% ============================================================================ Rò rỉ
-\begin{frame}[shrink]{Rò rỉ trong ngày: vì sao chia fold theo người dùng là sai}
+\begin{frame}[shrink]{Rò rỉ thông tin trong ngày: vì sao chia fold theo người dùng gây sai lệch}
 \scriptsize
-GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05 triệu dòng ứng viên). Chia 4 fold theo \textbf{người dùng} gây quá khớp vào chính ngày đó:
+GBDT được huấn luyện trên tập validation (150.000 impression $\approx$ 6.05 triệu dòng ứng viên). Việc chia 4 fold theo \textbf{người dùng (user-split)} dẫn đến hiện tượng quá khớp (overfit) vào chính ngày validation đó:
 \begin{itemize}
   \setlength{\itemsep}{2pt}
-  \item \textbf{Cơ chế:} các impression cùng thời điểm rơi vào cả phần huấn luyện và phần giữ lại của mỗi fold. Cây sâu ($d=7$) dùng các cột độ phân giải cao (tuổi bài, số lần hiển thị, kích thước slate)
-  để nhận ra từng bài và nhớ tỷ lệ click của bài đó trong ngày.
-  \item \textbf{Dấu hiệu:} điểm out-of-fold cao giả tạo \textbf{0.4922}, nhưng chỉ \textbf{0.3738} trên các bài chưa xuất hiện trong phần huấn luyện.
+  \item \textbf{Cơ chế gây rò rỉ:} các impression diễn ra cùng thời điểm xuất hiện ở cả tập huấn luyện và tập đánh giá của mỗi fold. Cây quyết định sâu ($d=7$) tận dụng các đặc trưng có độ phân giải cao (tuổi bài, tần suất hiển thị, kích thước slate)
+  để nhận diện từng bài báo cụ thể và học thuộc tỷ lệ click của bài đó trong ngày.
+  \item \textbf{Biểu hiện:} điểm out-of-fold trên validation cao bất thường (\textbf{0.4922}), nhưng rơi xuống \textbf{0.3738} khi chấm riêng trên các bài chưa xuất hiện ở phần huấn luyện.
 \end{itemize}
-\begin{block}{Cách sửa: cross-validation theo khối thời gian}
+\begin{block}{Giải pháp khắc phục: Cross-validation theo khối thời gian (Time-block CV)}
 \scriptsize
 \begin{enumerate}
   \setlength{\itemsep}{1pt}
-  \item Chia ngày validation thành \textbf{4 khối thời gian liên tiếp}; bỏ một vùng đệm (tối đa 2\% độ dài ngày, khoảng 29 phút) ở hai biên của khối giữ lại.
-  \item Làm thô các cột có thể định danh bài; cấu hình \code{clean} bỏ thêm các cột hằng trong một impression.
-  \item Dừng sớm và chọn cấu hình trên \textbf{forward holdout} (60\% đầu ngày để huấn luyện, 10\% để dừng sớm, 30\% cuối để đánh giá), tối ưu trên \textbf{click vào bài mới}.
-  Cấu hình được chọn là trung bình của \code{v15} và \code{clean}.
+  \item Chia ngày validation thành \textbf{4 khối thời gian liên tiếp}; loại bỏ một khoảng đệm (tối đa 2\% thời lượng ngày, $\approx$ 29 phút) ở hai biên của khối đánh giá.
+  \item Làm thô (quantize) các đặc trưng có nguy cơ định danh bài báo; cấu hình \code{clean} loại bỏ thêm các đặc trưng mang giá trị hằng số trong cùng một impression.
+  \item Dừng sớm (early stopping) và chọn cấu hình dựa trên \textbf{forward holdout} (60\% đầu ngày để huấn luyện, 10\% để dừng sớm, 30\% cuối ngày để đánh giá), tối ưu trực tiếp trên \textbf{lượt click vào bài mới}.
+  Cấu hình cuối cùng lấy trung bình dự đoán của hai thiết lập \code{v15} và \code{clean}.
 \end{enumerate}
 \end{block}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
@@ -1202,7 +1090,7 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 \end{frame}
 
 %% ============================================================================ Rò rỉ kết quả
-\begin{frame}[shrink]{User-split và time-block CV trên MIND-large}
+\begin{frame}[shrink]{So sánh User-split và Time-block CV trên MIND-large}
 \scriptsize
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
@@ -1211,10 +1099,10 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 \textbf{Biến thể} & \textbf{Cách chia fold} & \textbf{Val} & \textbf{Val bài mới} & \textbf{Test} & \textbf{Test $-$ Val}\\
 \midrule
 \code{super\_zs} & không dùng GBDT & 0.4275 & -- & 0.4373 & $+0.0098$\\
-\code{stack\_meta\_v15cfg} & theo người dùng, cây sâu $d=7$ & \textbf{0.4922} & \textbf{0.3738} & 0.4543 & $\mathbf{-0.0379}$\\
-\code{stack\_llm} & theo khối thời gian & 0.4456 & 0.4109 & 0.4369 & $-0.0087$\\
-\code{stack\_meta} & theo khối thời gian & 0.4588 & 0.4533 & 0.4516 & $-0.0072$\\
-\code{stack\_pop} & theo khối thời gian & 0.4682 & 0.4605 & 0.4731 & $+0.0049$\\
+\code{stack\_meta\_v15cfg} & chia theo người dùng, cây sâu $d=7$ & \textbf{0.4922} & \textbf{0.3738} & 0.4543 & $\mathbf{-0.0379}$\\
+\code{stack\_llm} & chia theo khối thời gian & 0.4456 & 0.4109 & 0.4369 & $-0.0087$\\
+\code{stack\_meta} & chia theo khối thời gian & 0.4588 & 0.4533 & 0.4516 & $-0.0072$\\
+\code{stack\_pop} & chia theo khối thời gian & 0.4682 & 0.4605 & 0.4731 & $+0.0049$\\
 \bottomrule
 \end{tabularx}
 \par\vspace{3pt}
@@ -1230,8 +1118,7 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 \fill[accentc]  (0,0.08) rectangle (4.533,0.40); \node[anchor=west,text=accentc] at (4.58,0.24) {Val trên bài mới \textbf{0.4533}};
 \fill[keyc]     (0,-0.54) rectangle (4.516,-0.22); \node[anchor=west,text=keyc] at (4.57,-0.38) {Test \textbf{0.4516} (lệch $-0.0072$)};
 \end{tikzpicture}
-\ghichu{nDCG@10. Val: điểm out-of-fold trên validation (với \code{super\_zs}: điểm validation thường). Trục ngang của hình tính từ 0. Mọi dòng lấy từ lần chạy v16b.}
-\ychinh{trên test, cấu hình theo khối thời gian thấp hơn cấu hình theo người dùng $-0.0027\ [-0.0031, -0.0023]$. Lợi ích của nó là \textbf{điểm validation đáng tin} (lệch $-0.0072$ thay vì $-0.0379$), không phải điểm test cao hơn.}
+\ghichu{Độ đo: nDCG@10. Val: điểm out-of-fold trên tập validation (với \code{super\_zs} là điểm validation thông thường). Trục ngang biểu đồ bắt đầu từ 0. Toàn bộ số liệu từ lần chạy v16b.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bảng xác nhận giả thuyết rò rỉ: fold theo người dùng cho điểm validation 0.4922 nhưng test chỉ 0.4543. Fold theo khối thời gian cho validation gần test. Cần nói thẳng: mô hình mới không cao hơn trên test; điều nhóm được là một con số validation mà mình tin được.}
 \end{frame}
@@ -1239,36 +1126,35 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Kết quả và so sánh}
 %% ============================================================================ Kết quả offline
-\begin{frame}[shrink]{Kết quả offline trên MIND-large (376.471 impression test)}
+\begin{frame}[shrink]{Kết quả chế độ Offline trên MIND-large (376.471 impression test)}
 \scriptsize
 \renewcommand{\arraystretch}{1.05}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}P{3.05cm}YQ{0.92cm}Q{0.92cm}Q{0.92cm}Q{1.17cm}Q{1.32cm}Q{1.0cm}@{}}
 \toprule
-\textbf{Mô hình} & \textbf{Họ / vai trò} & \textbf{Val} & \textbf{AUC} & \textbf{MRR} & \textbf{nDCG@5} & \textbf{nDCG@10} & \textbf{Cold AUC}\\
+\textbf{Mô hình} & \textbf{Nhóm / vai trò} & \textbf{Val} & \textbf{AUC} & \textbf{MRR} & \textbf{nDCG@5} & \textbf{nDCG@10} & \textbf{Cold AUC}\\
 \midrule
-1. \code{qwen3:frozen} & mốc (mean pooling) & 0.3392 & 0.6215 & 0.2922 & 0.3168 & 0.3787 & 0.6583\\
+1. \code{qwen3:frozen} & mốc cơ sở (mean pooling) & 0.3392 & 0.6215 & 0.2922 & 0.3168 & 0.3787 & 0.6583\\
 2. \code{bge:frozen} & mean pooling, BGE & 0.3546 & 0.6297 & 0.3042 & 0.3321 & 0.3933 & 0.6632\\
-3. \code{cat:frozen} & mean pooling, nối & 0.3560 & 0.6379 & 0.3043 & 0.3348 & 0.3945 & 0.6772\\
+3. \code{cat:frozen} & mean pooling, concat & 0.3560 & 0.6379 & 0.3043 & 0.3348 & 0.3945 & 0.6772\\
 \midrule
 4. \code{bge:pool\_lse} & H8: LSE & 0.3743 & 0.6459 & 0.3136 & 0.3441 & 0.4047 & 0.6713\\
 5. \code{qwen3:txt\_cta\_lse} & F: chuyên mục + LSE & 0.3772 & 0.6554 & 0.3206 & 0.3509 & 0.4102 & 0.6620\\
 6. \code{cat:um\_knn\_rag} & H10 + H3: reader & 0.4159 & 0.6734 & 0.3255 & 0.3598 & 0.4226 & 0.7065\\
 \midrule
-7. \code{super\_zs} & hợp nhất tuyến tính & 0.4275 & 0.6863 & -- & -- & 0.4373 & 0.7185\\
-8. \code{stack\_llm} & GBDT: điểm, ngữ cảnh & 0.4456 & 0.6853 & 0.3375 & 0.3756 & 0.4369 & 0.7063\\
+7. \code{super\_zs} & kết hợp tuyến tính & 0.4275 & 0.6863 & -- & -- & 0.4373 & 0.7185\\
+8. \code{stack\_llm} & GBDT: điểm + ngữ cảnh & 0.4456 & 0.6853 & 0.3375 & 0.3756 & 0.4369 & 0.7063\\
 \textbf{9. \code{stack\_meta}} & \textbf{GBDT + exposure} & \textbf{0.4588} & \textbf{0.7013} & \textbf{0.3503} & \textbf{0.3899} & \textbf{0.4516} & \textbf{0.7248}\\
-10. \code{stack\_meta\_v15cfg} & GBDT, fold người dùng & 0.4922 & 0.7029 & 0.3528 & 0.3930 & 0.4543 & 0.7285\\
+10. \code{stack\_meta\_v15cfg} & GBDT, chia fold theo user & 0.4922 & 0.7029 & 0.3528 & 0.3930 & 0.4543 & 0.7285\\
 \bottomrule
 \end{tabularx}
-\ghichu{Mọi dòng lấy từ v16b (dòng 7: log không có MRR, nDCG@5). Val: nDCG@10 trên validation, out-of-fold với GBDT. Dòng 10 chỉ để tham khảo: validation bị thổi phồng do rò rỉ trong ngày.}
-\ychinh{mô hình offline chính là \code{stack\_meta}: \textbf{0.4516} nDCG@10, Cold AUC \textbf{0.7248}; tăng +0.0729 so với mốc (dòng 1).}
+\ghichu{Số liệu lấy từ lần chạy v16b (dòng 7 log không xuất MRR và nDCG@5). Val: nDCG@10 trên tập validation (out-of-fold đối với GBDT). Dòng 10 chỉ mang tính tham khảo do điểm validation bị phóng đại bởi rò rỉ thông tin trong ngày.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Bảng đọc từ trên xuống theo đúng các tầng: đối chứng, các thành phần đứng vững, hợp nhất, rồi GBDT. Mô hình offline chính là stack\_meta với 0.4516. Dòng 10 cao hơn một chút trên test nhưng điểm validation của nó không đáng tin, nên chỉ để tham khảo.}
 \end{frame}
 
 %% ============================================================================ Online
-\begin{frame}[shrink]{Chế độ online: thêm phản hồi click trong ngày}
+\begin{frame}[shrink]{Chế độ Online: bổ sung tín hiệu phản hồi click trong ngày}
 \begin{columns}[T,onlytextwidth]
 \column{0.56\textwidth}
 \scriptsize
@@ -1278,28 +1164,27 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 \toprule
 \textbf{Mô hình (online)} & \textbf{AUC} & \textbf{MRR} & \textbf{nDCG@10} & \textbf{Cold AUC}\\
 \midrule
-\code{popularity} (chỉ đếm click, không nội dung) & 0.6540 & 0.3126 & 0.4040 & 0.6986\\
+\code{popularity} (chỉ đếm click, không dùng nội dung) & 0.6540 & 0.3126 & 0.4040 & 0.6986\\
 \code{super\_llm+pop} & 0.7133 & 0.3604 & 0.4638 & 0.7539\\
 \textbf{\code{stack\_pop}} & \textbf{0.7196} & \textbf{0.3671} & \textbf{0.4731} & 0.7526\\
 \bottomrule
 \end{tabularx}
-\ghichu{So sánh ghép cặp: \code{stack\_pop} $-$ \code{stack\_meta} $=+0.0215\ [+0.0209, +0.0220]$; \code{stack\_pop} $-$ \code{super\_llm+pop} $=+0.0093\ [+0.0087, +0.0099]$.}
+\ghichu{So sánh bắt cặp: \code{stack\_pop} $-$ \code{stack\_meta} $=+0.0215\ [+0.0209, +0.0220]$; \code{stack\_pop} $-$ \code{super\_llm+pop} $=+0.0093\ [+0.0087, +0.0099]$.}
 \column{0.41\textwidth}
 \footnotesize
 \begin{itemize}
   \setlength{\itemsep}{3pt}
-  \item Các đặc trưng \code{pop} dùng click của những impression trước đó \textbf{trong chính ngày test} (theo luồng).
-  \item Vì vậy chế độ này \textbf{không so trực tiếp} với các mô hình offline hay số công bố, và không thể nộp lên bảng xếp hạng.
-  \item Riêng \code{popularity}, không dùng nội dung, đã cao hơn mean pooling trên embedding (0.3787--0.3945).
+  \item Nhóm đặc trưng \code{pop} cập nhật số lượt click từ các impression diễn ra trước đó \textbf{ngay trong ngày test} (streaming).
+  \item Do đó, chế độ này \textbf{không dùng để so sánh trực tiếp} với các mô hình offline hoặc các bài báo công bố trên leaderboard.
+  \item Đáng chú ý, riêng \code{popularity} (không dùng nội dung bài viết) đã đạt điểm cao hơn mean pooling trên các bộ embedding (0.3787--0.3945).
 \end{itemize}
 \end{columns}
-\ychinh{trong triển khai thật, phản hồi theo thời gian thực là nguồn thông tin rất mạnh: \code{stack\_pop} đạt \textbf{0.4731} nDCG@10. Đây là con số của chế độ online, tách riêng khỏi kết quả offline.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Chế độ online cho thấy nếu hệ thống được dùng click thời gian thực thì điểm còn tăng mạnh. Nhưng phải tách bạch: đây là thông tin mà các mô hình offline và các bài báo không có, nên không dùng con số này để so với công bố.}
 \end{frame}
 
 %% ============================================================================ Phân rã
-\begin{frame}[shrink]{Phân rã mức tăng: khoảng 80\% từ embedding và reader, 20\% từ exposure}
+\begin{frame}[shrink]{Phân rã mức tăng hiệu năng: $\sim$80\% từ embedding và reader, 20\% từ exposure}
 \begin{columns}[T,onlytextwidth]
 \column{0.53\textwidth}
 \centering
@@ -1315,7 +1200,7 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 \fill[keyc]     (5,0) rectangle (5.75,0.4373-\bz);   \node[above] at (5.375,0.4373-\bz) {0.4373};
 \fill[accentc]  (6,0.4373-\bz) rectangle (6.75,0.4516-\bz); \node[above] at (6.375,0.4516-\bz) {+0.0143};
 \fill[accentc!70!black] (7,0) rectangle (7.75,0.4516-\bz); \node[above] at (7.375,0.4516-\bz) {0.4516};
-\foreach \x/\lab in {0.375/mốc,1.375/+ LSE\\(H8),2.375/+ chuyên\\mục (F),3.375/+ reader\\(H10),4.375/+ hợp\\nhất,5.375/\code{super}\\\code{\_zs},6.375/+ GBDT\\exposure,7.375/\code{stack}\\\code{\_meta}}
+\foreach \x/\lab in {0.375/mốc,1.375/+ LSE\\(H8),2.375/+ chuyên\\mục (F),3.375/+ reader\\(H10),4.375/+ kết\\hợp,5.375/\code{super}\\\code{\_zs},6.375/+ GBDT\\exposure,7.375/\code{stack}\\\code{\_meta}}
   \node[below,align=center,text width=0.86cm] at (\x,0) {\lab};
 \end{tikzpicture}
 \column{0.44\textwidth}
@@ -1324,37 +1209,37 @@ GBDT được huấn luyện trên validation (150.000 impression $\approx$ 6.05
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{@{}YR{3.65cm}@{}}
 \toprule
-\textbf{Bước} & \textbf{$\Delta$ nDCG@10 [CI 95\%]}\\
+\textbf{Bước tích hợp} & \textbf{$\Delta$ nDCG@10 [CI 95\%]}\\
 \midrule
 + LSE & $+0.0130\ [+0.0123, +0.0136]$\\
 + chuyên mục & $+0.0186\ [+0.0179, +0.0192]$\\
 + reader & $+0.0158\ [+0.0150, +0.0165]$\\
-+ hợp nhất & $+0.0114\ [+0.0109, +0.0118]$\\
++ kết hợp tuyến tính & $+0.0114\ [+0.0109, +0.0118]$\\
 \midrule
-tổng 4 bước & $+0.0586$ (80\%)\\
-GBDT, exposure & $+0.0143\ [+0.0137, +0.0149]$\\
+tổng 4 bước nội dung & $+0.0586$ (80\%)\\
+GBDT + exposure & $+0.0143\ [+0.0137, +0.0149]$\\
 \bottomrule
 \end{tabularx}
 \end{columns}
 \begin{itemize}
   \setlength{\itemsep}{1pt}
   \scriptsize
-  \item Bản thân GBDT trên điểm embedding \textbf{không hơn} hợp nhất tuyến tính: \code{stack\_llm} $-$ \code{super\_zs} $=-0.0004\ [-0.0010, +0.0002]$.
-  \item Phần tăng của GBDT đến từ \textbf{exposure}: \code{stack\_meta} $-$ \code{stack\_llm} $=+0.0147\ [+0.0142, +0.0153]$.
+  \item Bản thân GBDT khi chỉ học trên điểm embedding \textbf{không vượt} kết hợp tuyến tính: \code{stack\_llm} $-$ \code{super\_zs} $=-0.0004\ [-0.0010, +0.0002]$.
+  \item Đóng góp thực sự của GBDT đến từ nhóm đặc trưng \textbf{exposure}: \code{stack\_meta} $-$ \code{stack\_llm} $=+0.0147\ [+0.0142, +0.0153]$.
 \end{itemize}
-\ghichu{Mốc: \code{qwen3:frozen}; tổng mức tăng +0.0729. Reader: \code{cat:um\_knn\_rag}, trung bình 2 seed. Mọi bước lấy từ lần chạy v16b; tỷ trọng phụ thuộc thứ tự thêm thành phần.}
+\ghichu{Mốc cơ sở: \code{qwen3:frozen}; tổng mức tăng +0.0729. Reader: \code{cat:um\_knn\_rag} (trung bình 2 seed). Số liệu từ lần chạy v16b; tỷ trọng đóng góp của từng bước phụ thuộc vào thứ tự tích hợp.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Biểu đồ thác nước cho thấy mức tăng đến từ đâu. Khoảng 80\% mức tăng đến từ các bước về embedding và reader: LSE, chuyên mục, reader, hợp nhất. 20\% còn lại đến từ GBDT, nhưng phân tích kỹ cho thấy GBDT tự nó không hơn hợp nhất tuyến tính; phần tăng thật đến từ đặc trưng exposure.}
 \end{frame}
 
 %% ============================================================================ Split gain
-\begin{frame}[shrink]{Mô hình GBDT dựa vào đâu: split gain trên 500 cây}
+\begin{frame}[shrink]{Độ quan trọng đặc trưng trong GBDT: tỷ trọng split gain trên 500 cây}
 \scriptsize
-Tỷ trọng giảm hàm mục tiêu theo nhóm đặc trưng, cộng trên toàn bộ cây XGBoost:\par\vspace{2pt}
+Tỷ trọng độ lợi phân nhánh (split gain) theo từng nhóm đặc trưng, tổng hợp trên toàn bộ cây XGBoost:\par\vspace{2pt}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabularx}{\textwidth}{@{}lccccY@{}}
 \toprule
-\textbf{Biến thể} & \textbf{\code{scores}} & \textbf{\code{ctx}} & \textbf{\code{meta}} & \textbf{\code{pop}} & \textbf{Đặc trưng có split gain cao nhất}\\
+\textbf{Biến thể} & \textbf{\code{scores}} & \textbf{\code{ctx}} & \textbf{\code{meta}} & \textbf{\code{pop}} & \textbf{Các đặc trưng có split gain cao nhất}\\
 \midrule
 \code{stack\_llm} & 66\% & 34\% & -- & -- & \code{cat:um\_knn\_rag}, \code{ctx\_n\_cand}, \code{ctx\_slate\_max}, \code{bge:um\_frozen}\\
 \textbf{\code{stack\_meta}} & \textbf{53\%} & \textbf{27\%} & \textbf{20\%} & -- & \code{cat:um\_knn\_rag}, \code{ctx\_n\_cand}, \code{bge:um\_frozen}, \code{ctx\_slate\_max}, \code{m\_ctr}\\
@@ -1368,44 +1253,44 @@ Tỷ trọng giảm hàm mục tiêu theo nhóm đặc trưng, cộng trên toà
 \fill[okc!80] (5.3,0) rectangle (8.0,0.42); \node[white,font=\scriptsize\bfseries] at (6.65,0.21) {\code{ctx}: 27\%};
 \fill[accentc] (8.0,0) rectangle (10.0,0.42); \node[white,font=\scriptsize\bfseries] at (9.0,0.21) {\code{meta}: 20\%};
 \draw[decorate,decoration={brace,mirror,amplitude=4pt},thick,keyc] (0,-0.08)--(8.0,-0.08)
-  node[midway,below=5pt,font=\scriptsize\bfseries,keyc] {80\% split gain của \code{stack\_meta} đến từ điểm embedding và ngữ cảnh};
+  node[midway,below=5pt,font=\scriptsize\bfseries,keyc] {80\% split gain của \code{stack\_meta} đến từ điểm mô hình nội dung và ngữ cảnh slate};
 \end{tikzpicture}
 \par\vspace{2pt}
 \raggedright
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item Đặc trưng dùng nhiều nhất là reader \code{cat:um\_knn\_rag} (9--13\%). Với bài đã hiển thị nhiều mà ít click, \code{m\_ctr} hạ hạng bài đó.
-  \item Kích thước slate (\code{ctx\_n\_cand}) đứng đầu ở cả ba biến thể; bỏ nó làm điểm holdout giảm. Vai trò của nó cần kiểm tra thêm. Split gain mô tả mô hình đã khớp, không phải quan hệ nhân quả.
+  \item Đặc trưng đơn lẻ đóng góp lớn nhất là điểm của reader \code{cat:um\_knn\_rag} (9--13\%). Với những bài đã hiển thị nhiều nhưng ít được click, đặc trưng \code{m\_ctr} giúp hạ thứ hạng bài đó.
+  \item Số lượng ứng viên trong slate (\code{ctx\_n\_cand}) nằm trong nhóm đầu ở cả ba biến thể; loại bỏ đặc trưng này làm giảm điểm holdout. Cơ chế tác động cụ thể của nó cần được phân tích thêm (split gain chỉ phản ánh cấu trúc cây đã học, không mang ý nghĩa nhân quả).
 \end{itemize}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Split gain cho biết GBDT dựa vào đâu. Khoảng 80\% đến từ điểm embedding và ngữ cảnh, tức là các thành phần LLM vẫn là xương sống. Kích thước slate quan trọng một cách khó giải thích; nhóm ghi nhận đây là điểm cần kiểm tra thêm, không diễn giải quá mức.}
 \end{frame}
 
 %% ============================================================================ So với công bố
-\begin{frame}[shrink]{So sánh với kết quả đã công bố trên MIND-large}
+\begin{frame}[shrink]{So sánh với các kết quả đã công bố trên MIND-large}
 \scriptsize
 \renewcommand{\arraystretch}{1.16}
 \begin{tabularx}{\textwidth}{@{}lYccc@{}}
 \toprule
-\textbf{Mô hình} & \textbf{Nguồn / chế độ} & \textbf{AUC} & \textbf{MRR} & \textbf{nDCG@10}\\
+\textbf{Mô hình} & \textbf{Nguồn / thiết lập đánh giá} & \textbf{AUC} & \textbf{MRR} & \textbf{nDCG@10}\\
 \midrule
-NRMS (GloVe-300) & nhiều bài báo, số thứ cấp & 0.670--0.691 & -- & 0.418--0.434\\
+NRMS (GloVe-300) & trích dẫn từ các bài báo & 0.670--0.691 & -- & 0.418--0.434\\
 PLM-NR & Wu và cs., SIGIR 2021 & 0.7064 & 0.3539 & 0.4438\\
 UNBERT & Zhang và cs., IJCAI 2021 & 0.7068 & 0.3568 & 0.4478\\
-Fastformer + PLM-NR (ensemble) & đầu bảng xếp hạng, số thứ cấp & 0.7268 & -- & --\\
+Fastformer + PLM-NR & top leaderboard, số liệu thứ cấp & 0.7268 & -- & --\\
 \midrule
-\code{super\_zs} (chỉ nội dung + lịch sử) & đề xuất, offline & 0.6863 & -- & 0.4373\\
+\code{super\_zs} (chỉ dùng nội dung + lịch sử) & đề xuất, offline & 0.6863 & -- & 0.4373\\
 \textbf{\code{stack\_meta}} (+ exposure) & \textbf{đề xuất, offline} & \textbf{0.7013} & \textbf{0.3503} & \textbf{0.4516}\\
 \code{stack\_pop} (+ click trong ngày) & đề xuất, online & 0.7196 & 0.3671 & 0.4731\\
 \bottomrule
 \end{tabularx}
-\begin{alertblock}{Đọc bảng cho đúng}
+\begin{alertblock}{Lưu ý khi đối chiếu số liệu}
 \scriptsize
 \begin{itemize}
   \setlength{\itemsep}{1pt}
-  \item Khác điều kiện: nhóm đo trên \code{MINDlarge\_dev}; số công bố đo trên test của benchmark (nguồn thứ cấp).
-  \item Hệ chỉ dùng nội dung và lịch sử (\code{super\_zs}, \code{stack\_llm}: AUC $\approx$ 0.686; tốt nhất ở các lần chạy sau 0.692, nDCG@10 0.4420) nằm trong dải NRMS, thấp hơn PLM-NR khoảng 0.015--0.02 AUC.
-  \item \code{stack\_meta} ngang PLM-NR về AUC, cao hơn về nDCG@10, nhưng đọc thêm exposure: \textbf{không cùng bài toán}. \code{stack\_pop} dùng click của chính ngày test nên không so trực tiếp.
+  \item Khác biệt tập đánh giá: nhóm đo trên \code{MINDlarge\_dev}; trong khi số liệu công bố đo trên tập test ẩn của benchmark.
+  \item Hệ thống chỉ dùng nội dung và lịch sử đọc (\code{super\_zs}, \code{stack\_llm}: AUC $\approx$ 0.686; bản huấn luyện dài hơn ở v19a đạt AUC 0.692, nDCG@10 0.4420) nằm ở cận trên của NRMS nhưng vẫn thấp hơn PLM-NR khoảng 0.015--0.02 AUC.
+  \item \code{stack\_meta} tiệm cận PLM-NR về AUC và cao hơn về nDCG@10, nhưng có sử dụng thêm đặc trưng exposure nên \textbf{không cùng điều kiện đầu vào}. \code{stack\_pop} dùng tín hiệu click trong ngày nên không so sánh trực tiếp.
 \end{itemize}
 \end{alertblock}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
@@ -1413,23 +1298,23 @@ Fastformer + PLM-NR (ensemble) & đầu bảng xếp hạng, số thứ cấp & 
 \end{frame}
 
 %% ============================================================================ Triển khai
-\begin{frame}[shrink]{Triển khai: vector cache và GBDT so với PLM end-to-end}
+\begin{frame}[shrink]{Khả năng triển khai: lưu cache vector + GBDT so với PLM end-to-end}
 \scriptsize
 \renewcommand{\arraystretch}{1.12}
 \begin{tabularx}{\textwidth}{@{}P{2.2cm}YY@{}}
 \toprule
 \textbf{Tiêu chí} & \textbf{PLM tinh chỉnh end-to-end (PLM-NR, UNBERT)} & \textbf{Kiến trúc đề xuất (embedding cố định + GBDT)}\\
 \midrule
-Khi có bài mới & mã hóa bằng mô hình đang cập nhật; có thể phải huấn luyện lại & mã hóa mỗi bài \textbf{một lần}: $\approx$4 ms (BGE-large) đến 10 ms (Qwen3) trên T4\\
-Khi phục vụ & chạy BERT/RoBERTa trên GPU & tích vô hướng trên vector đã lưu + duyệt cây GBDT\\
-Độ trễ & phụ thuộc kích thước PLM, phần cứng & \textbf{chưa đo đầu-cuối}; ước tính vài ms mỗi slate (CPU)\\
-Cold AUC & phụ thuộc mô hình đã tinh chỉnh & 0.7248, không cập nhật trọng số encoder\\
-nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
+Khi có bài báo mới & mã hóa bằng mô hình đang tinh chỉnh; cần cập nhật lại vector khi huấn luyện lại & mã hóa mỗi bài \textbf{một lần duy nhất}: $\approx$4 ms (BGE-large) đến 10 ms (Qwen3) trên T4\\
+Khi phục vụ (serving) & chạy mạng BERT/RoBERTa trên GPU & tính tích vô hướng trên vector lưu sẵn + duyệt cây GBDT\\
+Độ trễ phục vụ & phụ thuộc kích thước PLM và tài nguyên GPU & \textbf{chưa đo end-to-end}; ước tính vài ms cho mỗi slate trên CPU\\
+Cold AUC & phụ thuộc vào mô hình đã tinh chỉnh & 0.7248, không cần cập nhật trọng số encoder\\
+nDCG@10 & 0.4438--0.4478 (số liệu công bố) & 0.4516 offline / 0.4731 online\\
 \bottomrule
 \end{tabularx}
-\begin{alertblock}{Ý nghĩa thực tiễn và giới hạn}
-\scriptsize Toàn bộ quy trình MIND-large (14.085.557 cặp ứng viên test) chạy trong một notebook với 1 GPU T4 16 GB; RAM đỉnh đo được 21.2 GB (cần $\ge$ 24 GB).
-Độ trễ phục vụ mới là ước tính; cần đo đầu-cuối trước khi khẳng định khả năng triển khai.
+\begin{alertblock}{Ý nghĩa thực tiễn và giới hạn hiện tại}
+\scriptsize Toàn bộ quy trình thực nghiệm MIND-large (14.085.557 cặp ứng viên test) chạy trọn vẹn trên 1 GPU T4 16 GB; mức RAM đỉnh ghi nhận là 21.2 GB (yêu cầu hệ thống $\ge$ 24 GB).
+Chi phí độ trễ khi phục vụ mới dừng ở mức ước tính lý thuyết; cần đo benchmark end-to-end trong môi trường thực tế.
 \end{alertblock}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Ưu điểm thực tế của kiến trúc là chi phí: mỗi bài chỉ mã hóa một lần, lúc phục vụ chỉ cần tích vô hướng và GBDT. Cả quy trình chạy trên một GPU T4. Nhóm chưa đo độ trễ đầu-cuối nên không khẳng định con số độ trễ; đó là việc cần làm tiếp.}
@@ -1442,14 +1327,14 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \scriptsize
 \begin{enumerate}
   \setlength{\itemsep}{3pt}
-  \item \textbf{Giao thức chọn mô hình:} $\tau=0.80$ của validation có trọng số được chọn gần tỷ lệ click vào bài mới quan sát trên test (82.25\%), vốn tính từ nhãn test. Cần thay bằng ước lượng không dùng nhãn.
-  \item \textbf{Một họ dữ liệu, một ngày test:} chỉ có MIND; dùng \code{*\_dev} thay cho test của bảng xếp hạng; số công bố là số thứ cấp.
-  \item \textbf{Quy mô mô hình:} embedding 4B mới thử làm đầu vào reader (v18a: ngang 0.6B); LLM sinh lớn nhất 1.7B; chưa thử 8B.
-  \item \textbf{Ngân sách tinh chỉnh và tập con:} H2 chỉ chạy trên MIND-small; tháp LoRA (H5) nhiều nhất 3.5\% dữ liệu, 1 seed; H12 khoảng nửa epoch; H6, H9 chỉ trên 2.000--2.500 impression; chưa tinh chỉnh toàn phần trên MIND-large.
-  \item \textbf{Kết quả âm:} phần lớn đo trên MIND-small với một cấu hình; SID-GPT ngang vector ngẫu nhiên nên có thể do cài đặt.
-  \item \textbf{Độ bất định:} CI chỉ phản ánh nhiễu mẫu test. Nhiễu seed đo được: 0.007--0.014 nDCG@10 (MIND-small), 0.001--0.007 (reader trên MIND-large); nhiều hàng chỉ một seed.
-  \item \textbf{So sánh với công bố:} chưa chạy lại PLM-NR, UNBERT trên cùng \code{MINDlarge\_dev}; chưa so với MINER, GLORY hay các phương pháp tin tức dùng LLM như ONCE.
-  \item \textbf{Chưa đo:} độ trễ đầu-cuối; các hướng SID-News và họ T.
+  \item \textbf{Tham số trọng số chọn mô hình:} hệ số $\tau=0.80$ trên tập validation có trọng số được đặt gần với tỷ lệ click vào bài mới trên tập test (82.25%). Trong thực tế, cần ước lượng tỷ lệ này trực tiếp từ phân phối ứng viên mà không nhìn vào nhãn test.
+  \item \textbf{Phạm vi bộ dữ liệu:} chỉ đánh giá trên MIND (văn bản ngắn, chỉ có tiêu đề và tóm tắt) và dùng tập \code{*\_dev} làm tập test; số liệu của các mô hình công bố là số thứ cấp.
+  \item \textbf{Quy mô mô hình ngôn ngữ:} bộ mã hóa 4B mới thử nghiệm làm đầu vào cho reader (v18a: kết quả ngang bản 0.6B); mô hình LLM sinh văn bản lớn nhất mới ở mức 1.7B, chưa thử nghiệm các mô hình 7B--8B+.
+  \item \textbf{Ngân sách tinh chỉnh và kích thước mẫu:} H2 chỉ chạy trên MIND-small; User Tower LoRA (H5) mới học tối đa 3.5\% dữ liệu (1 seed); H12 mới chạy khoảng 0.5 epoch; H6 và H9 chỉ đánh giá trên tập con 2.000--2.500 impression; chưa thực hiện fine-tune toàn phần trên MIND-large.
+  \item \textbf{Các kết quả không hiệu quả:} phần lớn được kết luận từ bước sàng lọc trên MIND-small với một cấu hình chuẩn; riêng SID-GPT có kết quả ngang ngẫu nhiên nên nhiều khả năng do vấn đề hội tụ khi cài đặt.
+  \item \textbf{Phương sai theo seed:} khoảng tin cậy (CI) chỉ phản ánh sai số lấy mẫu trên tập test. Độ lệch giữa các seed đo được là 0.007--0.014 nDCG@10 (MIND-small) và 0.001--0.007 (reader trên MIND-large); nhiều cấu hình mới chỉ chạy 1 seed.
+  \item \textbf{Đối chiếu với các công trình khác:} chưa tự huấn luyện lại PLM-NR, UNBERT trên cùng tập \code{MINDlarge\_dev}; chưa so sánh trực tiếp với MINER, GLORY hay ONCE.
+  \item \textbf{Hạng mục chưa đo:} độ trễ phục vụ end-to-end; kết quả thực nghiệm của SID-News và nhóm T.
 \end{enumerate}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Nhóm chủ động nêu giới hạn. Hai giới hạn quan trọng nhất: tham số 0.80 dùng thông tin tổng hợp từ test, và nhiều kết quả chỉ có một seed trong khi nhiễu seed khá lớn. Các kết quả âm cũng chủ yếu đo trên MIND-small với một cấu hình.}
@@ -1461,40 +1346,39 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \renewcommand{\arraystretch}{1.25}
 \begin{tabularx}{\textwidth}{@{}lY@{}}
 \toprule
-\textbf{RQ1} & Embedding cố định + cách tổng hợp tốt \textbf{ngang} NRMS, NAML, Fastformer huấn luyện lại (0.4094 so với NRMS refit 0.4078, CI chứa 0), hơn Fastformer refit (+0.0061): ngang, chưa vượt.\\
-\textbf{RQ2} & Điểm nghẽn là \textbf{tầng tổng hợp lịch sử}: LSE tăng +0.011 đến +0.014 không cần tham số; bộ mã hóa lớn hơn gần như không giúp (BGE-large +0.0015; Qwen3-4B ngang 0.6B).\\
-\textbf{RQ3} & Trong 14 họ đã đo: \textcolor{okc}{\textbf{2 thành công}} (H8, H10), \textcolor{partc}{\textbf{2 có điều kiện}} (F, H3), \textcolor{failc}{\textbf{10 không hiệu quả}}, nhất là các hướng nén hoặc viết lại biểu diễn bằng LLM.\\
-\textbf{RQ4} & Khi chỉ có điểm embedding, GBDT $\approx$ hợp nhất tuyến tính ($-0.0004$); GBDT có ích nhờ exposure (+0.0147). CV theo khối thời gian làm validation khớp test (lệch $-0.0379 \to -0.0072$).\\
-\textbf{RQ5} & Mở khóa 2 tầng cuối BGE-large không thu hẹp khoảng cách (+0.0005, n.s.; Cold AUC $-0.0069$); tháp LoRA hơn LSE nhưng không bổ sung cho hệ thống. Cả hai mới chạy một phần dữ liệu (khoảng nửa epoch; 3.5\%).\\
+\textbf{RQ1} & Embedding cố định kết hợp phép gộp phù hợp đạt kết quả \textbf{tương đương} NRMS, NAML, Fastformer được huấn luyện lại (0.4094 so với NRMS refit 0.4078, CI chứa 0) và vượt Fastformer refit (+0.0061).\\
+\textbf{RQ2} & Điểm nghẽn nằm ở \textbf{tầng tổng hợp lịch sử đọc}: phép gộp LSE tăng +0.011 đến +0.014 mà không cần tham số học; trong khi tăng kích thước encoder hầu như không cải thiện (BGE-large +0.0015; Qwen3-4B ngang bản 0.6B).\\
+\textbf{RQ3} & Trong 14 nhóm kỹ thuật đã đo: \textcolor{okc}{\textbf{2 thành công rõ rệt}} (H8, H10), \textcolor{partc}{\textbf{2 hiệu quả có điều kiện}} (F, H3), \textcolor{failc}{\textbf{10 không vượt qua đối chứng mạnh}} — đặc biệt là các hướng dùng LLM để nén hoặc viết lại biểu diễn.\\
+\textbf{RQ4} & Khi chỉ dùng điểm từ embedding, GBDT tương đương kết hợp tuyến tính ($-0.0004$); GBDT chỉ vượt lên nhờ bổ sung đặc trưng exposure (+0.0147). Chia CV theo khối thời gian giúp điểm validation khớp sát với test (độ lệch giảm từ $-0.0379 \to -0.0072$).\\
+\textbf{RQ5} & Mở khóa 2 tầng cuối BGE-large chưa thu hẹp được khoảng cách (+0.0005, n.s.; Cold AUC $-0.0069$); User Tower LoRA vượt LSE nhưng không mang lại giá trị cộng thêm khi ghép vào hệ thống (trong phạm vi ngân sách $\approx$ 0.5 epoch và 3.5\% dữ liệu).\\
 \bottomrule
 \end{tabularx}
-\ychinh{hệ thống ba tầng trên embedding cố định đạt \textbf{0.4516} nDCG@10 ở chế độ offline (+0.0729 so với mốc) và \textbf{0.4731} ở chế độ online, chạy trên 1 GPU T4; phần lớn mức tăng (khoảng 80\%) đến từ cách dùng embedding và reader.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Tóm lại theo năm câu hỏi. Embedding cố định ngang baseline huấn luyện lại; điểm nghẽn là cách tổng hợp lịch sử; trong 14 họ chỉ 2 họ thành công rõ; GBDT chỉ có ích nhờ exposure; và tinh chỉnh một phần encoder chưa thu hẹp được khoảng cách với PLM tinh chỉnh end-to-end.}
 \end{frame}
 
 %% ============================================================================ Bài học + hướng tiếp
-\begin{frame}[shrink]{Ba điều rút ra và hướng nghiên cứu tiếp theo}
+\begin{frame}[shrink]{Ba bài học rút ra và hướng phát triển tiếp theo}
 \begin{columns}[T,onlytextwidth]
 \column{0.49\textwidth}
-\begin{block}{Ba điều rút ra}
+\begin{block}{Ba bài học cốt lõi}
 \footnotesize
 \begin{enumerate}
   \setlength{\itemsep}{3pt}
-  \item Với tin tức, \textbf{cách gộp lịch sử đọc} quan trọng hơn kích thước hay loại bộ mã hóa.
-  \item Kỹ thuật dùng LLM để \textbf{nén hoặc viết lại} biểu diễn dễ làm mất chi tiết của bài mới, trong khi bài mới chiếm hơn 80\% click.
-  \item \textbf{Cách đánh giá quyết định kết luận}: validation ấm và fold theo người dùng có thể biến một kỹ thuật vô ích thành ``thành công''.
-\end{enumerate}
+  \item Trong bài toán tin tức, \textbf{cách tổng hợp lịch sử đọc} quan trọng hơn kích thước hay kiến trúc của bộ mã hóa.
+  \item Các kỹ thuật dùng LLM để \textbf{nén hoặc viết lại} biểu diễn dễ làm mất chi tiết đặc trưng của bài mới, trong khi bài mới chiếm hơn 80\% lượng click.
+  \item \textbf{Giao thức đánh giá quyết định tính đúng đắn của kết luận}: tập validation ``ấm'' và cách chia fold theo người dùng có thể tạo ra hiệu năng ảo cho những kỹ thuật không hiệu quả.
+\endend{enumerate}
 \end{block}
 \column{0.48\textwidth}
-\begin{block}{Hướng tiếp theo}
+\begin{block}{Hướng nghiên cứu tiếp theo}
 \footnotesize
 \begin{itemize}
   \setlength{\itemsep}{3pt}
-  \item Kiểm chứng trên dữ liệu có toàn văn bài viết (EB-NeRD).
-  \item Huấn luyện tháp LLM (H5) và tinh chỉnh encoder trên toàn bộ MIND-large (hiện mới 3.5\% và khoảng nửa epoch); chạy $\ge$ 3 seed.
-  \item Ước lượng $\tau$ không dùng nhãn test; đo độ trễ đầu-cuối.
-  \item Chạy đo SID-News và họ T; làm ablation riêng cho kích thước slate.
+  \item Kiểm chứng trên bộ dữ liệu có toàn văn bài báo (EB-NeRD).
+  \item Huấn luyện User Tower LLM (H5) và tinh chỉnh encoder trên toàn bộ dữ liệu MIND-large (hiện mới chạy 3.5\% và $\approx$ 0.5 epoch) với $\ge$ 3 seed.
+  \item Ước lượng trọng số $\tau$ hoàn toàn không dùng thông tin từ tập test; đo độ trễ phục vụ end-to-end.
+  \item Thực nghiệm đo kết quả cho SID-News và nhóm T; phân tích ablation riêng cho đặc trưng kích thước slate.
 \end{itemize}
 \end{block}
 \end{columns}
@@ -1516,33 +1400,33 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \appendix
 \section{Phụ lục}
 %% ============================================================================ Thuật ngữ
-\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Thuật ngữ dùng trong bài}
+\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Thuật ngữ sử dụng trong bài}
 \begin{columns}[T,onlytextwidth]
 \column{0.49\textwidth}
 \scriptsize
 \begin{description}
   \setlength{\itemsep}{1pt}
-  \item[Impression] một lượt hiển thị: lịch sử đọc + danh sách ứng viên + nhãn click.
-  \item[Bài mới / bài cũ] bài chưa / đã xuất hiện trong dữ liệu huấn luyện (cold / warm).
-  \item[Mean pooling] vector người dùng là trung bình vector các bài đã đọc.
-  \item[LSE, top-k] gộp độ tương đồng theo kiểu smooth-max hoặc trung bình $k$ bài giống nhất (H8).
-  \item[Reader] tầng nhẹ có huấn luyện đọc lịch sử trên embedding cố định; ``theo ứng viên'' nghĩa là ứng viên làm truy vấn attention (H10).
-  \item[kNN RAG] cộng vào vector bài một phần vector của các bài gần nhất (H3).
-  \item[Vector nối] ghép vector Qwen3 và BGE-large thành 2048 chiều.
-  \item[Zero-shot] không huấn luyện thêm gì trên dữ liệu MIND.
+  \item[Impression] một lượt hiển thị: gồm lịch sử đọc, danh sách bài ứng viên và nhãn click.
+  \item[Bài mới / bài cũ] bài báo chưa từng / đã từng xuất hiện trong tập huấn luyện (cold / warm).
+  \item[Mean pooling] biểu diễn người dùng bằng trung bình cộng vector các bài đã đọc.
+  \item[LSE, top-k] gộp độ tương đồng theo hàm smooth-max (LogSumExp) hoặc lấy trung bình $k$ bài gần nhất (H8).
+  \item[Reader] tầng mạng nhẹ có huấn luyện đọc lịch sử trên nền embedding cố định; ``theo ứng viên'' (candidate-aware) nghĩa là dùng chính ứng viên làm truy vấn attention (H10).
+  \item[kNN RAG] làm giàu vector bài báo bằng tổ hợp tuyến tính với các bài lân cận gần nhất (H3).
+  \item[Vector concat] nối (concatenate) vector Qwen3 và BGE-large thành vector 2048 chiều.
+  \item[Zero-shot] chấm điểm trực tiếp không qua huấn luyện trên dữ liệu MIND.
 \end{description}
 \column{0.48\textwidth}
 \scriptsize
 \begin{description}
   \setlength{\itemsep}{1pt}
-  \item[Hợp nhất tuyến tính] cộng có trọng số các điểm đã chuẩn hóa (\code{super\_*}).
-  \item[GBDT stacker] cây quyết định tăng cường (XGBoost) học cách kết hợp các điểm và đặc trưng.
-  \item[Exposure] thông tin hiển thị của bài lấy từ log, không dùng nhãn: tuổi bài, số lần hiển thị.
-  \item[Online / offline] có / không dùng click của chính ngày test.
-  \item[Time-block CV] chia fold theo khối thời gian liên tiếp thay vì theo người dùng.
-  \item[CI ghép cặp] khoảng tin cậy của hiệu hai mô hình trên cùng các impression.
-  \item[Bonferroni] hiệu chỉnh khi so sánh nhiều họ cùng lúc.
-  \item[Nhiễu seed] chênh lệch giữa hai lần huấn luyện cùng cấu hình, khác seed.
+  \item[Kết hợp tuyến tính] cộng có trọng số các điểm thành phần đã chuẩn hóa z-score (\code{super\_*}).
+  \item[GBDT stacker] mô hình cây quyết định tăng cường (XGBoost) học cách kết hợp điểm thành phần và đặc trưng ngữ cảnh.
+  \item[Exposure] thông tin về độ phủ hiển thị của bài báo trích xuất từ log (không dùng nhãn click): tuổi bài, tần suất xuất hiện.
+  \item[Online / offline] có / không sử dụng tín hiệu click phát sinh trong chính ngày test.
+  \item[Time-block CV] chia cross-validation theo các khối thời gian liên tiếp thay vì chia ngẫu nhiên theo người dùng.
+  \item[CI bắt cặp (paired)] khoảng tin cậy của hiệu số điểm giữa hai mô hình tính trên cùng tập impression.
+  \item[Bonferroni] phép hiệu chỉnh mức ý nghĩa thống kê khi kiểm định đồng thời nhiều giả thuyết.
+  \item[Phương sai seed] mức dao động kết quả giữa các lần huấn luyện cùng cấu hình nhưng khác random seed.
 \end{description}
 \end{columns}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
@@ -1550,58 +1434,58 @@ nDCG@10 & 0.4438--0.4478 (số công bố) & 0.4516 offline / 0.4731 online\\
 \end{frame}
 
 %% ============================================================================ Câu hỏi 1
-\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Câu hỏi có thể gặp (1/2)}
+\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Câu hỏi thường gặp (1/2)}
 \scriptsize
 \begin{description}
   \setlength{\itemsep}{4pt}
-  \item[Vì sao không tinh chỉnh LLM end-to-end như PLM-NR?] Đã thử tinh chỉnh một phần theo đúng công thức PLM-NR (H12: mở khóa 2 tầng cuối BGE-large, có nhánh đối chứng đóng băng): +0.0005 (n.s.), Cold AUC $-0.0069$, không qua cổng +0.006 đặt trước. Tinh chỉnh toàn phần vượt khả năng 1 GPU T4; đây là hướng tiếp theo.
-  \item[\code{stack\_meta} vượt PLM-NR có công bằng không?] Không cùng điều kiện: \code{stack\_meta} đọc thêm exposure từ log, đo trên \code{MINDlarge\_dev}; số PLM-NR là số công bố trên test benchmark. Phát biểu an toàn: hệ chỉ dùng nội dung + lịch sử (0.4373) còn thấp hơn PLM-NR (0.4438).
-  \item[$\tau=0.80$ có rò rỉ thông tin test không?] Có dùng thông tin tổng hợp của test (tỷ lệ click vào bài mới), không dùng nhãn từng mẫu. Đây là giới hạn đã nêu; cách sửa là ước lượng $\tau$ từ tỷ lệ ứng viên mới, không cần nhãn.
-  \item[Vì sao \code{stack\_pop} không đem so với các bài báo?] Nó dùng click của chính ngày test theo luồng, thông tin mà mô hình offline không có và không thể nộp lên bảng xếp hạng.
-  \item[Semantic ID giảm $-0.1011$ có phải do lỗi?] SID-GPT ngang đối chứng vector ngẫu nhiên (0.2898 so với 0.2897), nên khả năng cao mô hình sinh chưa học được; cần kiểm tra cài đặt trước khi kết luận về phương pháp.
+  \item[Vì sao không tinh chỉnh LLM end-to-end như PLM-NR?] Nhóm đã thử nghiệm tinh chỉnh một phần theo đúng hướng của PLM-NR (H12: mở khóa 2 tầng cuối BGE-large, có nhánh đối chứng đóng băng): chỉ tăng +0.0005 (n.s.), Cold AUC giảm $-0.0069$, không vượt qua ngưỡng dừng +0.006 đặt trước. Tinh chỉnh toàn phần đòi hỏi tài nguyên vượt quá giới hạn 1 GPU T4 và được định hướng cho nghiên cứu tiếp theo.
+  \item[Việc \code{stack\_meta} vượt PLM-NR có phải là so sánh công bằng không?] Không cùng điều kiện đầu vào: \code{stack\_meta} sử dụng thêm đặc trưng exposure từ log và đánh giá trên \code{MINDlarge\_dev}; trong khi số liệu PLM-NR đo trên tập test ẩn của benchmark. Nhận định chuẩn xác là: hệ thống chỉ dùng nội dung + lịch sử (0.4373) vẫn thấp hơn PLM-NR (0.4438).
+  \item[Hệ số $\tau=0.80$ có làm rò rỉ thông tin từ tập test không?] Hệ số này có tham chiếu đến thống kê tổng hợp của tập test (tỷ lệ click vào bài mới), dù không dùng nhãn của từng mẫu. Đây là giới hạn đã được nêu rõ; hướng khắc phục là ước lượng $\tau$ trực tiếp từ tỷ lệ bài mới trong danh sách ứng viên mà không cần nhãn click.
+  \item[Vì sao không đưa \code{stack\_pop} vào so sánh với các bài báo công bố?] Vì mô hình này cập nhật số lượt click theo luồng ngay trong ngày test — nguồn thông tin mà các mô hình offline chuẩn không được phép truy cập.
+  \item[Việc Semantic ID giảm tới $-0.1011$ có phải do lỗi cài đặt?] Mô hình SID-GPT cho kết quả ngang với vector ngẫu nhiên (0.2898 so với 0.2897), cho thấy quá trình huấn luyện sinh mã chưa hội tụ; cần kiểm tra lại cài đặt trước khi đưa ra kết luận chung về phương pháp Semantic ID.
 \end{description}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide dự phòng cho phần hỏi đáp.}
 \end{frame}
 
 %% ============================================================================ Câu hỏi 2
-\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Câu hỏi có thể gặp (2/2)}
+\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Câu hỏi thường gặp (2/2)}
 \scriptsize
 \begin{description}
   \setlength{\itemsep}{4pt}
-  \item[Khoảng tin cậy có tính nhiễu huấn luyện không?] Không. CI ghép cặp chỉ phản ánh nhiễu mẫu test; nhiễu seed đo riêng (0.007--0.014 trên MIND-small, 0.001--0.007 cho reader trên MIND-large). Chênh nhỏ hơn mức đó giữa hai mô hình đã huấn luyện không được dùng để kết luận.
-  \item[Sao không dùng embedding lớn hơn (4B--8B)?] Đã thử Qwen3-Embedding-4B trên MIND-large (v18a): làm đầu vào reader chỉ ngang bản 0.6B ($+0.0006$) và kém BGE-large ($-0.005$ đến $-0.009$); 8B chưa thử vì giới hạn GPU. Encoder lớn hơn không tự động tốt hơn (BGE-large chỉ +0.0015 so với BGE-small).
-  \item[Vì sao GBDT không giúp khi chỉ có điểm embedding?] Bốn trọng số tuyến tính đã khai thác hết thông tin của các điểm ($-0.0004$, n.s.); GBDT chỉ có ích khi có thông tin mới như exposure (+0.0147).
-  \item[LSE đã so với attention học được, với NAML, Fastformer chưa?] Có. Trên cùng vector cố định: reader kiểu NRMS, Fastformer, 4 truy vấn, theo ứng viên (slide ``H8 so với attention học được''). Baseline đầy đủ NRMS, NAML, Fastformer: slide RQ1. Reader kiểu NAML trên vector cố định chưa chạy.
-  \item[Kích thước slate quan trọng nhất có hợp lý không?] Chưa rõ. Bỏ cột này làm điểm holdout giảm; có thể cây dùng nó làm ngữ cảnh để đổi cách kết hợp. Cần ablation riêng.
-  \item[Đóng góp chính của đề tài là gì?] (1) Đánh giá chặt 12 họ LLM 2024--2026 cho tin tức với baseline huấn luyện lại, CI ghép cặp và nhiễu seed; (2) chỉ ra điểm nghẽn là tầng tổng hợp lịch sử và hai cách sửa trên embedding cố định (LSE, reader theo ứng viên); (3) giao thức validation có trọng số bài mới + CV theo khối thời gian; (4) hệ ba tầng chạy trên 1 GPU T4.
+  \item[Khoảng tin cậy (CI) có bao gồm phương sai do huấn luyện không?] Không. CI bắt cặp chỉ đo sai số lấy mẫu trên tập test; phương sai giữa các seed huấn luyện được đo riêng (0.007--0.014 trên MIND-small, 0.001--0.007 cho reader trên MIND-large). Những chênh lệch nhỏ hơn biên độ này giữa hai mô hình có huấn luyện không được dùng để kết luận.
+  \item[Tại sao không dùng các mô hình embedding lớn hơn (4B--8B)?] Nhóm đã thử Qwen3-Embedding-4B trên MIND-large (v18a): khi làm đầu vào cho reader, kết quả chỉ ngang bản 0.6B ($+0.0006$) và thấp hơn BGE-large ($-0.005$ đến $-0.009$); bản 8B vượt quá bộ nhớ GPU. Thực nghiệm xuyên suốt cho thấy encoder lớn hơn không đồng nghĩa với kết quả tốt hơn (BGE-large chỉ hơn BGE-small +0.0015).
+  \item[Vì sao GBDT không vượt kết hợp tuyến tính khi chỉ dùng điểm embedding?] Bốn trọng số tuyến tính đã khai thác hết thông tin từ các đầu điểm thành phần ($-0.0004$, n.s.); GBDT chỉ phát huy tác dụng khi được cung cấp thêm nhóm đặc trưng phi tuyến mới như exposure (+0.0147).
+  \item[LSE đã được so sánh trực tiếp với các mô hình attention học được chưa?] Đã so sánh. Trên cùng bảng vector cố định: đã đối chiếu với reader kiến trúc NRMS, Fastformer, đa truy vấn ($K=4$) và theo ứng viên (xem slide ``H8 so với các tầng attention có huấn luyện''). Đối với các baseline đầy đủ (NRMS, NAML, Fastformer học từ đầu): xem slide RQ1.
+  \item[Việc kích thước slate đứng đầu về split gain có hợp lý không?] Đây là điểm cần phân tích thêm. Loại bỏ cột này làm giảm điểm holdout; có khả năng cây quyết định dùng độ dài danh sách ứng viên làm biến điều kiện để điều chỉnh phân phối điểm. Cần một nghiên cứu ablation riêng cho hiện tượng này.
+  \item[Đóng góp chính của đề tài là gì?] (1) Đánh giá thực nghiệm 12 nhóm kỹ thuật LLM 2024--2026 trên bài toán tin tức với baseline được huấn luyện lại chuẩn xác, có CI bắt cặp và kiểm soát phương sai seed; (2) Xác định điểm nghẽn nằm ở tầng tổng hợp lịch sử và đề xuất hai giải pháp hiệu quả trên embedding cố định (LSE, reader theo ứng viên); (3) Thiết lập giao thức đánh giá chống lệch phân phối (validation có trọng số bài mới + Time-block CV); (4) Xây dựng hệ thống 3 tầng đạt hiệu năng cao và chạy trọn vẹn trên 1 GPU T4 phổ thông.
 \end{description}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide dự phòng cho phần hỏi đáp.}
 \end{frame}
 
 %% ============================================================================ Các lần chạy
-\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Các lần chạy và nguồn số liệu}
+\begin{frame}[shrink]{Phụ lục \textperiodcentered{} Danh mục các lần chạy và nguồn số liệu}
 \scriptsize
 \renewcommand{\arraystretch}{1.18}
 \begin{tabularx}{\textwidth}{@{}llYl@{}}
 \toprule
-\textbf{Lần chạy} & \textbf{Dữ liệu} & \textbf{Nội dung chính} & \textbf{Thời gian}\\
+\textbf{Lần chạy} & \textbf{Dữ liệu} & \textbf{Nội dung thực nghiệm chính} & \textbf{Thời gian}\\
 \midrule
-V10 & MIND-small & bộ đo gốc: NRMS, NAML, Fastformer, BGE zero-shot, popularity & --\\
-v7 & MIND-small & khoảng 16 họ kỹ thuật, khoảng 150 biến thể; baseline huấn luyện lại; thang ablation NRMS & 7.52 giờ\\
-v13 & MIND-small & trường văn bản (F), lịch sử 100/200 click, đa sở thích (H11), Fastformer 2 seed + refit & 8.22 giờ\\
-v14 & MIND-large & một encoder (Qwen3) và đủ kỹ thuật; bộ hợp nhất tuyến tính; tháp LoRA (H5) & 2.90 giờ\\
-v15 & MIND-large & GBDT stacker (XGBoost GPU), đặc trưng exposure, encoder thứ hai BGE-large & 2.73 giờ\\
-v16b & MIND-large & CV theo khối thời gian, reader trên BGE-large và vector nối, đo RAM đỉnh (21.2 GB) & 4.49 giờ\\
-v17 & MIND-large & mở khóa 2 tầng cuối BGE-large dưới reader (H12), nhánh đối chứng khớp cặp, cổng dừng & --\\
-v18a & MIND-large & đối chứng = v16b chạy lại (trùng đến 4 chữ số); Qwen3-Embedding-4B làm encoder & 8.15 giờ\\
-v18b & MIND-large & reader huấn luyện trên đủ 2.71 triệu mẫu, 6 epoch; reader \code{sca} & 5.13 giờ\\
-v19a & MIND-large & reader kỹ hơn đưa vào hợp nhất + GBDT (có đối chứng); H6, H9 trên tập con & 9.54 giờ\\
-v19b & MIND-large & H5 huấn luyện 200 phút, chấm toàn bộ test; H1 trên 60.000 impression & 10.09 giờ\\
+V10 & MIND-small & bộ đo ban đầu: NRMS, NAML, Fastformer, BGE zero-shot, popularity & --\\
+v7 & MIND-small & khảo sát $\sim$16 nhóm kỹ thuật, $\sim$150 biến thể; huấn luyện lại baseline chuẩn; ablation từng bước NRMS & 7.52 giờ\\
+v13 & MIND-small & khảo sát trường văn bản (F), lịch sử 100/200 click, đa sở thích (H11), Fastformer 2 seed + refit & 8.22 giờ\\
+v14 & MIND-large & chạy một encoder (Qwen3) với đầy đủ kỹ thuật; kết hợp tuyến tính; User Tower LoRA (H5) & 2.90 giờ\\
+v15 & MIND-large & tích hợp GBDT stacker (XGBoost GPU), đặc trưng exposure, bổ sung encoder thứ hai BGE-large & 2.73 giờ\\
+v16b & MIND-large & áp dụng Time-block CV, huấn luyện reader trên BGE-large và vector concat, đo RAM đỉnh (21.2 GB) & 4.49 giờ\\
+v17 & MIND-large & mở khóa 2 tầng cuối BGE-large dưới reader (H12), chạy nhánh đối chứng bắt cặp và kiểm tra ngưỡng dừng & --\\
+v18a & MIND-large & tái lập kết quả v16b (khớp đến chữ số thập phân thứ 4); thử nghiệm Qwen3-Embedding-4B làm encoder & 8.15 giờ\\
+v18b & MIND-large & huấn luyện reader trên toàn bộ 2.71 triệu mẫu trong 6 epoch; thử nghiệm biến thể reader \code{sca} & 5.13 giờ\\
+v19a & MIND-large & đưa các reader huấn luyện dài hơi vào bộ kết hợp tuyến tính + GBDT; đo H6, H9 trên tập con & 9.54 giờ\\
+v19b & MIND-large & huấn luyện H5 trong 200 phút, chấm trên toàn bộ tập test; đo H1 trên 60.000 impression & 10.09 giờ\\
 \bottomrule
 \end{tabularx}
-\ghichu{Mọi lần chạy là một notebook ``Run All'' trên Kaggle (Tesla T4 16 GB; v14--v17 dùng một GPU, v18--v19 dùng hai). Các bảng MIND-large trong bài lấy từ v16b, trừ các dòng đánh dấu (*) lấy từ v17 và các số ghi rõ v18, v19. Đối chứng của v18a, v18b, v19a, v19b trùng v16b đến 4 chữ số.}
+\ghichu{Mỗi lần chạy là một phiên notebook ``Run All'' hoàn chỉnh trên Kaggle (GPU Tesla T4 16 GB; v14--v17 dùng 1 GPU, v18--v19 dùng 2 GPU). Các bảng kết quả MIND-large trong bài lấy từ v16b, ngoại trừ các dòng đánh dấu (*) lấy từ v17 và các số liệu ghi chú rõ từ v18, v19. Nhánh đối chứng của v18a, v18b, v19a, v19b khớp hoàn toàn với v16b đến 4 chữ số thập phân.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide dự phòng: cho biết mỗi con số đến từ lần chạy nào.}
 \end{frame}
