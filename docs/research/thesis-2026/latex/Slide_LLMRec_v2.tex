@@ -7,6 +7,7 @@
 %%    bỏ dấu % ở hai dòng "pgfpages" và "show notes" trong phần khai báo.
 %% Số liệu lấy từ các lần chạy đo thật: v7, v13 (MIND-small); v14, v15, v16b, v17 (MIND-large).
 %% Các dòng đánh dấu (*) lấy từ lần chạy v17; các dòng còn lại của MIND-large lấy từ v16b.
+%% Các dòng ghi "v20c" là mô hình mới nhất (v19c + thành phần LLM-text của v20a, v20b), đo ghép cặp trên cùng impression.
 %% ============================================================================
 \documentclass[aspectratio=169,t]{beamer}
 \usepackage[utf8]{inputenc}
@@ -174,13 +175,13 @@ sàng lọc trên MIND-small, kiểm chứng trên MIND-large. Mọi so sánh đ
 \vspace{6pt}
 \hop{okc}{2.45cm}{{\footnotesize\bfseries\color{okc}Kết quả}\par\vspace{2pt}\scriptsize
 \textbf{2} hướng thành công rõ rệt (H8, H10), \textbf{2} hướng hiệu quả có điều kiện (F, H3), \textbf{10} hướng không vượt qua baseline mạnh.
-Hệ thống 3 tầng (embedding cố định $\to$ reader $\to$ GBDT): nDCG@10 tăng từ \textbf{0.3787 $\to$ 0.4516} ở chế độ offline; đạt \textbf{0.4731} khi dùng thêm tín hiệu click trong ngày (online).}\hfill
+Hệ thống 3 tầng (embedding cố định $\to$ reader $\to$ GBDT): nDCG@10 tăng từ \textbf{0.3787 $\to$ 0.4534} ở chế độ offline; đạt \textbf{0.4749} khi dùng thêm tín hiệu click trong ngày (online).}\hfill
 \hop{partc}{2.45cm}{{\footnotesize\bfseries\color{partc}Bài học}\par\vspace{2pt}\scriptsize
 (1) Điểm nghẽn nằm ở \textbf{tầng tổng hợp lịch sử đọc}, không phải kích thước bộ mã hóa.
 (2) Các kỹ thuật \textbf{nén hoặc viết lại} biểu diễn bằng LLM làm mất chi tiết của bài mới.
 (3) Cần đánh giá sát thực tế: tập validation có trọng số theo tỷ lệ bài mới, cross-validation theo khối thời gian.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Nếu chỉ nhớ một slide thì là slide này. Bài toán khó vì hơn 82\% click rơi vào bài mới. Nhóm giữ bộ mã hóa cố định và thử 12 họ kỹ thuật LLM; chỉ hai họ thành công rõ ràng, hai họ có điều kiện, mười họ không hơn đối chứng mạnh. Ghép các hướng đứng vững cho nDCG@10 tăng từ 0.3787 lên 0.4516.}
+\note{Nếu chỉ nhớ một slide thì là slide này. Bài toán khó vì hơn 82\% click rơi vào bài mới. Nhóm giữ bộ mã hóa cố định và thử 12 họ kỹ thuật LLM; chỉ hai họ thành công rõ ràng, hai họ có điều kiện, mười họ không hơn đối chứng mạnh. Ghép các hướng đứng vững cho nDCG@10 tăng từ 0.3787 lên 0.4516; bản mới nhất, thêm đoạn mở rộng do LLM viết cho từng bài, đạt 0.4534 offline và 0.4749 online.}
 \end{frame}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -297,7 +298,7 @@ Mục đích sử dụng & sàng lọc & kiểm chứng\\
 \node[res,below=0.22cm of b1.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} NRMS refit đạt 0.4078 là mốc chuẩn (cấu hình cũ V10: 0.3685).};
 \node[res,below=0.22cm of b2.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} H8 (LSE) vượt trội; đa số hướng sinh văn bản hoặc nén bằng LLM thất bại.};
 \node[res,below=0.22cm of b3.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} H10 vượt LSE khi đủ dữ liệu; F và H3 chỉ hiệu quả có điều kiện.};
-\node[res,below=0.22cm of b4.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} đạt 0.4516 nDCG@10 offline, 0.4731 online.};
+\node[res,below=0.22cm of b4.south west,anchor=north west] {\textbf{\color{okc}Kết quả:} đạt 0.4516 nDCG@10 offline, 0.4731 online (bản mới nhất v20c: 0.4534 / 0.4749).};
 \end{tikzpicture}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide này trả lời câu hỏi ``nhóm đã nghiên cứu như thế nào''. Bước 1: dựng baseline đúng, vì so với baseline yếu thì kỹ thuật nào cũng trông tốt. Bước 2: sàng lọc 12 họ trên MIND-small, mỗi họ so với đối chứng mạnh nhất. Bước 3: mang các họ còn đứng vững lên MIND-large để xác nhận. Bước 4: ghép các họ đứng vững thành hệ thống và sửa hai lỗi đánh giá là validation lệch và rò rỉ trong ngày.}
@@ -442,7 +443,7 @@ kNN trong reader, trên vector concat:\\
   \textbf{H4b} LLM tóm tắt cụm: không đổi\par
   \textbf{H5}$^{\dagger}$ User Tower LoRA: hơn LSE, kém reader\par
   \textbf{H6}$^{\dagger}$ hồ sơ do LLM sinh: $-0.0308$\par
-  \textbf{H7} Semantic ID: ngang ngẫu nhiên\par
+  \textbf{H7} Semantic ID: kém mean pooling $-0.031$\par
   \textbf{H9}$^{\dagger}$ LLM chấm điểm: $-0.0112$\par
   \textbf{H11} đa sở thích: thấp hơn LSE\par
   \textbf{H12}$^{\dagger}$ mở khóa encoder: +0.0005 (n.s.)};
@@ -462,14 +463,14 @@ kNN trong reader, trên vector concat:\\
 \toprule
 \textbf{Mã} & \textbf{Hướng thử nghiệm} & \textbf{Kết quả chính (so với đối chứng mạnh nhất)} & \textbf{Kết luận}\\
 \midrule
-H1 & Chuyển lịch sử đọc thành văn bản & small $-0.0211$ đến $-0.0014$; large $-0.0101$ so với mean pooling & \FAILs\\
+H1 & Chuyển lịch sử đọc thành văn bản & small $-0.0211$ đến $-0.0014$; large $-0.0101$ so với mean pooling; thêm MLP học được (v20b): $+0.0080$ so với H1, vẫn $-0.0032$ so với mean pooling & \FAILs\\
 H2 & LoRA/DoRA cho encoder$^{\dagger}$ & +0.0016 đến +0.0029; Cold AUC giảm & \FAILs\\
 H3 & Làm giàu vector bài bằng kNN & qua reader +0.0037; cộng trực tiếp vào vector bài thì giảm & \PARTs\\
 H4 & GraphRAG (tâm cụm đồ thị) & val +0.0199 nhưng test $-0.0066$ & \FAILs\\
 H4b & LLM tóm tắt chủ đề mỗi cụm & không khác biệt có ý nghĩa thống kê & \FAILs\\
 H5 & User Tower dùng LoRA$^{\dagger}$ & 0.5\% dữ liệu: ngang LSE; 3.5\%: hơn LSE +0.0085, kém reader $-0.0048$; không cải thiện khi kết hợp & \FAILs\\
-H6 & LLM sinh hồ sơ, mở rộng bài$^{\dagger}$ & hồ sơ $-0.0308$ / $-0.0278$ (small / large); mở rộng bài +0.0079 / +0.0043 (n.s.) & \FAILs\\
-H7 & Semantic ID + SID-GPT & 0.2898, ngang vector ngẫu nhiên (0.2897) & \FAILs\\
+H6 & LLM sinh hồ sơ, mở rộng bài$^{\dagger}$ & hồ sơ $-0.0308$ / $-0.0278$ (small / large); mở rộng toàn bộ 104.151 bài (v20a): +0.0013 so với LSE, reader không đổi; ghép vào hệ thống (v20c): online +0.0018, offline +0.0004 & \FAILs\\
+H7 & Semantic ID + SID-GPT & small: 0.2898, ngang ngẫu nhiên (0.2897); large (v20b, chấm tầng chủ đề): 0.3473, $-0.0314$ so với mean pooling & \FAILs\\
 \textbf{H8} & \textbf{Tương tác muộn (LSE)} & \textbf{+0.011 đến +0.014, nhất quán trên 2 encoder và 2 quy mô} & \OKs\\
 H9 & LLM chấm điểm ứng viên$^{\dagger}$ & small $-0.0112$; large $-0.0092$ (n.s.); cả hai trên $n=2.000$ & \FAILs\\
 \textbf{H10} & \textbf{Reader theo ứng viên} & \textbf{vượt LSE +0.008 đến +0.013 (trừ BGE-small)} & \OKs\\
@@ -493,20 +494,20 @@ F & Thêm chuyên mục vào văn bản & Qwen3 +0.0186, BGE $-0.0024$ so với 
 \midrule
 Qwen3-0.6B, BGE-large làm encoder (H8, H10, F) & mã hóa toàn bộ 104.151 bài; reader học 1.2 triệu mẫu (bản mở rộng: đủ 2.71 triệu) & toàn bộ 376.471 & \DUs\\
 Qwen3-4B làm encoder (RQ2, v18a) & mã hóa toàn bộ 104.151 bài; reader học 1.2 triệu mẫu & toàn bộ & \DUs\\
-H1 chuyển lịch sử thành văn bản & không cần huấn luyện (zero-shot) & small 41\%; large 16\% & \DUs\\
+H1 chuyển lịch sử thành văn bản & zero-shot; bản thêm MLP (v20b): 300.000 lịch sử huấn luyện & small 41\%; large 16\%; v20b: toàn bộ & \DUs\\
 H4b LLM tóm tắt cụm & không cần huấn luyện; tóm tắt toàn bộ cụm & toàn bộ (small) & \DUs\\
 \midrule
 H2 LoRA/DoRA cho encoder & $\le$ 1.500 bước $\times$ 32 = 48.000 cặp đồng click (co-click); chỉ trên small & toàn bộ (small) & \MOTPHANs\\
 H5 User Tower LLM + LoRA & v14: 12.800 lịch sử (0.5\%); v19b: 93.952 (3.5\%), 200 phút & v14: 30.000; v19b: toàn bộ & \MOTPHANs\\
 H12 mở khóa 2 tầng BGE-large & 576.000 mẫu ($\approx$ 0.5 epoch); truyền ngược gradient phía ứng viên & toàn bộ & \MOTPHANs\\
-H6 LLM mở rộng bài, viết hồ sơ & zero-shot; thử trên nền mean pooling, chưa tích hợp vào hệ thống & 2.500 (large: 0.7\%) & \TAPCONs\\
+H6 LLM mở rộng bài, viết hồ sơ & zero-shot; mở rộng toàn bộ 104.151 bài (v20a, 96 phút trên 2 GPU) và tích hợp vào hệ thống (v20c); hồ sơ: chỉ tập con & mở rộng bài: toàn bộ; hồ sơ: 2.500 & \DUs\\
 H9 LLM chấm điểm Có/Không & zero-shot; chỉ rerank top-10 của mean pooling & 2.000 (large: 0.5\%) & \TAPCONs\\
-H7 Semantic ID + SID-GPT & 3 epoch (small) & toàn bộ (small) & \\\
+H7 Semantic ID + SID-GPT & 3 epoch (small); 4 epoch, 18.392 bước (large, v20b) & toàn bộ (small, large) & \DUs\\
 \bottomrule
 \end{tabularx}
-\ghichu{LLM embedding: Qwen3-Embedding-0.6B (H1, H5); LLM sinh: Qwen3-1.7B (H4b, H6, H9). Tỷ lệ phần trăm tính trên tập test (73.152 impression ở small, 376.471 ở large) hoặc trên 2.71 triệu mẫu huấn luyện. Ước tính thời gian chạy toàn bộ trên GPU T4: H5 (1 epoch) $\approx$ 87 giờ; H9 trên toàn bộ test $\approx$ 38 giờ; mở rộng cả 104.151 bài $\approx$ 3--4 giờ. Giới hạn một phiên Kaggle là 12 giờ.}
+\ghichu{LLM embedding: Qwen3-Embedding-0.6B (H1, H5); LLM sinh: Qwen3-1.7B (H4b, H6, H9). Tỷ lệ phần trăm tính trên tập test (73.152 impression ở small, 376.471 ở large) hoặc trên 2.71 triệu mẫu huấn luyện. Ước tính thời gian chạy toàn bộ trên GPU T4: H5 (1 epoch) $\approx$ 87 giờ; H9 trên toàn bộ test $\approx$ 38 giờ; mở rộng cả 104.151 bài: đo thật 96 phút trên 2 GPU T4 (v20a). Giới hạn một phiên Kaggle là 12 giờ.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Slide này để đánh giá công bằng các hướng LLM. Các hướng thành công đều chạy trên toàn bộ dữ liệu. Ngược lại, các hướng huấn luyện LLM mới dùng một phần nhỏ: tháp người dùng mới thấy 3.5\% dữ liệu huấn luyện, mở khóa encoder khoảng nửa epoch. LLM sinh văn bản và LLM chấm điểm chỉ đo trên vài nghìn impression và đặt trên nền mean pooling. Vì vậy với các hướng này, nhóm chỉ kết luận trong ngân sách đã thử; chạy đủ cần nhiều GPU hơn một phiên Kaggle, ví dụ một epoch của tháp người dùng ước khoảng 87 giờ trên T4.}
+\note{Slide này để đánh giá công bằng các hướng LLM. Các hướng thành công đều chạy trên toàn bộ dữ liệu. Ngược lại, các hướng huấn luyện LLM mới dùng một phần nhỏ: tháp người dùng mới thấy 3.5\% dữ liệu huấn luyện, mở khóa encoder khoảng nửa epoch. LLM chấm điểm chỉ đo trên vài nghìn impression và đặt trên nền mean pooling; riêng LLM viết mở rộng bài đã chạy đủ toàn bộ 104.151 bài ở v20a và được ghép vào hệ thống ở v20c. Vì vậy với các hướng này, nhóm chỉ kết luận trong ngân sách đã thử; chạy đủ cần nhiều GPU hơn một phiên Kaggle, ví dụ một epoch của tháp người dùng ước khoảng 87 giờ trên T4.}
 \end{frame}
 
 %% ============================================================================ Biểu đồ độ lớn
@@ -953,17 +954,17 @@ Khi không phạt: cả 4 vector sụp đổ về gần như cùng một hướn
 \toprule
 \textbf{Nhóm} & \textbf{Cách làm} & \textbf{Kết quả ($\Delta$ nDCG@10)} & \textbf{Nguyên nhân khả dĩ}\\
 \midrule
-H1: lịch sử dạng văn bản & nối các tiêu đề đã đọc thành một chuỗi truy vấn dài & small $-0.0211$ đến $-0.0014$ ($n=30.000$); large $-0.0101$ ($n=60.000$) & chuỗi văn bản dài làm loãng tín hiệu của từng bài riêng lẻ\\
+H1: lịch sử dạng văn bản & nối các tiêu đề đã đọc thành một chuỗi truy vấn dài & small $-0.0211$ đến $-0.0014$ ($n=30.000$); large $-0.0101$ ($n=60.000$); + MLP học được (v20b, toàn bộ test): $-0.0032$ so với mean pooling & chuỗi văn bản dài làm loãng tín hiệu của từng bài riêng lẻ\\
 H6: hồ sơ độc giả & dùng Qwen3-1.7B sinh đoạn văn mô tả sở thích & small $-0.0308$; large $-0.0278$ (cả hai $n=2.500$) & tóm tắt văn bản làm mất các sở thích ngách\\
-H6: mở rộng bài báo & dùng LLM sinh thêm đoạn mô tả cho mỗi bài & small $+0.0079\ [+0.0021, +0.0137]$; large $+0.0043$ (n.s.); $n=2.500$; triệt tiêu khi có popularity & thông tin sinh thêm trùng lặp với tín hiệu độ phổ biến\\
+H6: mở rộng bài báo & dùng LLM sinh thêm đoạn mô tả cho mỗi bài & small $+0.0079\ [+0.0021, +0.0137]$; large $+0.0043$ (n.s.); $n=2.500$; toàn bộ (v20a): $+0.0013$ so với LSE, Cold AUC $-0.012$; trong hệ thống (v20c): online $+0.0018\ [+0.0015, +0.0022]$ & thông tin sinh thêm trùng lặp với tín hiệu độ phổ biến; chỉ có ích như thành phần phụ\\
 H9: LLM chấm điểm & dùng Qwen3-1.7B chấm xác suất Yes/No cho ứng viên & small $-0.0112$; large $-0.0092$ (n.s.); cả hai $n=2.000$, rerank top-10 của mean pooling & xác suất sinh chưa được hiệu chuẩn (uncalibrated); tốc độ chậm\\
-H7: Semantic ID & lượng tử hóa RQ-KMeans; xếp hạng sinh bằng SID-GPT & hồ sơ SID $+0.0035$; SID-GPT 0.2898 $\approx$ ngẫu nhiên 0.2897 & mô hình sinh chưa hội tụ; cần kiểm tra lại cài đặt\\
+H7: Semantic ID & lượng tử hóa RQ-KMeans; xếp hạng sinh bằng SID-GPT & hồ sơ SID $+0.0035$; SID-GPT 0.2898 $\approx$ ngẫu nhiên 0.2897; large (v20b): chấm tầng chủ đề $+0.0483$ so với cộng cả 3 tầng, vẫn $-0.0314$ so với mean pooling & cách chấm cũ cộng cả tầng mịn của bài mới; mã rời rạc làm mất chi tiết của từng bài\\
 H4: GraphRAG & thay vector bài bằng tâm cụm trên đồ thị kNN & small $+0.0043$; large: val $+0.0199$, test $-0.0066$ & lấy tâm cụm làm mờ chi tiết đặc trưng của bài mới\\
 H4b: tóm tắt cụm & dùng LLM tóm tắt chủ đề cho mỗi cụm & không khác biệt có ý nghĩa thống kê & --\\
 \bottomrule
 \end{tabularx}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Nhóm các hướng dùng LLM để viết lại hoặc nén biểu diễn đều không đứng vững. Riêng Semantic ID, mô hình sinh cho kết quả ngang vector ngẫu nhiên; đây là dấu hiệu nó không học được gì, nên nhóm thận trọng: kết luận là ``chưa làm được trong cài đặt này'', chưa phải ``phương pháp không dùng được''.}
+\note{Nhóm các hướng dùng LLM để viết lại hoặc nén biểu diễn đều không đứng vững. Riêng Semantic ID, trên MIND-small mô hình sinh cho kết quả ngang vector ngẫu nhiên; lần chạy v20b trên MIND-large cho thấy nguyên nhân là cách chấm cộng cả các tầng mã mịn: chỉ chấm tầng chủ đề tăng 0.048, nhưng vẫn kém mean pooling. Mở rộng bài bằng LLM chạy đủ toàn bộ bài ở v20a: riêng lẻ gần như không tăng, ghép vào hệ thống chỉ tăng 0.0018 ở chế độ online.}
 \end{frame}
 
 
@@ -1146,11 +1147,14 @@ GBDT được huấn luyện trên tập validation (150.000 impression $\approx
 8. \code{stack\_llm} & GBDT: điểm + ngữ cảnh & 0.4456 & 0.6853 & 0.3375 & 0.3756 & 0.4369 & 0.7063\\
 \textbf{9. \code{stack\_meta}} & \textbf{GBDT + exposure} & \textbf{0.4588} & \textbf{0.7013} & \textbf{0.3503} & \textbf{0.3899} & \textbf{0.4516} & \textbf{0.7248}\\
 10. \code{stack\_meta\_v15cfg} & GBDT, chia fold theo user & 0.4922 & 0.7029 & 0.3528 & 0.3930 & 0.4543 & 0.7285\\
+\midrule
+11. \code{super\_llm} (v20c) & mới nhất: kết hợp tuyến tính & 0.4341 & 0.6939 & 0.3418 & 0.3795 & 0.4407 & 0.7097\\
+\textbf{12. \code{stack\_meta} (v20c)} & \textbf{mới nhất: + đoạn LLM viết} & 0.4636 & \textbf{0.7038} & \textbf{0.3504} & \textbf{0.3914} & \textbf{0.4534} & \textbf{0.7256}\\
 \bottomrule
 \end{tabularx}
-\ghichu{Số liệu lấy từ lần chạy v16b (dòng 7 log không xuất MRR và nDCG@5). Val: nDCG@10 trên tập validation (out-of-fold đối với GBDT). Dòng 10 chỉ mang tính tham khảo do điểm validation bị phóng đại bởi rò rỉ thông tin trong ngày.}
+\ghichu{Số liệu lấy từ lần chạy v16b (dòng 7 log không xuất MRR và nDCG@5). Val: nDCG@10 trên tập validation (out-of-fold đối với GBDT). Dòng 10 chỉ mang tính tham khảo do điểm validation bị phóng đại bởi rò rỉ thông tin trong ngày. Dòng 11--12: lần chạy v20c (bản mới nhất); dòng 11 dùng quy tắc chọn trên validation không trọng số (đăng ký trước); \code{stack\_meta} v20c hơn hệ tốt nhất trước (v19c) $+0.0004\ [+0.0000, +0.0007]$, 1 seed stacker.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
-\note{Bảng đọc từ trên xuống theo đúng các tầng: đối chứng, các thành phần đứng vững, hợp nhất, rồi GBDT. Mô hình offline chính là stack\_meta với 0.4516. Dòng 10 cao hơn một chút trên test nhưng điểm validation của nó không đáng tin, nên chỉ để tham khảo.}
+\note{Bảng đọc từ trên xuống theo đúng các tầng: đối chứng, các thành phần đứng vững, hợp nhất, rồi GBDT. Mô hình offline chính là stack\_meta với 0.4516; bản mới nhất v20c, thêm thành phần có đoạn LLM viết, đạt 0.4534. Dòng 10 cao hơn một chút trên test nhưng điểm validation của nó không đáng tin, nên chỉ để tham khảo.}
 \end{frame}
 
 %% ============================================================================ Online
@@ -1166,10 +1170,11 @@ GBDT được huấn luyện trên tập validation (150.000 impression $\approx
 \midrule
 \code{popularity} (chỉ đếm click, không dùng nội dung) & 0.6540 & 0.3126 & 0.4040 & 0.6986\\
 \code{super\_llm+pop} & 0.7133 & 0.3604 & 0.4638 & 0.7539\\
-\textbf{\code{stack\_pop}} & \textbf{0.7196} & \textbf{0.3671} & \textbf{0.4731} & 0.7526\\
+\code{stack\_pop} & 0.7196 & 0.3671 & 0.4731 & 0.7526\\
+\textbf{\code{stack\_pop}} (v20c, mới nhất) & \textbf{0.7216} & \textbf{0.3676} & \textbf{0.4749} & 0.7528\\
 \bottomrule
 \end{tabularx}
-\ghichu{So sánh bắt cặp: \code{stack\_pop} $-$ \code{stack\_meta} $=+0.0215\ [+0.0209, +0.0220]$; \code{stack\_pop} $-$ \code{super\_llm+pop} $=+0.0093\ [+0.0087, +0.0099]$.}
+\ghichu{So sánh bắt cặp: \code{stack\_pop} $-$ \code{stack\_meta} $=+0.0215\ [+0.0209, +0.0220]$; \code{stack\_pop} $-$ \code{super\_llm+pop} $=+0.0093\ [+0.0087, +0.0099]$. v20c so với hệ tốt nhất trước (v19c): $+0.0018\ [+0.0015, +0.0022]$, lớn hơn nhiễu seed stacker ($\pm0.0008$).}
 \column{0.41\textwidth}
 \footnotesize
 \begin{itemize}
@@ -1282,6 +1287,10 @@ Fastformer + PLM-NR & top leaderboard, số liệu thứ cấp & 0.7268 & -- & -
 \code{super\_zs} (chỉ dùng nội dung + lịch sử) & đề xuất, offline & 0.6863 & -- & 0.4373\\
 \textbf{\code{stack\_meta}} (+ exposure) & \textbf{đề xuất, offline} & \textbf{0.7013} & \textbf{0.3503} & \textbf{0.4516}\\
 \code{stack\_pop} (+ click trong ngày) & đề xuất, online & 0.7196 & 0.3671 & 0.4731\\
+\midrule
+\code{super\_llm} (v20c, chỉ nội dung + lịch sử) & mới nhất, offline & 0.6939 & 0.3418 & 0.4407\\
+\code{stack\_meta} (v20c, + exposure) & mới nhất, offline & 0.7038 & 0.3504 & 0.4534\\
+\code{stack\_pop} (v20c, + click trong ngày) & mới nhất, online & 0.7216 & 0.3676 & 0.4749\\
 \bottomrule
 \end{tabularx}
 \begin{alertblock}{Lưu ý khi đối chiếu số liệu}
@@ -1289,7 +1298,7 @@ Fastformer + PLM-NR & top leaderboard, số liệu thứ cấp & 0.7268 & -- & -
 \begin{itemize}
   \setlength{\itemsep}{1pt}
   \item Khác biệt tập đánh giá: nhóm đo trên \code{MINDlarge\_dev}; trong khi số liệu công bố đo trên tập test ẩn của benchmark.
-  \item Hệ thống chỉ dùng nội dung và lịch sử đọc (\code{super\_zs}, \code{stack\_llm}: AUC $\approx$ 0.686; bản huấn luyện dài hơn ở v19a đạt AUC 0.692, nDCG@10 0.4420) nằm ở cận trên của NRMS nhưng vẫn thấp hơn PLM-NR khoảng 0.015--0.02 AUC.
+  \item Hệ thống chỉ dùng nội dung và lịch sử đọc (\code{super\_zs}, \code{stack\_llm}: AUC $\approx$ 0.686; bản huấn luyện dài hơn ở v19a đạt AUC 0.692, nDCG@10 0.4420; bản mới nhất v20c: AUC 0.6939, nDCG@10 0.4407) nằm ở cận trên của NRMS nhưng vẫn thấp hơn PLM-NR khoảng 0.015--0.02 AUC.
   \item \code{stack\_meta} tiệm cận PLM-NR về AUC và cao hơn về nDCG@10, nhưng có sử dụng thêm đặc trưng exposure nên \textbf{không cùng điều kiện đầu vào}. \code{stack\_pop} dùng tín hiệu click trong ngày nên không so sánh trực tiếp.
 \end{itemize}
 \end{alertblock}
@@ -1309,7 +1318,7 @@ Khi có bài báo mới & mã hóa bằng mô hình đang tinh chỉnh; cần c�
 Khi phục vụ (serving) & chạy mạng BERT/RoBERTa trên GPU & tính tích vô hướng trên vector lưu sẵn + duyệt cây GBDT\\
 Độ trễ phục vụ & phụ thuộc kích thước PLM và tài nguyên GPU & \textbf{chưa đo end-to-end}; ước tính vài ms cho mỗi slate trên CPU\\
 Cold AUC & phụ thuộc vào mô hình đã tinh chỉnh & 0.7248, không cần cập nhật trọng số encoder\\
-nDCG@10 & 0.4438--0.4478 (số liệu công bố) & 0.4516 offline / 0.4731 online\\
+nDCG@10 & 0.4438--0.4478 (số liệu công bố) & 0.4516 offline / 0.4731 online (v20c: 0.4534 / 0.4749)\\
 \bottomrule
 \end{tabularx}
 \begin{alertblock}{Ý nghĩa thực tiễn và giới hạn hiện tại}
@@ -1327,12 +1336,12 @@ Chi phí độ trễ khi phục vụ mới dừng ở mức ước tính lý thu
 \scriptsize
 \begin{enumerate}
   \setlength{\itemsep}{3pt}
-  \item \textbf{Tham số trọng số chọn mô hình:} hệ số $\tau=0.80$ trên tập validation có trọng số được đặt gần với tỷ lệ click vào bài mới trên tập test (82.25%). Trong thực tế, cần ước lượng tỷ lệ này trực tiếp từ phân phối ứng viên mà không nhìn vào nhãn test.
+  \item \textbf{Tham số trọng số chọn mô hình:} hệ số $\tau=0.80$ trên tập validation có trọng số được đặt gần với tỷ lệ click vào bài mới trên tập test (82.25\%). Trong thực tế, cần ước lượng tỷ lệ này trực tiếp từ phân phối ứng viên mà không nhìn vào nhãn test.
   \item \textbf{Phạm vi bộ dữ liệu:} chỉ đánh giá trên MIND (văn bản ngắn, chỉ có tiêu đề và tóm tắt) và dùng tập \code{*\_dev} làm tập test; số liệu của các mô hình công bố là số thứ cấp.
   \item \textbf{Quy mô mô hình ngôn ngữ:} bộ mã hóa 4B mới thử nghiệm làm đầu vào cho reader (v18a: kết quả ngang bản 0.6B); mô hình LLM sinh văn bản lớn nhất mới ở mức 1.7B, chưa thử nghiệm các mô hình 7B--8B+.
-  \item \textbf{Ngân sách tinh chỉnh và kích thước mẫu:} H2 chỉ chạy trên MIND-small; User Tower LoRA (H5) mới học tối đa 3.5\% dữ liệu (1 seed); H12 mới chạy khoảng 0.5 epoch; H6 và H9 chỉ đánh giá trên tập con 2.000--2.500 impression; chưa thực hiện fine-tune toàn phần trên MIND-large.
-  \item \textbf{Các kết quả không hiệu quả:} phần lớn được kết luận từ bước sàng lọc trên MIND-small với một cấu hình chuẩn; riêng SID-GPT có kết quả ngang ngẫu nhiên nên nhiều khả năng do vấn đề hội tụ khi cài đặt.
-  \item \textbf{Phương sai theo seed:} khoảng tin cậy (CI) chỉ phản ánh sai số lấy mẫu trên tập test. Độ lệch giữa các seed đo được là 0.007--0.014 nDCG@10 (MIND-small) và 0.001--0.007 (reader trên MIND-large); nhiều cấu hình mới chỉ chạy 1 seed.
+  \item \textbf{Ngân sách tinh chỉnh và kích thước mẫu:} H2 chỉ chạy trên MIND-small; User Tower LoRA (H5) mới học tối đa 3.5\% dữ liệu (1 seed); H12 mới chạy khoảng 0.5 epoch; H9 và hồ sơ của H6 chỉ đánh giá trên tập con 2.000--2.500 impression (mở rộng bài của H6 đã chạy toàn bộ ở v20a); chưa thực hiện fine-tune toàn phần trên MIND-large.
+  \item \textbf{Các kết quả không hiệu quả:} phần lớn được kết luận từ bước sàng lọc trên MIND-small với một cấu hình chuẩn; riêng SID-GPT ngang ngẫu nhiên trên MIND-small do cách chấm cộng cả tầng mã mịn; sửa cách chấm trên MIND-large (v20b) tăng +0.048 nhưng vẫn kém mean pooling.
+  \item \textbf{Phương sai theo seed:} khoảng tin cậy (CI) chỉ phản ánh sai số lấy mẫu trên tập test. Độ lệch giữa các seed đo được là 0.007--0.014 nDCG@10 (MIND-small) và 0.001--0.007 (reader trên MIND-large); nhiều cấu hình mới chỉ chạy 1 seed (kể cả stacker của v20c).
   \item \textbf{Đối chiếu với các công trình khác:} chưa tự huấn luyện lại PLM-NR, UNBERT trên cùng tập \code{MINDlarge\_dev}; chưa so sánh trực tiếp với MINER, GLORY hay ONCE.
   \item \textbf{Hạng mục chưa đo:} độ trễ phục vụ end-to-end; kết quả thực nghiệm của SID-News và nhóm T.
 \end{enumerate}
@@ -1368,7 +1377,7 @@ Chi phí độ trễ khi phục vụ mới dừng ở mức ước tính lý thu
   \item Trong bài toán tin tức, \textbf{cách tổng hợp lịch sử đọc} quan trọng hơn kích thước hay kiến trúc của bộ mã hóa.
   \item Các kỹ thuật dùng LLM để \textbf{nén hoặc viết lại} biểu diễn dễ làm mất chi tiết đặc trưng của bài mới, trong khi bài mới chiếm hơn 80\% lượng click.
   \item \textbf{Giao thức đánh giá quyết định tính đúng đắn của kết luận}: tập validation ``ấm'' và cách chia fold theo người dùng có thể tạo ra hiệu năng ảo cho những kỹ thuật không hiệu quả.
-\endend{enumerate}
+\end{enumerate}
 \end{block}
 \column{0.48\textwidth}
 \begin{block}{Hướng nghiên cứu tiếp theo}
@@ -1442,7 +1451,7 @@ Chi phí độ trễ khi phục vụ mới dừng ở mức ước tính lý thu
   \item[Việc \code{stack\_meta} vượt PLM-NR có phải là so sánh công bằng không?] Không cùng điều kiện đầu vào: \code{stack\_meta} sử dụng thêm đặc trưng exposure từ log và đánh giá trên \code{MINDlarge\_dev}; trong khi số liệu PLM-NR đo trên tập test ẩn của benchmark. Nhận định chuẩn xác là: hệ thống chỉ dùng nội dung + lịch sử (0.4373) vẫn thấp hơn PLM-NR (0.4438).
   \item[Hệ số $\tau=0.80$ có làm rò rỉ thông tin từ tập test không?] Hệ số này có tham chiếu đến thống kê tổng hợp của tập test (tỷ lệ click vào bài mới), dù không dùng nhãn của từng mẫu. Đây là giới hạn đã được nêu rõ; hướng khắc phục là ước lượng $\tau$ trực tiếp từ tỷ lệ bài mới trong danh sách ứng viên mà không cần nhãn click.
   \item[Vì sao không đưa \code{stack\_pop} vào so sánh với các bài báo công bố?] Vì mô hình này cập nhật số lượt click theo luồng ngay trong ngày test — nguồn thông tin mà các mô hình offline chuẩn không được phép truy cập.
-  \item[Việc Semantic ID giảm tới $-0.1011$ có phải do lỗi cài đặt?] Mô hình SID-GPT cho kết quả ngang với vector ngẫu nhiên (0.2898 so với 0.2897), cho thấy quá trình huấn luyện sinh mã chưa hội tụ; cần kiểm tra lại cài đặt trước khi đưa ra kết luận chung về phương pháp Semantic ID.
+  \item[Việc Semantic ID giảm tới $-0.1011$ có phải do lỗi cài đặt?] Trên MIND-small, SID-GPT cho kết quả ngang với vector ngẫu nhiên (0.2898 so với 0.2897). Lần chạy v20b trên MIND-large cho thấy nguyên nhân là cách chấm cộng cả 3 tầng mã (tầng mịn của bài mới làm hỏng điểm): chỉ chấm tầng chủ đề tăng $+0.0483$, mô hình có dùng lịch sử (đổi lịch sử sang người khác giảm $-0.0626$), nhưng vẫn kém mean pooling $-0.0314$. Kết luận: không phải lỗi cài đặt; mã rời rạc làm mất chi tiết của từng bài.
 \end{description}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide dự phòng cho phần hỏi đáp.}
@@ -1483,9 +1492,13 @@ v18a & MIND-large & tái lập kết quả v16b (khớp đến chữ số thập
 v18b & MIND-large & huấn luyện reader trên toàn bộ 2.71 triệu mẫu trong 6 epoch; thử nghiệm biến thể reader \code{sca} & 5.13 giờ\\
 v19a & MIND-large & đưa các reader huấn luyện dài hơi vào bộ kết hợp tuyến tính + GBDT; đo H6, H9 trên tập con & 9.54 giờ\\
 v19b & MIND-large & huấn luyện H5 trong 200 phút, chấm trên toàn bộ tập test; đo H1 trên 60.000 impression & 10.09 giờ\\
+v19c & MIND-large & ghép reader huấn luyện dài hơi (v19a) và H5 (v19b) vào bộ kết hợp + GBDT & --\\
+v20a & MIND-large & H6: Qwen3-1.7B viết mở rộng cho toàn bộ 104.151 bài; reader trên vector có đoạn LLM viết & 5.35 giờ\\
+v20b & MIND-large & H7: SID chấm theo tầng; H1 + MLP học được (\code{histq\_mlp}), toàn bộ tập test & 3.2 giờ\\
+v20c & MIND-large & ghép thành phần của v20a, v20b vào hệ tốt nhất (v19c); mô hình mới nhất & 3.72 giờ\\
 \bottomrule
 \end{tabularx}
-\ghichu{Mỗi lần chạy là một phiên notebook ``Run All'' hoàn chỉnh trên Kaggle (GPU Tesla T4 16 GB; v14--v17 dùng 1 GPU, v18--v19 dùng 2 GPU). Các bảng kết quả MIND-large trong bài lấy từ v16b, ngoại trừ các dòng đánh dấu (*) lấy từ v17 và các số liệu ghi chú rõ từ v18, v19. Nhánh đối chứng của v18a, v18b, v19a, v19b khớp hoàn toàn với v16b đến 4 chữ số thập phân.}
+\ghichu{Mỗi lần chạy là một phiên notebook ``Run All'' hoàn chỉnh trên Kaggle (GPU Tesla T4 16 GB; v14--v17 dùng 1 GPU, v18--v19 dùng 2 GPU). Các bảng kết quả MIND-large trong bài lấy từ v16b, ngoại trừ các dòng đánh dấu (*) lấy từ v17 và các số liệu ghi chú rõ từ v18, v19. Nhánh đối chứng của v18a, v18b, v19a, v19b khớp hoàn toàn với v16b đến 4 chữ số thập phân; đối chứng của v20c khớp v19c.}
 \par\kern0pt% chiều cao khung tính cả phần sâu của hộp cuối
 \note{Slide dự phòng: cho biết mỗi con số đến từ lần chạy nào.}
 \end{frame}
