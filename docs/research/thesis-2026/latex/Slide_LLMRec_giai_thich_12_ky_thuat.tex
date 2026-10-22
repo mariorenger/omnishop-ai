@@ -1,0 +1,462 @@
+%% ============================================================================
+%% Gợi ý tin tức sử dụng các kỹ thuật LLM (LLMRec) -- bản trình bày lại cho dễ theo dõi.
+%% Biên dịch: pdfLaTeX, chạy 2 lần.
+%%  * Nếu cùng thư mục có theme "hust" (beamerthemehust.sty) thì dùng theme đó;
+%%    nếu không, dùng giao diện dự phòng định nghĩa ngay bên dưới.
+%%  * Bản có lời thoại gợi ý (mỗi trang: slide ở trên, lời thoại ở dưới):
+%%    bỏ dấu % ở hai dòng "pgfpages" và "show notes" trong phần khai báo.
+%% Số liệu lấy từ các lần chạy đo thật: v7, v13 (MIND-small); v14, v15, v16b, v17 (MIND-large).
+%% Các dòng đánh dấu (*) lấy từ lần chạy v17; các dòng còn lại của MIND-large lấy từ v16b.
+%% Các dòng ghi "v20c" là mô hình mới nhất (v19c + thành phần LLM-text của v20a, v20b), đo ghép cặp trên cùng impression.
+%% ============================================================================
+\documentclass[aspectratio=169,t]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning,calc,decorations.pathreplacing,arrows.meta}
+% \usepackage{pgfpages}
+% \setbeameroption{show notes on second screen=bottom}
+
+%% ---------------------------------------------------------------- màu dùng chung
+\definecolor{okc}{HTML}{1E7B34}      % thành công
+\definecolor{partc}{HTML}{B7791F}    % có điều kiện
+\definecolor{failc}{HTML}{B91C1C}    % không hiệu quả
+\definecolor{nac}{HTML}{64748B}      % chưa đo / chú thích
+\definecolor{keyc}{HTML}{14284B}     % xanh đậm
+\definecolor{softc}{HTML}{F2F4F8}
+\definecolor{accentc}{HTML}{A6192E}  % đỏ Bách khoa
+
+%% ---------------------------------------------------------------- theme
+\newif\ifhusttheme
+\IfFileExists{beamerthemehust.sty}{\hustthemetrue}{\hustthemefalse}
+\ifhusttheme
+  \usetheme{hust}
+\else
+  %% Giao diện dự phòng (chỉ dùng khi không có beamerthemehust.sty)
+  \usetheme{default}
+  \setbeamercolor{structure}{fg=accentc}
+  \setbeamercolor{normal text}{fg=black!88}
+  \setbeamercolor{frametitle}{fg=white,bg=keyc}
+  \setbeamercolor{title}{fg=keyc}
+  \setbeamercolor{subtitle}{fg=accentc}
+  \setbeamercolor{block title}{fg=white,bg=keyc}
+  \setbeamercolor{block body}{fg=black,bg=keyc!5}
+  \setbeamercolor{block title alerted}{fg=white,bg=accentc}
+  \setbeamercolor{block body alerted}{fg=black,bg=accentc!5}
+  \setbeamercolor{block title example}{fg=white,bg=okc}
+  \setbeamercolor{block body example}{fg=black,bg=okc!5}
+  \setbeamercolor{foot}{fg=black!60,bg=black!5}
+  \setbeamertemplate{blocks}[rounded][shadow=false]
+  \setbeamertemplate{itemize items}[square]
+  \setbeamertemplate{enumerate items}[default]
+  \setbeamerfont{frametitle}{size=\large,series=\bfseries}
+  \setbeamerfont{title}{size=\LARGE,series=\bfseries}
+  \setbeamertemplate{frametitle}{%
+    \nointerlineskip
+    \begin{beamercolorbox}[wd=\paperwidth,ht=0.85cm,dp=0.3cm,leftskip=0.35cm,rightskip=0.35cm]{frametitle}%
+      \usebeamerfont{frametitle}\insertframetitle
+    \end{beamercolorbox}\vspace{1mm}}
+  \setbeamertemplate{footline}{%
+    \leavevmode\hbox{%
+    \begin{beamercolorbox}[wd=.34\paperwidth,ht=2.3ex,dp=0.9ex,leftskip=0.35cm]{foot}\tiny\insertshorttitle\ \textperiodcentered\ \insertshortauthor\end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.50\paperwidth,ht=2.3ex,dp=0.9ex,center]{foot}\tiny\insertsection\end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.16\paperwidth,ht=2.3ex,dp=0.9ex,right,rightskip=0.35cm]{foot}\tiny\insertframenumber\,/\,\inserttotalframenumber\end{beamercolorbox}}}
+  \setbeamertemplate{title page}{%
+    \vspace*{0.5cm}
+    {\usebeamercolor[fg]{title}\usebeamerfont{title}\inserttitle\par}
+    \vspace{0.25cm}
+    {\usebeamercolor[fg]{subtitle}\large\insertsubtitle\par}
+    \vspace{0.3cm}{\color{accentc}\rule{0.92\textwidth}{1.2pt}}\par
+    \vspace{0.45cm}
+    {\small\insertauthor\par}
+    \vspace{0.35cm}
+    {\small\color{black!60}\insertdate\par}}
+  \makeatletter\define@key{beamerframe}{Title}[true]{}\makeatother   % tuỳ chọn khung "Title" của theme hust
+\fi
+\setbeamertemplate{caption}[numbered]
+\beamertemplatenavigationsymbolsempty
+\setbeamertemplate{note page}{%
+  \vspace*{4mm}\noindent\begin{minipage}[t]{\textwidth}
+    {\small\bfseries\color{accentc}Lời thoại gợi ý}\par\vspace{2mm}
+    {\small\insertnote\par}
+  \end{minipage}}
+
+%% ---------------------------------------------------------------- lệnh dùng chung
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Q}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcommand{\nhan}[2]{{\setlength{\fboxsep}{1.3pt}\colorbox{#1}{\tiny\bfseries\color{white}\rule[-1.4pt]{0pt}{6.3pt}#2}}}
+\newcommand{\nhanS}[2]{{\setlength{\fboxsep}{0.8pt}\colorbox{#1}{\tiny\bfseries\color{white}\rule[-1.1pt]{0pt}{5.6pt}\,#2\,}}}
+\newcommand{\OKs}{\nhanS{okc}{THÀNH CÔNG}}
+\newcommand{\PARTs}{\nhanS{partc}{CÓ ĐIỀU KIỆN}}
+\newcommand{\FAILs}{\nhanS{failc}{KHÔNG HIỆU QUẢ}}
+\newcommand{\NAs}{\nhanS{nac}{CHƯA ĐO}}
+\newcommand{\DUs}{\nhanS{okc}{ĐỦ}}
+\newcommand{\MOTPHANs}{\nhanS{partc}{MỘT PHẦN}}
+\newcommand{\TAPCONs}{\nhanS{partc}{TẬP CON}}
+\newcommand{\NGHIs}{\nhanS{nac}{NGHI LỖI}}
+\newcommand{\OK}{\nhan{okc}{THÀNH CÔNG}}
+\newcommand{\PART}{\nhan{partc}{CÓ ĐIỀU KIỆN}}
+\newcommand{\FAIL}{\nhan{failc}{KHÔNG HIỆU QUẢ}}
+\newcommand{\NA}{\nhan{nac}{CHƯA ĐO}}
+\newcommand{\ychinh}[1]{}
+\newcommand{\ghichu}[1]{\par\vspace{2pt}{\tiny\color{nac}#1\par}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\effbar}[4]{\fill[#3] (0,#1-0.34) rectangle (#2,#1+0.34);\node[anchor=east,align=right] at (\lx,#1) {#4};}
+\newcommand{\tg}[2]{{\setlength{\fboxsep}{1.2pt}\colorbox{#1}{\tiny\bfseries\color{white}\rule[-1.2pt]{0pt}{5.8pt}#2}}}
+\newcommand{\hop}[3]{\fcolorbox{#1}{#1!5}{\parbox[t][#2][t]{\dimexpr0.5\linewidth-2\fboxsep-2\fboxrule-3pt\relax}{#3}}}
+
+%% ---------------------------------------------------------------- lệnh riêng của bộ slide giải thích
+\newcommand{\bangmota}[1]{{\scriptsize\renewcommand{\arraystretch}{1.1}\setlength{\tabcolsep}{4pt}%
+  \begin{tabularx}{\textwidth}{@{}P{2.55cm}Y@{}}\toprule #1 \bottomrule\end{tabularx}}}
+\newcommand{\rw}[2]{\textbf{#1} & #2\\ \midrule}
+\newcommand{\rwl}[2]{\textbf{#1} & #2\\}
+\newcommand{\ketqua}[1]{\begin{exampleblock}{Kết quả đo (test \code{MINDlarge\_dev})}\scriptsize #1\end{exampleblock}}
+\newcommand{\luuy}[1]{\begin{alertblock}{Lưu ý}\scriptsize #1\end{alertblock}}
+
+\title[Giải thích 12 kỹ thuật]{Giải thích chi tiết 12 kỹ thuật LLM cho gợi ý tin tức}
+\subtitle{Mỗi kỹ thuật một trang: mã hóa bài, mã hóa người dùng, cách chấm điểm, siêu tham số, hàm mất mát, tham số được học}
+\author[N.\,N. Hán, N.\,P. Nguyên, L.\,V. Đức]{\texorpdfstring{%
+    \begin{tabular}{rl}
+        \textbf{Người thực hiện:} & Nguyễn Nam Hán -- 20252095M \\
+                                  & Nguyễn Phúc Nguyên -- 20261222M \\
+                                  & Lê Văn Đức -- 20261233M \\[0.3em]
+        \textbf{GVHD:}            & TS. Ngô Văn Linh
+    \end{tabular}}{Nguyễn Nam Hán, Nguyễn Phúc Nguyên, Lê Văn Đức}%
+}
+\date{2026}
+
+\begin{document}
+
+\begin{frame}[noframenumbering,Title]
+  \titlepage
+  \note{Bộ slide này là phần giải thích kỹ thuật đi kèm bộ slide kết quả: với mỗi kỹ thuật H1 đến H12, nêu rõ bài báo được mã hóa thế nào, người dùng được mã hóa thế nào, điểm được tính ra sao, siêu tham số, hàm mất mát và chính xác tham số nào được huấn luyện. Mọi thông số lấy từ mã nguồn đã chạy.}
+\par\kern0pt
+\end{frame}
+
+\begin{frame}[noframenumbering,shrink]{Nội dung}
+\small
+\begin{columns}[T,onlytextwidth]
+\column{0.5\textwidth}
+\begin{enumerate}
+  \setlength{\itemsep}{0.5em}
+  \item Thành phần dùng chung: dữ liệu, bộ mã hóa đóng băng, cách huấn luyện reader
+  \item Bảng so sánh nhanh 12 kỹ thuật
+  \item H1 -- H4b: lịch sử dạng văn bản, LoRA bộ mã hóa, kNN-RAG, GraphRAG
+\end{enumerate}
+\column{0.5\textwidth}
+\begin{enumerate}
+  \setcounter{enumi}{3}
+  \setlength{\itemsep}{0.5em}
+  \item H5 -- H8: User Tower LLM, LLM viết thêm, Semantic ID, late interaction
+  \item H9 -- H12: LLM chấm điểm, reader theo ứng viên, đa sở thích, mở khóa encoder
+  \item Bảng tổng hợp tham số được huấn luyện, hàm mất mát và tối ưu
+\end{enumerate}
+\end{columns}
+\par\kern0pt
+\note{Phần đầu nêu những thứ dùng chung để các trang sau không lặp lại; sau đó mỗi kỹ thuật một trang theo cùng một khuôn.}
+\end{frame}
+
+\section{Thành phần dùng chung}
+\begin{frame}[shrink]{Thành phần dùng chung của mọi kỹ thuật}
+\bangmota{
+\rw{Dữ liệu}{MIND-large: 104.151 bài; train 2.232.748 impression; validation = ngày cuối của train; test = \code{MINDlarge\_dev} 376.471 impression. Mẫu huấn luyện (\code{train\_core}) = (lịch sử, 1 bài click, 4 bài bỏ qua lấy mẫu trong cùng impression); toàn bộ 2.71 triệu mẫu.}
+\rw{Văn bản của bài}{\code{ta} = \code{"title. abstract"} (tối đa 256 token); \code{cta} = \code{"Category: \{cat\}. Subcategory: \{subcat\}. title. abstract"}.}
+\rw{Bộ mã hóa đóng băng}{BGE-small (384 chiều), BGE-large (1024, vector CLS), Qwen3-Embedding-0.6B (1024, token cuối), vector nối $\mathbf e=[\mathbf e_{\mathrm{Qwen3}}\Vert\mathbf e_{\mathrm{BGE}}]/\sqrt2$ (2048 chiều). Mọi vector được chuẩn hóa L2; mỗi bài mã hóa một lần, lưu thành bảng $\mathbf E\in\mathbb R^{N\times d}$.}
+\rw{Lịch sử đọc}{50 bài click gần nhất, theo thứ tự thời gian (biến thể 100 / 200 bài ở bước F). Riêng các kỹ thuật ``lịch sử dạng văn bản'' (H1, H5) dùng 10 tiêu đề gần nhất.}
+\rw{Chọn mô hình}{Mọi siêu tham số, epoch, trọng số chọn trên validation; tập test chỉ đo một lần. Độ đo chính: nDCG@10 (kèm AUC, MRR, nDCG@5, Cold AUC).}
+\rw{Reader chung}{Dùng ở H3, H6, H10, H11, H12: đầu MLP hai tầng trên $\mathbf E$ rồi attention theo ứng viên (chi tiết ở trang H10). Loss: cross-entropy trên 1 bài click + 4 bài bỏ qua.}
+\rwl{Nhãn kết quả}{Số $\Delta$ nDCG@10 trong các trang sau lấy từ bộ slide kết quả; v7, v13 = MIND-small, v14 trở đi = MIND-large.}
+}
+\par\kern0pt
+\note{Các kỹ thuật chỉ khác nhau ở cách biến lịch sử và ứng viên thành điểm; phần mã hóa bài báo bằng encoder đóng băng, dữ liệu và cách chọn mô hình là chung.}
+\end{frame}
+
+\begin{frame}[shrink]{Bảng so sánh nhanh: mã hóa bài, mã hóa người dùng, điểm số, tham số học}
+\tiny
+\renewcommand{\arraystretch}{1.07}
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabularx}{\textwidth}{@{}P{0.55cm}P{3.0cm}P{3.5cm}P{2.7cm}Y@{}}
+\toprule
+\textbf{Mã} & \textbf{Mã hóa bài (item)} & \textbf{Mã hóa người dùng (user)} & \textbf{Điểm $s(u,c)$} & \textbf{Tham số được học}\\
+\midrule
+H1 & Qwen3-Emb vector bài (đóng băng) & Văn bản \code{Instruct + 10 tiêu đề} qua Qwen3-Emb, token cuối & cosine & không (bản có MLP: 2 đầu MLP residual)\\
+H2 & BGE-small + LoRA / DoRA, mã hóa lại toàn bộ bài & mean pooling 50 bài & cosine & LoRA $q,v$ 12 lớp: 294.912 (DoRA 304.128)\\
+H3 & $\mathbf e_c+\beta\,\mathrm{Norm}(\sum_{j\in\mathcal N_k(c)}s_{cj}\mathbf e_j)$ & mean pooling hoặc reader & cosine / reader & không (zero-shot); reader như H10\\
+H4 & vector gốc; thêm tâm cộng đồng & mean pooling + histogram cộng đồng & cosine $+\lambda\cdot$độ gần cộng đồng & không\\
+H4b & như H4, tâm thay bằng vector câu tóm tắt LLM & như H4 & như H4 & không (LLM sinh, không huấn luyện)\\
+H5 & Qwen3-Emb vector bài (đóng băng) & LoRA-Qwen3 đọc \code{Instruct + 10 tiêu đề}, token cuối & cosine & LoRA 7 ma trận $\times$ 28 lớp: 10.092.544\\
+H6 & $\mathrm{Norm}(\mathbf e_c+\alpha\,\mathbf e_{\mathrm{exp}})$, $\mathbf e_{\mathrm{exp}}$ = vector đoạn LLM viết & mean pooling / LSE / reader & cosine / LSE / reader & không (zero-shot); reader như H10\\
+H7 & Mã 3 tầng RQ-KMeans (256 cụm/tầng) & chuỗi $30\times3$ token mã & $\log P(\text{mã tầng 1 của }c\mid\text{lịch sử})$ & SID-GPT $\approx$3,6 triệu tham số\\
+H8 & vector đóng băng & giữ riêng từng vector trong 50 bài & LSE, top-$k$, MaxSim & không\\
+H9 & văn bản tiêu đề + chuyên mục & 8 tiêu đề gần nhất (văn bản) & log-odds Yes/No của Qwen3-1.7B & không\\
+H10 & vector đóng băng, qua đầu MLP & attention của ứng viên lên lịch sử & $\langle\sum\alpha_i\mathbf h_i,\mathbf c\rangle$ & đầu MLP + $\mathbf W_c$: $\approx$0,16--0,30 triệu\\
+H11 & vector đóng băng, qua đầu MLP & $K$ vector sở thích (K-Means hoặc $K$ truy vấn học được) & soft-max qua $K$ sở thích & zero-shot: không; reader: $K\cdot$dim + đầu MLP + $\tau$\\
+H12 & BGE-large, mở khóa 2 lớp cuối & reader trên bảng vector (làm mới định kỳ) & như H10 & 2 lớp BERT-large $\approx$25,2 triệu + reader\\
+\bottomrule
+\end{tabularx}
+\par\kern0pt
+\note{Bảng này là bản đồ của cả bộ slide: mỗi hàng là một kỹ thuật, các cột là bốn câu hỏi mà từng trang sau trả lời chi tiết.}
+\end{frame}
+
+\section{H1 -- H4b}
+%% ============================================================================ H1
+\begin{frame}[shrink]{H1 \textperiodcentered{} Lịch sử đọc dạng văn bản, mã hóa bằng LLM đóng băng}
+\bangmota{
+\rw{Ý tưởng}{Thay vì tính trung bình vector từng bài, viết lịch sử thành một câu truy vấn rồi để LLM nhúng (embedding) cả đoạn thành một vector người dùng (kiểu EmbSum / \code{Instruct + Query}).}
+\rw{Mã hóa bài (item)}{Qwen3-Embedding-0.6B, đóng băng. Văn bản \code{ta}, vector 1024 chiều, chuẩn hóa L2; không có prefix chỉ dẫn ở phía bài.}
+\rw{Mã hóa người dùng (user)}{Chuỗi \code{"Instruct: Given the headlines a reader recently clicked, retrieve the news article they would most likely read next\textbackslash nQuery: }$t_1$\code{; }$t_2$\code{; ...; }$t_{10}$\code{"}, trong đó $t_i$ là \textbf{tiêu đề} (không có tóm tắt) của 10 bài gần nhất, tối đa 384 token. Qwen3-Emb mã hóa, lấy vector ở token cuối (last-token pooling), chuẩn hóa L2.}
+\rw{Điểm số}{$s(u,c)=\cos(\mathbf q_u,\mathbf e_c)$. Đối chứng không có câu chỉ dẫn (\code{hq\_plain}).}
+\rw{Siêu tham số}{$K=10$ tiêu đề; \code{q\_max\_len}=384; chỉ dẫn do Qwen3-Emb đề xuất. Không có tham số nào được chỉnh.}
+\rw{Loss / tham số học}{Bản chính: \textbf{không huấn luyện} (zero-shot). Bản thêm lớp học được \code{histq\_mlp} (v20b): hai đầu MLP residual $\mathbf x+\mathbf W_2\,\mathrm{GELU}(\mathbf W_1\mathrm{LN}(\mathbf x))$, $\mathbf W_2=0$ lúc đầu (đồng nhất), một đầu cho vector lịch sử, một đầu cho vector bài; ẩn 1024, dropout 0.1. Loss cross-entropy trên 1 click + 4 bài bỏ qua; Adam lr $10^{-3}$, batch 512, tối đa 6 epoch, dừng sớm (patience 2), 2 seed; 300.000 lịch sử huấn luyện (754.956 mẫu).}
+\rwl{Dữ liệu}{Zero-shot: small 41\%, large 16\% tập test. \code{histq\_mlp}: chấm toàn bộ test.}
+}
+\ketqua{small $-0.0211$ đến $-0.0014$, large $-0.0101$ so với mean pooling. Thêm MLP: $+0.0080$ so với H1 zero-shot nhưng vẫn $-0.0032$ so với mean pooling.}
+\par\kern0pt
+\note{H1 là bản không huấn luyện của H5: cùng mô hình, cùng văn bản, chỉ khác là chưa học cách đọc lịch sử. Thêm MLP giúp một phần nhưng chưa bằng mean pooling.}
+\end{frame}
+
+%% ============================================================================ H2
+\begin{frame}[shrink]{H2 \textperiodcentered{} LoRA / DoRA cho bộ mã hóa bài báo}
+\bangmota{
+\rw{Ý tưởng}{Tinh chỉnh nhẹ encoder bằng các cặp bài người dùng cùng click, để vector bài bám sát tín hiệu hành vi, rồi mã hóa lại toàn bộ bài và dùng mean pooling.}
+\rw{Mã hóa bài (item)}{BGE-small-en-v1.5 (BERT 12 lớp, 384 chiều) + LoRA hoặc DoRA; văn bản \code{ta} (tối đa 256 token); mã hóa lại toàn bộ bài sau huấn luyện.}
+\rw{Mã hóa người dùng (user)}{Mean pooling 50 bài gần nhất của các vector đã mã hóa lại (không tham số riêng cho người dùng).}
+\rw{Điểm số}{$s(u,c)=\cos(\bar{\mathbf e}_u,\mathbf e_c)$.}
+\rw{Vị trí LoRA}{\code{query} và \code{value} của self-attention, \textbf{cả 12 lớp (0--11)}; $r=16$, $\alpha=2r=32$, dropout 0.05, không học bias. Mỗi lớp $2\times16\times(384+384)=24.576$ tham số.}
+\rw{Tham số được học}{LoRA: $24.576\times12=\mathbf{294.912}$; DoRA thêm vector độ lớn 384 cho mỗi module: $\mathbf{304.128}$. Phần còn lại của encoder đóng băng. (Biến thể đầu \code{head} tuyến tính hoặc MLP đặt sau encoder đóng băng: 3 epoch, batch 1024, lr $10^{-3}$, 200.000 cặp.)}
+\rw{Loss}{InfoNCE nhiệt độ $\tau=0.05$ giữa hai bài đồng click, kèm Matryoshka (tính loss trên nhiều độ dài cắt của vector) và hard negative lấy từ cùng impression. Các biến thể: \code{lora+mrl+hn}, \code{dora+mrl+hn}, \code{lora+hn}.}
+\rwl{Tối ưu / dữ liệu}{AdamW lr $2\cdot10^{-4}$, không weight decay; 1 epoch, batch 32, tối đa 1.500 bước, 100.000 cặp đồng click; gradient checkpointing. Chỉ chạy trên MIND-small.}
+}
+\ketqua{$+0.0016$ đến $+0.0029$ so với mean pooling; Cold AUC giảm. Gắn thêm MLP làm giảm $-0.005$.}
+\par\kern0pt
+\note{Đây là hướng LLM làm bộ mã hóa trong văn liệu; trong đề tài, nó chỉ cải thiện rất ít vì ngân sách huấn luyện nhỏ và vì mean pooling vẫn là phép gộp yếu.}
+\end{frame}
+
+%% ============================================================================ H3
+\begin{frame}[shrink]{H3 \textperiodcentered{} Làm giàu vector bài bằng truy hồi (kNN-RAG, entity-RAG)}
+\bangmota{
+\rw{Ý tưởng}{Bổ sung ngữ cảnh cho bài, nhất là bài mới, bằng cách lấy thông tin từ các bài cũ giống nó (truy hồi), rồi cộng vào vector bài.}
+\rw{Mã hóa bài (kNN)}{$\mathbf e'_c=\mathrm{Norm}\!\big(\mathbf e_c+\beta\,\mathrm{Norm}(\sum_{j\in\mathcal N_k(c)}w_{cj}\mathbf e_j)\big)$, $w_{cj}=\max(s_{cj},0)$ chuẩn hóa tổng bằng 1, $\mathcal N_k$ = $k$ bài gần nhất \textbf{xuất hiện trước thời điểm đánh giá} (validation chỉ dùng train; test dùng train + validation).}
+\rw{Mã hóa bài (entity)}{Mỗi thực thể Wikidata có vector ngữ cảnh = trung bình vector các bài cũ nhắc tới nó; vector bài cộng $\beta\cdot\mathrm{Norm}(\sum_e \mathrm{idf}_e\,\mathrm{ctx}_e)$ trên các thực thể $e$ của bài.}
+\rw{Mã hóa người dùng}{Zero-shot: mean pooling 50 bài trên vector đã làm giàu. Hoặc reader H10 huấn luyện trên bảng vector đã làm giàu (\code{um\_knn\_rag}).}
+\rw{Siêu tham số}{$k\in\{5,20\}$, $\beta\in\{0.25,0.5,1\}$, chọn trên validation. Truy hồi bằng tích vô hướng trên GPU, xử lý theo khối để vừa bộ nhớ.}
+\rw{Loss / tham số học}{Zero-shot: \textbf{không có}. Reader: như H10 (cross-entropy 1 click + 4 bỏ qua; đầu MLP + $\mathbf W_c$).}
+\rwl{Dữ liệu}{Bộ nhớ truy hồi chỉ gồm bài cũ; không dùng nhãn click.}
+}
+\ketqua{Cộng trực tiếp (mean pooling): kNN $-0.0017$, entity $-0.0105$. Đưa qua reader: $+0.0037$ (BGE-large), $+0.0045$ (Qwen3), chủ yếu tăng Cold AUC.}
+\par\kern0pt
+\note{Ý chính: truy hồi chỉ có ích khi có một tầng học phía trên (reader) biết dùng thông tin bổ sung; cộng thẳng vào vector rồi trung bình thì làm giảm điểm.}
+\end{frame}
+
+%% ============================================================================ H4
+\begin{frame}[shrink]{H4 \textperiodcentered{} GraphRAG-lite: cộng đồng trên đồ thị bài báo}
+\bangmota{
+\rw{Ý tưởng}{Chia bài báo thành các cụm chủ đề theo đồ thị tương đồng, rồi cộng thêm vào điểm một số hạng đo mức người dùng quan tâm đến cụm của ứng viên.}
+\rw{Dựng đồ thị}{Mỗi bài là một nút, nối 10 bài gần nhất theo cosine của vector đóng băng; trọng số cạnh = độ tương đồng; chỉ gồm bài cũ (không rò rỉ).}
+\rw{Cộng đồng}{Louvain (networkx, resolution 1.0). Khi đồ thị quá lớn ($>80.000$ nút, MIND-large), \textbf{chuyển sang MiniBatchKMeans, 500 cụm}. Tâm cụm $\mathbf C_k$ = trung bình vector các bài trong cụm, chuẩn hóa; bài mới gán vào tâm gần nhất.}
+\rw{Mã hóa người dùng}{Mean pooling $\mathbf u$ cộng histogram cộng đồng $P_u(k)$ = tỷ lệ bài trong lịch sử thuộc cụm $k$.}
+\rw{Điểm số}{$s(u,c)=\cos(\mathbf u,\mathbf e_c)+\lambda\sum_k P_u(k)\,\langle\mathbf C_k,\mathbf C_{k(c)}\rangle$.}
+\rw{Siêu tham số}{$\lambda\in\{0.25,0.5,1,2\}$ chọn trên validation. Biến thể \code{user\_rag}: cộng thêm click của người dùng tương tự, $\gamma\in\{0.25,0.5,1\}$ (không chạy trên MIND-large vì không đủ bộ nhớ).}
+\rwl{Loss / tham số học}{\textbf{Không có}: toàn bộ zero-shot, chỉ dùng nội dung.}
+}
+\ketqua{MIND-large (v14): validation $+0.0199$, test $-0.0066$; BGE-large $-0.0079$; MIND-small $+0.0043$ nhưng Cold AUC $-0.0031$. Bài mới bị gán vào tâm cụm nên mất chi tiết riêng.}
+\par\kern0pt
+\note{Lưu ý quan trọng: trên MIND-large số cụm là 500 theo k-means, không phải Louvain, vì đồ thị quá lớn cho networkx.}
+\end{frame}
+
+%% ============================================================================ H4b
+\begin{frame}[shrink]{H4b \textperiodcentered{} GraphRAG có LLM tóm tắt từng cộng đồng}
+\bangmota{
+\rw{Ý tưởng}{Giữ nguyên các cụm của H4, nhưng thay tâm cụm bằng vector của câu tóm tắt do LLM viết (``global summary'' của GraphRAG).}
+\rw{Tóm tắt cụm}{Với 300 cụm lớn nhất, lấy 8 tiêu đề gần tâm nhất, đưa cho Qwen3-1.7B với \code{COMM\_PROMPT}: \textit{``Below are headlines from one cluster of related news articles ... In one sentence (at most 40 words), describe the common topic of this cluster and what kind of reader would follow it.''}, giải mã tham lam, tối đa 64 token. Cụm nhỏ giữ tâm cũ.}
+\rw{Mã hóa bài}{Hai cách dùng vector tóm tắt $\mathbf s_k$ (mã hóa bằng chính encoder của lần chạy): (a) \code{community\_llm}: thay $\mathbf C_k$ trong công thức của H4; (b) \code{community\_llm\_ctx}: $\mathbf e'_c=\mathrm{Norm}(\mathbf e_c+\beta\,\mathbf s_{k(c)})$.}
+\rw{Mã hóa người dùng / điểm}{Như H4: mean pooling + $\lambda\cdot$độ gần cộng đồng; hoặc mean pooling trên vector đã cộng tóm tắt.}
+\rw{Siêu tham số}{$\lambda\in\{0.25,0.5,1,2\}$, $\beta\in\{0.25,0.5,1\}$ chọn trên validation; 300 cụm; 8 tiêu đề mỗi cụm.}
+\rwl{Loss / tham số học}{\textbf{Không có}: LLM chỉ sinh văn bản, không huấn luyện.}
+}
+\ketqua{Không khác biệt có ý nghĩa thống kê so với H4 và mean pooling (MIND-small): câu tóm tắt chỉ diễn đạt lại chủ đề mà tâm cụm đã chứa.}
+\par\kern0pt
+\note{H4b kiểm tra xem LLM có làm cụm tốt hơn không; câu trả lời là không, vì thông tin mới bằng không.}
+\end{frame}
+
+\section{H5 -- H8}
+%% ============================================================================ H5
+\begin{frame}[shrink]{H5 \textperiodcentered{} User Tower: LLM + LoRA đọc lịch sử dạng văn bản}
+\bangmota{
+\rw{Ý tưởng}{Cùng đầu vào văn bản như H1 nhưng tinh chỉnh LLM để học cách đọc lịch sử, sao cho vector người dùng gần vector của bài được click kế tiếp.}
+\rw{Mã hóa bài (item)}{Qwen3-Embedding-0.6B \textbf{đóng băng} (tháp tài liệu), vector 1024 chiều, chuẩn hóa L2.}
+\rw{Mã hóa người dùng (user)}{Văn bản \code{Instruct + Query:} 10 tiêu đề gần nhất (như H1), tối đa 384 token, đi qua Qwen3-Emb có LoRA, lấy vector ở token cuối. Ba kiểu mặt nạ attention: \code{causal} (bản chính), \code{bidir} (hai chiều, kiểu LLM2Vec), \code{soft} (tương lai nhân $\log\lambda$, $\lambda$ tăng $0\to1$ trong nửa đầu huấn luyện).}
+\rw{Điểm số}{$s(u,c)=\cos(\mathbf z_u,\mathbf e_c)$.}
+\rw{Vị trí LoRA}{\textbf{7 ma trận} \code{q,k,v,o,gate,up,down} trên \textbf{cả 28 lớp}; $r=16$, $\alpha=32$, dropout 0.05. Mỗi lớp 360.448 tham số.}
+\rw{Tham số được học}{LoRA: $360.448\times28=\mathbf{10.092.544}$ ($\approx$1,7\% của 0,6B). Embedding, LayerNorm, lm-head đóng băng.}
+\rw{Loss}{InfoNCE nhiệt độ $\tau=0.05$ với \textbf{negative dùng chung}: mỗi truy vấn so với \emph{tất cả} $B$ bài click và $B\cdot K$ bài bỏ qua của batch ($B+BK$ ứng viên); bài trùng với bài click của dòng đó bị che (tránh false negative).}
+\rwl{Tối ưu / dữ liệu}{AdamW lr $10^{-4}$, lịch cosine; batch 16; fp32 gốc + autocast fp16; gradient checkpointing. v14: 800 bước (12.800 mẫu, 0.5\%); v19b: 200 phút = 5.872 bước (93.952 mẫu, 3.5\%).}
+}
+\ketqua{0.5\% dữ liệu: ngang LSE. 3.5\%: hơn LSE $+0.0085$, kém reader Qwen3 $-0.0048$; thêm vào bộ kết hợp không cải thiện. Cùng mô hình không huấn luyện (H1) thấp hơn $-0.0319$.}
+\par\kern0pt
+\note{Một epoch đầy đủ ước khoảng 87 giờ trên T4; mô hình mới thấy 3.5\% dữ liệu, nên đây là kết luận trong ngân sách đã thử.}
+\end{frame}
+
+%% ============================================================================ H6
+\begin{frame}[shrink]{H6 \textperiodcentered{} LLM viết thêm tri thức cho bài (KAR) và hồ sơ độc giả}
+\bangmota{
+\rw{Ý tưởng}{Cho LLM viết một đoạn ngắn mô tả chủ đề và kiểu độc giả của mỗi bài, rồi mã hóa đoạn đó và trộn vào vector bài.}
+\rw{LLM sinh}{Qwen3-1.7B, giải mã tham lam (\code{do\_sample=False}), tối đa 56 token mới, batch 48. Prompt: \textit{``News headline: \{title\} / Summary: \{abstract[:300]\} // In one or two sentences (at most 50 words), state the main topic of this article and what kind of reader would be interested in it.''}}
+\rw{Mã hóa bài (item)}{$\mathbf e_{\mathrm{exp}}=\mathrm{enc}(\text{title}\,\|\,\text{đoạn LLM viết})$ bằng chính encoder của lần chạy; $\mathbf e'_c=\mathrm{Norm}(\mathbf e_c+\alpha\,\mathbf e_{\mathrm{exp}})$, $\alpha\in\{0.25,0.5,1\}$, chọn \textbf{$\alpha=1$}. v20a: đủ 104.151 bài, 96 phút trên 2 GPU.}
+\rw{Mã hóa người dùng (user)}{Trên vector đã trộn: mean pooling (\code{kar\_item}), LSE (\code{kar\_item\_lse}) hoặc reader H10 (\code{catkarplus}, \code{qwen3kar}). Biến thể hồ sơ: LLM đọc 5 tiêu đề gần nhất, viết $\le60$ từ mô tả sở thích, mã hóa thành vector truy vấn, trộn với trọng số $w\in\{0.5,1,2\}$.}
+\rw{Điểm số}{cosine trên mean pooling / LSE / reader như ở các trang tương ứng.}
+\rw{Loss / tham số học}{Phần sinh và trộn: \textbf{không huấn luyện}. Chỉ reader (H10) được huấn luyện: cross-entropy 1+4, 6 epoch, toàn bộ 2.71 triệu mẫu.}
+\rwl{Quy mô đã đo}{Mở rộng bài: toàn bộ 104.151 bài (v20a), ghép vào hệ thống ở v20c. Hồ sơ độc giả: 2.500 impression.}
+}
+\ketqua{Hồ sơ: $-0.0308$ / $-0.0278$ (small / large). Mở rộng bài: $+0.0013$ so với LSE (zero-shot), reader mạnh nhất không đổi (0.4310 so với 0.4316), Cold AUC giảm; trong hệ thống (v20c): online $+0.0018$, offline $+0.0004$.}
+\par\kern0pt
+\note{Ví dụ: bài về hoàng gia được LLM mô tả thành ``royal fashion and accessories, appealing to fashion enthusiasts''. Thông tin này hầu như đã có trong tiêu đề và tóm tắt nên chỉ đóng góp như thành phần phụ.}
+\end{frame}
+
+%% ============================================================================ H7
+\begin{frame}[shrink]{H7 \textperiodcentered{} Semantic ID và bộ xếp hạng sinh SID-GPT}
+\bangmota{
+\rw{Ý tưởng}{Mã hóa mỗi bài thành bộ 3 mã rời rạc, coi lịch sử đọc là ``câu'' gồm các mã, huấn luyện mô hình ngôn ngữ nhỏ dự đoán mã bài kế tiếp (kiểu TIGER).}
+\rw{Mã hóa bài (item)}{Vector Qwen3-Emb của văn bản \code{cta}, RQ-KMeans 3 tầng $\times$ 256 cụm (25 vòng Lloyd mỗi tầng): tầng $l$ lượng tử hóa phần dư của các tầng trước. Tâm cụm chỉ học trên bài của train + validation; bài test gán vào tâm gần nhất. Tầng 1: 256 cụm; tầng 2: 23.416 tiền tố; tầng 3: 79.962.}
+\rw{Mã hóa người dùng (user)}{Chuỗi token \code{[PAD...][BOS] a1 b1 c1 ... a30 b30 c30}: 30 bài gần nhất, mỗi bài 3 token (token tầng $l$ = $256l+\text{mã}$), đệm trái; vị trí chỉ đếm token thật.}
+\rw{Điểm số}{$s_l=\log P(\text{mã}_l(c)\mid\text{lịch sử},\text{mã}_{<l}(c))$, softmax chỉ trong 256 mã cùng tầng; điểm = tổng $s_l$ trên tập tầng chọn ở validation ($\{1\},\{1,2\},\{1,2,3\}$, có/không trừ PMI). Được chọn: \textbf{chỉ tầng 1, không PMI}. Biến thể \code{sid\_profile}: tỷ lệ lịch sử cùng tiền tố mã với ứng viên (zero-shot).}
+\rw{Kiến trúc SID-GPT}{Transformer nhân quả $d=256$, 4 lớp, 4 head, dropout 0.1, MLP $4d$; embedding token + vị trí + tầng mã; đầu ra $768$ lớp. $\approx$3,6 triệu tham số, \textbf{học từ đầu}.}
+\rw{Loss / tối ưu}{Dự đoán token kế tiếp, trọng số token của lịch sử 0.5, của bài click 1.0. AdamW lr $10^{-3}$, weight decay 0.01, khởi động 100 bước rồi cosine, cắt gradient 1.0, batch 256, 4 epoch (18.392 bước), chọn epoch theo nDCG@10 trên 3.000 impression validation.}
+\rwl{Dữ liệu}{Các mẫu \code{train\_core} (lịch sử, bài click); mẫu âm không dùng.}
+}
+\ketqua{small: 0.2898 $\approx$ ngẫu nhiên. large (v20b): cộng cả 3 tầng 0.2990; chỉ tầng 1 \textbf{0.3473} ($+0.0483$); đổi lịch sử sang người khác giảm $-0.0626$; vẫn $-0.0314$ so với mean pooling (0.3787), Cold AUC $-0.10$.}
+\par\kern0pt
+\note{LLM chỉ ở bước tạo vector bài; SID-GPT không phải LLM huấn luyện sẵn mà là transformer nhỏ học từ đầu trên chuỗi mã. Tầng mịn của bài mới là mã chưa từng gặp nên gây nhiễu; chỉ tầng chủ đề, xấp xỉ chuyên mục con, có ích.}
+\end{frame}
+
+%% ============================================================================ H8
+\begin{frame}[shrink]{H8 \textperiodcentered{} Tương tác muộn (LSE, top-$k$): không có tham số học}
+\bangmota{
+\rw{Ý tưởng}{Không gộp lịch sử thành một vector; so ứng viên với \emph{từng} bài đã đọc rồi tổng hợp bằng một phép ``soft-max'' (ColBERT-style).}
+\rw{Mã hóa bài (item)}{Vector đóng băng (BGE-small / BGE-large / Qwen3-Emb / concat), chuẩn hóa L2.}
+\rw{Mã hóa người dùng (user)}{Không có vector người dùng: giữ nguyên tập 50 vector bài đã đọc (biến thể 100 / 200 bài ở bước F). Người dùng không lịch sử: điểm 0.}
+\rw{Điểm số}{Với $\mathrm{sim}_i=\langle\mathbf v_i,\mathbf v_c\rangle$ và $n=|\mathcal H_u|$:\\
+\textbf{LSE:} $s=\tau\big(\log\sum_i e^{\mathrm{sim}_i/\tau}-\log n\big)$;\quad \textbf{top-$k$:} trung bình $k$ giá trị $\mathrm{sim}_i$ lớn nhất;\quad \textbf{MaxSim:} $\max_i\mathrm{sim}_i$;\quad \textbf{recency:} trung bình có trọng số $e^{-\lambda\cdot\mathrm{age}}$.}
+\rw{Siêu tham số}{$\tau\in\{0.02,0.03,0.05,0.07,0.1,0.15,0.2,0.3,0.5\}$; $k\in\{2,3,4,5,7,10\}$; $\lambda\in\{0.02,0.05,0.1,0.2\}$; chọn trên validation. $\tau\to\infty$ cho mean pooling, $\tau\to0$ cho MaxSim.}
+\rw{Loss}{\textbf{Không có}.}
+\rwl{Tham số được học}{\textbf{Không có}: chỉ chọn $\tau$ hoặc $k$ trên validation.}
+}
+\ketqua{LSE $+0.0113$, top-$k$ $+0.0111$ (BGE-large, large); $+0.0130$ / $+0.0143$ trên Qwen3. MaxSim $-0.0017$; recency $-0.0000$. K-Means $K=5$: $+0.0090$.}
+\par\kern0pt
+\note{Một độc giả đọc 40 bài thể thao và 5 bài tài chính: mean pooling làm loãng sở thích tài chính, LSE giữ lại. Đây là kỹ thuật thành công đầu tiên và là đối chứng mạnh cho các kỹ thuật sau.}
+\end{frame}
+
+\section{H9 -- H12}
+%% ============================================================================ H9
+\begin{frame}[shrink]{H9 \textperiodcentered{} LLM chấm điểm ứng viên (xếp hạng lại top-10)}
+\bangmota{
+\rw{Ý tưởng}{Dùng một LLM nhỏ đọc lịch sử và từng ứng viên rồi trả lời Có/Không (``reranker'' kiểu LLMRank), chỉ để xếp lại nhóm đầu.}
+\rw{Vòng 1}{Xếp hạng bằng mean pooling trên vector đóng băng (BGE / Qwen3 theo lần chạy); lấy top-$k=10$ của mỗi impression. Các ứng viên còn lại giữ nguyên và luôn đứng dưới nhóm này.}
+\rw{Mã hóa bài / người dùng}{Đều ở dạng \textbf{văn bản}: người dùng = 8 tiêu đề gần nhất (\code{rerank\_hist}=8, chuỗi \code{"* title"}); ứng viên = tiêu đề + chuyên mục. Không có vector.}
+\rw{Prompt}{\textit{``A news reader recently read these articles (oldest first): \{hist\} / Candidate article: "\{title\}" (category: \{cat\}) / Would this reader be interested in clicking the candidate article? Answer with exactly one word: Yes or No.''}}
+\rw{Điểm số}{Qwen3-1.7B (zero-shot, fp16): log-odds $\log P(\text{Yes})-\log P(\text{No})$ ở token trả lời. \code{rerank\_llm}: chỉ dùng điểm LLM; \code{rerank\_fused}: $\mathrm{z}(s_{\text{vòng 1}})+w\cdot\mathrm{z}(\text{log-odds})$, $w\in\{0.5,1,2\}$ chọn trên validation, $\mathrm z$ = chuẩn hóa z-score trong nhóm.}
+\rw{Loss / tham số học}{\textbf{Không có}: hoàn toàn zero-shot.}
+\rwl{Quy mô đã đo}{Do chi phí sinh: 600 impression validation, 2.000 impression test (large 0.5\%); ước tính toàn bộ test $\approx$38 giờ trên T4.}
+}
+\ketqua{small $-0.0112$; large $-0.0092$ (không có ý nghĩa thống kê), cả hai trên $n=2.000$. Xác suất sinh chưa được hiệu chuẩn và LLM 1,7B chưa đủ mạnh để phân biệt các bài cùng chủ đề.}
+\par\kern0pt
+\note{Kết luận chỉ áp dụng cho LLM 1,7B zero-shot trên một tập con; mô hình lớn hơn hoặc có hiệu chuẩn chưa thử.}
+\end{frame}
+
+%% ============================================================================ H10
+\begin{frame}[shrink]{H10 \textperiodcentered{} Reader theo ứng viên: ứng viên làm truy vấn attention}
+\bangmota{
+\rw{Ý tưởng}{Một tầng nhẹ có huấn luyện trên bảng vector đóng băng: để chính ứng viên quyết định bài nào trong lịch sử đáng chú ý.}
+\rw{Mã hóa bài (item)}{$\mathbf c=f(\mathbf E_c)$ với đầu $f$ dùng chung cho bài ứng viên và bài lịch sử: $f=\mathrm{Linear}(d\!\to\!\text{dim})\to\mathrm{GELU}\to\mathrm{LayerNorm}\to\mathrm{Dropout}(0.2)\to\mathrm{Linear}(\text{dim}\!\to\!\text{dim})$. \code{dim}=64 (V10, small) hoặc 128 (v16 trở đi); $d$ = 384 / 1024 / 2048.}
+\rw{Mã hóa người dùng (user)}{$\alpha_i=\mathrm{softmax}_i\big(\langle\mathbf W_c\mathbf c,\mathbf h_i\rangle/\sqrt{\text{dim}}\big)$ với $\mathbf h_i=f(\mathbf E_i)$, $i$ trong 50 bài gần nhất (có mặt nạ); $\mathbf u=\sum_i\alpha_i\mathbf h_i$ phụ thuộc ứng viên. $\mathbf W_c\in\mathbb R^{\text{dim}\times\text{dim}}$ không bias.}
+\rw{Điểm số}{$s(u,c)=\langle\mathbf u,\mathbf c\rangle$.}
+\rw{Biến thể}{\code{um\_frozen} (vector gốc), \code{um\_knn\_rag} (đã làm giàu, H3), \code{um\_text} (văn bản \code{cta}), \code{um\_prior} (chỉ dựa vào bài, làm đặc trưng cho GBDT), \code{ff} / \code{nrms} / \code{sca} (nén lịch sử một vector / thêm self-attention).}
+\rw{Loss}{Cross-entropy (softmax) trên 1 bài click + 4 bài bỏ qua lấy mẫu trong cùng impression: $\mathcal L=-\log\frac{e^{s(u,c^+)}}{e^{s(u,c^+)}+\sum_{c^-}e^{s(u,c^-)}}$.}
+\rw{Tối ưu}{Adam lr $10^{-3}$, wd $10^{-5}$, batch 64; tối đa 12 epoch (v18b/v19a: 6 epoch, lr giảm dần, toàn bộ 2.71 triệu mẫu); dừng sớm theo nDCG@10 validation (patience 2); 2--3 seed.}
+\rwl{Tham số được học}{Đầu $f$ + $\mathbf W_c$. Với dim 128: BGE-large ($d{=}1024$) $\approx$164.352; vector nối ($d{=}2048$) $\approx$295.424. BGE-small với dim 64: $\approx$33.024. Vector $\mathbf E$ đóng băng, không cập nhật.}
+}
+\ketqua{Hơn LSE: MIND-large BGE-large $+0.0105$, Qwen3 $+0.0134$; MIND-small Qwen3 $+0.0084$ (BGE-small $-0.0069$). Vector nối: 0.4223; train đủ 2.71 triệu mẫu + kNN: 0.4316.}
+\par\kern0pt
+\note{Reader là bản có học của H8. Số tham số chỉ vài trăm nghìn nhưng là thành phần đơn lẻ mạnh nhất; nó cũng là nền của hệ thống cuối.}
+\end{frame}
+
+%% ============================================================================ H11
+\begin{frame}[shrink]{H11 \textperiodcentered{} Biểu diễn đa sở thích: K-Means zero-shot và reader $K$ truy vấn}
+\bangmota{
+\rw{Ý tưởng}{Một độc giả có nhiều mối quan tâm; thay vì một vector người dùng, biểu diễn bằng $K$ vector sở thích rồi lấy ``soft-max'' khi chấm ứng viên.}
+\rw{Mã hóa bài (item)}{Vector đóng băng; với reader học được thì qua đầu MLP $f$ như H10 (dim 64, dropout 0.2).}
+\rw{User, bản K-Means (zero-shot)}{Spherical k-means trên 50 vector bài đã đọc, 3 vòng; khởi tạo từ bài click gần nhất rồi bài xa nhất so với các tâm đã chọn. $\boldsymbol\mu_k$ = trung bình các bài trong nhóm $k$, $\text{share}_k$ = tỷ lệ bài của nhóm. $K\in\{2,3,5\}$.}
+\rw{Điểm (K-Means)}{$s=\tau\,\log\sum_k\exp\!\big(\langle\mathbf c,\boldsymbol\mu_k\rangle/\tau+\log\text{share}_k\big)$. $K=1$ trùng mean pooling; $K\ge n$ trùng LSE.}
+\rw{User, bản học được}{$K=4$ vector truy vấn $\mathbf q_k\sim\mathcal N(0,1)$ là tham số; sở thích $\mathbf u_k=\sum_i\mathrm{softmax}_i(\langle\mathbf q_k,\mathbf W_k\mathbf h_i\rangle/\sqrt{\text{dim}})\,\mathbf h_i$ (không phụ thuộc ứng viên). Điểm: $s=\tau\big(\log\sum_k e^{\langle\mathbf u_k,\mathbf c\rangle/\tau}-\log K\big)$, $\tau=\exp(\log\tau_0)$ \textbf{học được}, chặn dưới 0.05.}
+\rw{Loss}{Cross-entropy 1 click + 4 bỏ qua (như H10). Bản \code{mi4d} cộng phạt đa dạng $\lambda\cdot\overline{\cos^2(\mathbf u_k,\mathbf u_l)}$ giữa các sở thích khác nhau của cùng người dùng; \code{mi1} ($K=1$) là đối chứng.}
+\rwl{Tham số được học}{K-Means: \textbf{không}. Reader: $\mathbf q_k$ ($K\cdot\text{dim}=256$), $\mathbf W_k$ (dim$^2$=4.096), $\log\tau_0$ (1), cộng đầu MLP $f$.}
+}
+\ketqua{K-Means (BGE-large) $K=5$: $+0.0090$ so với mean pooling nhưng $-0.0024$ so với LSE. Reader không phạt: các sở thích sụp về một hướng (cos 0.85--0.87); có phạt: tách rõ (cos 0.34--0.39) nhưng điểm không tăng ($+0.0004$, n.s.).}
+\par\kern0pt
+\note{K-Means nằm giữa hai đầu: K=1 là mean pooling, K bằng số bài là LSE; vì LSE đã đủ tốt nên đa sở thích tường minh không thêm giá trị.}
+\end{frame}
+
+%% ============================================================================ H12
+\begin{frame}[shrink]{H12 \textperiodcentered{} Mở khóa 2 lớp cuối của bộ mã hóa dưới reader (kiểu PLM-NR)}
+\bangmota{
+\rw{Ý tưởng}{Huấn luyện đồng thời 2 lớp transformer cuối của BGE-large và reader, như PLM-NR tinh chỉnh các lớp cuối của mô hình tiền huấn luyện, nhưng làm đủ rẻ để chạy trên một GPU T4.}
+\rw{Mã hóa bài (item)}{BGE-large (BERT-large 24 lớp, 1024 chiều). Lớp 0--21 đóng băng: đầu ra của lớp 21 được \textbf{lưu đệm một lần} (fp16, $[\text{bài},96,1024]$, $\approx$20,5 GB, cắt 96 token). Hai lớp 22--23 (\code{ft\_layers}=2) được huấn luyện; chỉ phía \textbf{ứng viên} nhận gradient.}
+\rw{Mã hóa người dùng (user)}{Reader theo ứng viên của H10 (\code{FTReader}), khởi tạo từ reader đã huấn luyện trên bảng đóng băng. Phía lịch sử đọc bảng vector làm mới bằng 2 lớp hiện tại mỗi 600 bước (stop-gradient).}
+\rw{Điểm số}{$s(u,c)=\langle\mathbf u,\mathbf c\rangle$ như H10.}
+\rw{Loss}{Cross-entropy 1 click + 4 bỏ qua (như H10); mỗi bước 32 mẫu.}
+\rw{Siêu tham số}{lr lớp encoder $2\cdot10^{-5}$; lr reader $3\cdot10^{-4}$; 18.000 bước; \code{ft\_refresh}=600; kiểm tra validation mỗi 1.800 bước; dừng sau 4 lần không cải thiện; tối đa 110 phút; chọn checkpoint theo validation cân lại về 80\% bài mới. Cổng quyết định: cần $\ge+0.006$ nDCG@10.}
+\rw{Tham số được học}{2 lớp BERT-large: $2\times12.596.224\approx\mathbf{25,2}$ triệu (attention 4.198.400 + FFN 8.393.728 + LayerNorm 4.096 mỗi lớp; tính từ kiến trúc), cộng reader $\approx$0,16 triệu.}
+\rwl{Đối chứng}{Nhánh \code{ft\_base}: cùng reader, cùng số bước, cùng thứ tự mẫu, nhưng encoder đóng băng hoàn toàn.}
+}
+\ketqua{nDCG@10 $0.4208\to0.4213$ ($+0.0005$ [$-0.0001$, $+0.0010$], n.s.); Cold AUC $-0.0069$; mới chạy $\approx$0.5 epoch, một seed. Không qua ngưỡng $+0.006$.}
+\par\kern0pt
+\note{Đây là thí nghiệm gần nhất với PLM-NR nhưng chỉ ở quy mô một GPU và nửa epoch; kết luận là trong ngân sách này, mở khóa không giúp.}
+\end{frame}
+
+\section{Tổng hợp}
+\begin{frame}[shrink]{Tổng hợp: tham số được học, hàm mất mát và tối ưu}
+\tiny
+\renewcommand{\arraystretch}{1.1}
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabularx}{\textwidth}{@{}P{0.55cm}P{3.1cm}P{3.1cm}P{2.0cm}Y@{}}
+\toprule
+\textbf{Mã} & \textbf{Tham số được học} & \textbf{Hàm mất mát} & \textbf{Tối ưu} & \textbf{Dữ liệu huấn luyện}\\
+\midrule
+H1 & không (MLP residual: có) & (MLP) CE, 1+4 & (MLP) Adam $10^{-3}$, bs 512 & (MLP) 300.000 lịch sử\\
+H2 & LoRA $q,v$ $\times$ 12 lớp: 294.912 (DoRA 304.128) & InfoNCE $\tau{=}0.05$ + Matryoshka + hard negative & AdamW $2\cdot10^{-4}$, bs 32 & 1.500 bước, $\le$100.000 cặp\\
+H3 & không (reader: như H10) & -- & -- & --\\
+H4, H4b & không & -- & -- & --\\
+H5 & LoRA 7 ma trận $\times$ 28 lớp: 10.092.544 & InfoNCE $\tau{=}0.05$, negative dùng chung $B{+}BK$ & AdamW $10^{-4}$, cosine, bs 16 & 12.800 mẫu (v14); 93.952 (v19b)\\
+H6 & không (reader: như H10) & -- & -- & đoạn LLM viết cho 104.151 bài\\
+H7 & SID-GPT $\approx$3,6 triệu & Dự đoán token kế tiếp, trọng số 0.5 / 1.0 & AdamW $10^{-3}$, wd 0.01, cosine, bs 256 & 4 epoch, 18.392 bước\\
+H8 & không & -- & -- & chỉ chọn $\tau$, $k$ trên validation\\
+H9 & không & -- & -- & chỉ chọn $w$ trên validation\\
+H10 & đầu MLP + $\mathbf W_c$: 0,03--0,30 triệu & CE (softmax), 1+4 & Adam $10^{-3}$, wd $10^{-5}$, bs 64 & đến 2.71 triệu mẫu, 6--12 epoch\\
+H11 & K-Means: không; reader: $\mathbf q_k$, $\mathbf W_k$, $\tau$, đầu MLP & CE 1+4 (+ phạt đa dạng) & như H10 & như H10\\
+H12 & 2 lớp BERT-large 25,2 triệu + reader & CE 1+4 & AdamW (encoder $2\cdot10^{-5}$, reader $3\cdot10^{-4}$), bs 32 & 18.000 bước ($\approx$0.5 epoch)\\
+\bottomrule
+\end{tabularx}
+\par\vspace{3pt}
+{\footnotesize CE = cross-entropy softmax; ``1+4'' = 1 bài click và 4 bài bỏ qua lấy mẫu trong cùng impression. Số tham số của H2, H5, H10 tính từ kích thước lớp (khớp số tham số học được in trong log); số của H12 và H10 vector nối tính từ kiến trúc.}
+\par\kern0pt
+\note{Trang cuối tóm lại: chỉ H2, H5, H7, H12 đụng tới tham số lớn; các kỹ thuật thành công H8 và H10 lần lượt không có tham số và chỉ vài trăm nghìn tham số.}
+\end{frame}
+
+\begin{frame}[c,noframenumbering]
+\centering
+{\Huge\bfseries\color{accentc}XIN TRÂN TRỌNG CẢM ƠN!\par}
+\vspace{0.5cm}
+{\large Câu hỏi và thảo luận\par}
+\par\kern0pt
+\end{frame}
+
+\end{document}
