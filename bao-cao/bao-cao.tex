@@ -107,7 +107,7 @@ Báo cáo trình bày máy tìm kiếm cho các website thuộc Đại học Bá
 
 \begin{enumerate}
   \item \textbf{Bộ thu thập dữ liệu (crawler)} gồm năm dịch vụ nhỏ trao đổi với nhau qua HTTP/JSON:
-        \texttt{mediator} (Python, hàng đợi SQLite, giãn cách theo host, crawl lại định kỳ),
+        \texttt{mediator} (Python, hàng đợi SQLite, giãn cách theo host, crawl lại định kỳ, phát hiện bài mới qua sitemap và trang danh mục),
         \texttt{downloader} (Node.js, Chromium headless qua Puppeteer, chạy bốn bản),
         \texttt{reader} (Java, jsoup và Apache Tika),
         \texttt{storage} (Spring Boot) và MongoDB. Crawler đã thu thập
@@ -214,7 +214,7 @@ MongoDB để dựng chỉ mục Lucene và trả lời truy vấn.
 \toprule
 Dịch vụ (thư mục) & Vai trò, công nghệ & Cổng \\
 \midrule
-\texttt{mediator} & Giữ hàng đợi url (SQLite), giao url cho các bản downloader theo vòng, giãn cách theo host, hẹn lịch crawl lại. Python 3.13, \texttt{asyncio}, \texttt{aiohttp}. & 5200 \\
+\texttt{mediator} & Giữ hàng đợi url (SQLite), giao url cho các bản downloader theo vòng, giãn cách theo host, hẹn lịch crawl lại, phát hiện bài mới. Python 3.13, \texttt{asyncio}, \texttt{aiohttp}. & 5200 \\
 \texttt{downloader} & Dùng Chromium headless (Puppeteer) cho trang web, \texttt{fetch} cho tài liệu và ảnh. Mỗi bản chỉ tải một url mỗi lúc. Node.js 24. & 8800 \\
 \texttt{reader} & Lấy tiêu đề, khối nội dung chính, liên kết; đọc chữ trong tệp bằng Apache Tika; chuyển kết quả sang \texttt{storage} và \texttt{mediator}. Java 21. & 6600 \\
 \texttt{storage} & Kiểm tra và ghi bản ghi vào \texttt{html}/\texttt{other}/\texttt{picture}, ghi cạnh vào \texttt{graph}. Java 21, Spring Boot 3.3. & 2222 \\
@@ -402,6 +402,45 @@ Một số chi tiết trong cách xử lý:
   \item \textbf{Ưu tiên.} \texttt{POST /add} kèm \texttt{"priority": true} đặt \texttt{next\_\allowbreak{}due\_\allowbreak{}at = 0} cho các url
         gửi lên (kể cả url đã biết) để chúng được tải ngay. Chức năng ``Thêm url'' trên giao diện dùng cơ chế này.
 \end{itemize}
+
+\subsection{Duy trì dữ liệu và tải bài mới}\label{sec:incremental}
+
+Chu kỳ crawl lại ở Bảng~\ref{tab:kinds} chỉ cho biết khi nào tải lại một url đã biết. Còn bài viết mới thì chưa có url
+nào trong hàng đợi để mà tải lại, nên cần hai cơ chế bổ sung để phát hiện chúng.
+
+\paragraph{Đọc sitemap.} Định kỳ \texttt{mediator} lấy tệp \texttt{sitemap.xml} của từng tên miền con. Url chưa có
+trong SQLite được thêm vào hàng đợi để tải ngay. Url đã có nhưng \texttt{<lastmod>} mới hơn lần tải trước thì bị đặt lại
+\texttt{next\_due\_at = 0} để tải lại sớm. Không phải website nào cũng có sitemap đầy đủ, nên cơ chế này không thay thế
+được cơ chế thứ hai bên dưới.
+
+\paragraph{Duyệt trang danh mục theo phân trang.} Website khoa, viện thường xếp tin tức thành danh mục nhiều trang
+(\texttt{/tin-tuc?page=2}). Khi có bài mới, chúng xuất hiện ở trang 1 và đẩy bài cũ xuống các trang sau. Hằng ngày
+\texttt{mediator} tải lại trang 1 (loại \texttt{hub}, Bảng~\ref{tab:kinds}). Nếu toàn bộ bài trên trang 1 đều mới thì có
+thể còn bài mới ở trang 2, nên cần tải tiếp; nếu đã gặp bài cũ thì dừng. Thuật toán~\ref{alg:incremental} mô tả cách này.
+
+\begin{algorithm}[ht]
+\caption{Tải bài mới theo trang danh mục}\label{alg:incremental}
+\begin{algorithmic}[1]
+\Require trang danh mục đầu tiên $u_1$; số trang tối đa $K_{\max} = 10$
+\Ensure mọi bài mới được đưa vào hàng đợi; dừng khi gặp bài đã biết
+\State $k \gets 1$
+\While{$k \le K_{\max}$}
+  \State tải và bóc trang $u_k$; $L_k \gets$ các url bài viết trong khối nội dung chính
+  \State $m \gets$ số url trong $L_k$ chưa có trong bảng \texttt{urls}
+  \State đưa các url mới đó vào hàng đợi để tải ngay
+  \If{$m < |L_k|$} \State \textbf{break} \Comment{đã gặp bài cũ: các bài mới nằm hết ở các trang đã duyệt}
+  \EndIf
+  \State $u_{k+1} \gets$ url của trang kế tiếp (tăng tham số trang lên $k+1$)
+  \State đặt $u_{k+1}$ ở mức ưu tiên; $k \gets k + 1$
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+Có ba trường hợp tại trang $k$. Nếu $m = 0$, không có bài mới và việc duyệt dừng ngay ở trang 1. Nếu $0 < m < |L_k|$,
+trang chứa cả bài mới lẫn bài cũ, nghĩa là các bài mới đã nằm trọn trong những trang vừa duyệt nên dừng. Chỉ khi
+$m = |L_k|$, tức cả trang đều mới, mới có khả năng còn bài mới ở trang sau và thuật toán sang trang $k+1$. Giới hạn
+$K_{\max}$ chặn trường hợp một website đăng cả loạt bài cùng lúc, hoặc đổi cách đánh số trang khiến mọi trang đều
+được coi là mới. Nhờ điều kiện dừng này, mỗi lần cập nhật thường chỉ tải một trang danh mục thay vì toàn bộ chuỗi.
 
 \subsection{API và cấu trúc mã}
 
@@ -1152,6 +1191,7 @@ ghi log các url nhận được. Nó dùng để chạy thử \texttt{mediator}
   \item \textbf{Phải dựng lại toàn bộ chỉ mục.} Hiện chỉ có thể thêm lẻ từng url; trang thêm lẻ chưa có PageRank và chưa
         qua lọc rác cho đến lần dựng lại kế tiếp.
   \item \textbf{Ảnh chỉ tìm được theo tên tệp.} Không có OCR và chưa dùng \texttt{alt} của ảnh làm nội dung.
+  \item \textbf{Phát hiện bài mới còn phụ thuộc cấu trúc website.} Cơ chế duyệt trang danh mục cần biết quy tắc đánh số trang của từng website, và sitemap không phải nơi nào cũng đầy đủ; bài mới nằm ngoài cả hai có thể phải chờ đến chu kỳ crawl lại thông thường.
   \item \textbf{Dữ liệu crawl lệch theo host.} Giãn cách theo host làm host nhiều trang chiếm phần lớn dữ liệu; chưa có
         hạn mức số trang theo host hay ưu tiên theo độ quan trọng (ví dụ tính PageRank từng phần ngay lúc crawl).
   \item \textbf{Đánh giá chưa xong.} Nhãn liên quan chưa gán đủ nên chưa có số liệu định lượng.
@@ -1174,7 +1214,7 @@ ghi log các url nhận được. Nó dùng để chạy thử \texttt{mediator}
 
 Nhóm đã xây dựng một máy tìm kiếm hoàn chỉnh cho miền \texttt{hust.edu.vn}, từ thu thập đến xếp hạng và đánh giá. Bộ
 crawler gồm năm dịch vụ đã thu thập hơn 28 nghìn trang web, gần 4\,700 tài liệu và 9\,600 ảnh từ 95 website của trường,
-với hàng đợi bền vững, khoảng nghỉ theo host, crawl lại định kỳ và tự tiếp tục khi một khâu gặp lỗi. Máy tìm kiếm xử lý
+với hàng đợi bền vững, khoảng nghỉ theo host, crawl lại định kỳ, phát hiện bài mới qua sitemap và trang danh mục, và tự tiếp tục khi một khâu gặp lỗi. Máy tìm kiếm xử lý
 được các đặc thù của tiếng Việt (chuẩn hoá Unicode, cụm hai âm tiết, truy vấn không dấu), kết hợp BM25 nhiều trường với
 cụm từ và PageRank trong mô hình hai bước, và có cơ chế lọc rác, loại trùng không cần đặt ngưỡng bằng tay. Bốn profile
 xếp hạng cùng công cụ pooling và nDCG@10 là nền để đo và cải tiến chất lượng xếp hạng một cách có căn cứ khi việc gán
