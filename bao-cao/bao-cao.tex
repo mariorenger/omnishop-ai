@@ -471,7 +471,7 @@ tải, \texttt{/ping} trả ``đang bận'' và \texttt{/load} trả \texttt{409
 
 \subsection{Tải trang web bằng trình duyệt headless}
 
-Nhiều website của trường nạp nội dung bằng JavaScript nên tải HTML thô là không đủ. \texttt{downloader} dùng Puppeteer
+Nhiều website của trường nạp nội dung bằng JavaScript nên tải HTML thô là không đủ. \texttt{downloader} dùng Puppeteer~\cite{puppeteer}
 điều khiển một tiến trình Chromium dùng chung, mỗi lần tải mở một tab:
 
 \begin{enumerate}
@@ -500,7 +500,7 @@ Url có đuôi tài liệu hoặc ảnh (\texttt{pdf}, \texttt{docx}, \texttt{xl
 
 \texttt{reader} nhận trang hoặc tệp, bóc chữ và liên kết rồi chuyển tiếp: bản ghi sang \texttt{storage}, url
 \texttt{hust.edu.vn} mới sang \texttt{mediator}. Dịch vụ viết bằng Java 21, dùng HTTP server có sẵn của JDK, jsoup để
-phân tích HTML và Apache Tika 4 để đọc tệp.
+phân tích HTML và Apache Tika 4~\cite{tika} để đọc tệp.
 
 \subsection{Lấy tiêu đề}
 
@@ -655,7 +655,7 @@ Host (\texttt{html}) & Số trang & Host (\texttt{other}) & Số tài liệu \\
 \end{tabular}
 \end{table}
 
-Số trang giữa các host lệch nhiều (Bảng~\ref{tab:hosts}): ba host lớn nhất chiếm 52\% số trang web. Nguyên nhân là mỗi
+Số trang giữa các host lệch nhiều (Bảng~\ref{tab:hosts}): ba host lớn nhất chiếm 53\% số trang web. Nguyên nhân là mỗi
 host được thu thập với cùng một tốc độ tối đa, nên host nào có nhiều trang và liên kết dày (website khoa có nhiều bài
 tin tức) thì tích lũy được nhiều trang hơn trong cùng thời gian. Hơn một nửa số tài liệu đến từ cổng chính và bản thử
 nghiệm \texttt{hust-dev}, nơi đăng các văn bản quy chế, thông báo. Đồ thị có 44\,095 nút nhưng chỉ 19\,388 trang có liên
@@ -666,7 +666,7 @@ kết ra; phần còn lại là url được trỏ tới nhưng chưa crawl xong
 
 \section{Tổng quan}
 
-Dịch vụ \texttt{search} (Java 21, Lucene 10.5) có hai quy trình (Hình~\ref{fig:search}): \emph{dựng chỉ mục} từ MongoDB
+Dịch vụ \texttt{search} (Java 21, Lucene 10.5~\cite{lucene}) có hai quy trình (Hình~\ref{fig:search}): \emph{dựng chỉ mục} từ MongoDB
 (lúc khởi động nếu chưa có chỉ mục, hoặc khi gọi \texttt{POST /reindex}) và \emph{trả lời truy vấn} qua
 \texttt{GET /search}.
 
@@ -713,7 +713,7 @@ truy vấn.
 
 Tiếng Việt viết các âm tiết cách nhau bằng dấu cách, còn một từ có thể gồm nhiều âm tiết (``học phí'', ``bách khoa'').
 Nhóm không dùng bộ tách từ riêng (cần thêm mô hình và thư viện) mà dùng \texttt{StandardTokenizer} của Lucene, tách
-theo chuẩn Unicode UAX \#29 nên mỗi âm tiết thành một token, rồi thêm bigram âm tiết để bắt các từ ghép. Có bốn
+theo chuẩn Unicode UAX \#29~\cite{uax29} nên mỗi âm tiết thành một token, rồi thêm bigram âm tiết để bắt các từ ghép. Có bốn
 analyzer (Bảng~\ref{tab:analyzers}).
 
 \begin{table}[ht]
@@ -1058,7 +1058,7 @@ Tệp nhãn \texttt{qrels.tsv} có các cột \texttt{qid}, \texttt{grade}, \tex
 \begin{enumerate}
   \item \textbf{Pooling.} Chạy cả bốn profile cho mỗi truy vấn rồi gộp top 10 của từng profile vào \texttt{qrels.tsv}
         (\texttt{Eval --pool}). Nhãn cũ được giữ, chỉ thêm các cặp (\texttt{qid}, \texttt{url}) mới, nên chạy lại sau khi
-        sửa thuật toán không mất công gán nhãn. Pooling tránh thiên vị về một hệ: tài liệu nào được bất kỳ profile nào
+        sửa thuật toán không mất công gán nhãn. Pooling~\cite{manning2008} tránh thiên vị về một hệ: tài liệu nào được bất kỳ profile nào
         xếp cao đều được người gán nhãn xem.
   \item \textbf{Gán nhãn tay} vào cột \texttt{grade}.
   \item \textbf{Chấm điểm} bằng \texttt{Eval} (thêm \texttt{--detail} để in điểm từng truy vấn).
