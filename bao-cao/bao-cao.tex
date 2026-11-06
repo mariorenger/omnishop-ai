@@ -69,7 +69,7 @@
 {\large IT4863 -- Tìm kiếm thông tin}\\[1.6cm]
 
 {\LARGE\bfseries MÁY TÌM KIẾM CHO MIỀN \texttt{HUST.EDU.VN}}\\[10pt]
-{\large Thu thập dữ liệu phân tán và xếp hạng kết quả trên Lucene}\\[2cm]
+{\large Crawler theo kiến trúc dịch vụ nhỏ và xếp hạng kết quả trên Lucene}\\[2cm]
 
 \begin{tabular}{@{}ll@{}}
 Giảng viên hướng dẫn: & \textbf{TS. Nguyễn Bá Ngọc} \\
@@ -957,7 +957,7 @@ S_2(d, q) = S_1(d, q) + 2\cdot \mathrm{Phrase}_{\texttt{title}}(d, q) + 1\cdot \
 \end{equation}
 trong đó $\mathrm{Phrase}_f$ là điểm truy vấn cụm từ trên trường $f$ với độ lệch (slop) bằng 2: các token của truy vấn
 phải xuất hiện gần nhau, đúng thứ tự, cho phép chèn tối đa hai vị trí. Mệnh đề cụm từ bị bỏ khi truy vấn chỉ có một
-token. Thành phần cuối là PageRank bão hoà.
+token. Với truy vấn dài hơn hai âm tiết (ví dụ ``công nghệ thông tin và truyền thông''), mệnh đề này kiểm tra cả cụm chứ không chỉ từng cặp bigram, nên việc khớp một tên đơn vị nhiều âm tiết không phụ thuộc vào chỗ bigram có phải từ thật hay không. Thành phần cuối là PageRank bão hoà.
 
 \subsection{Bốn profile xếp hạng}
 
@@ -1188,6 +1188,8 @@ ghi log các url nhận được. Nó dùng để chạy thử \texttt{mediator}
   \item \textbf{Phát hiện bài mới còn phụ thuộc cấu trúc website.} Cơ chế duyệt trang danh mục cần biết quy tắc đánh số trang của từng website, và sitemap không phải nơi nào cũng đầy đủ; bài mới nằm ngoài cả hai có thể phải chờ đến chu kỳ crawl lại thông thường.
   \item \textbf{Dữ liệu crawl lệch theo host.} Giãn cách theo host làm host nhiều trang chiếm phần lớn dữ liệu; chưa có
         hạn mức số trang theo host hay ưu tiên theo độ quan trọng (ví dụ tính PageRank từng phần ngay lúc crawl).
+  \item \textbf{Chạy trên một máy.} Cả hệ thống triển khai bằng một tệp \texttt{compose.yaml} trên một máy, nên đây là xử lý song song cục bộ chứ chưa phải thu thập phân tán thật sự. Kiến trúc cho phép đặt các bản \texttt{downloader} trên máy khác (chỉ cần khai báo địa chỉ trong cấu hình \texttt{mediator}), nhưng nhóm chưa thử. \texttt{mediator} là một tiến trình duy nhất dùng SQLite nên cũng là điểm nghẽn nếu mở rộng.
+  \item \textbf{Chưa kiểm chứng lọc rác và PageRank bằng tay.} Chưa có số liệu về tỉ lệ trang rác bị phát hiện, số trang thật bị loại nhầm, và chưa xem danh sách các trang có PageRank cao nhất để biết có bị chi phối bởi trang điều hướng hay không.
   \item \textbf{Đánh giá chưa xong.} Nhãn liên quan chưa gán đủ nên chưa có số liệu định lượng.
 \end{itemize}
 
