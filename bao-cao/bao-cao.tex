@@ -1,0 +1,1230 @@
+% Báo cáo đồ án IT4863 - Tìm kiếm thông tin
+% Biên dịch bằng XeLaTeX (Overleaf: Menu -> Compiler -> XeLaTeX, hoặc dùng latexmkrc đi kèm).
+%   xelatex bao-cao.tex && xelatex bao-cao.tex
+\documentclass[12pt,a4paper]{report}
+
+\usepackage{fontspec}
+\setmainfont{TeX Gyre Termes}
+\setmonofont{TeX Gyre Cursor}[Scale=MatchLowercase]
+\usepackage[vietnamese]{babel}
+\usepackage[a4paper,left=3cm,right=2cm,top=2.5cm,bottom=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs,tabularx,array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{setspace}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\setstretch{1.2}
+\emergencystretch=3em
+\setlist{nosep,leftmargin=*}
+\renewcommand{\arraystretch}{1.25}
+\setcounter{tocdepth}{2}
+
+\titleformat{\chapter}[hang]{\bfseries\Large}{\thechapter.}{10pt}{\Large}
+\titlespacing*{\chapter}{0pt}{-10pt}{16pt}
+
+\definecolor{codebg}{RGB}{246,246,246}
+\definecolor{codekw}{RGB}{0,70,140}
+\definecolor{codecm}{RGB}{110,110,110}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecm}\itshape,
+  frame=single, rulecolor=\color{black!20},
+  breaklines=true, columns=fixed, keepspaces=true, basewidth=0.5em,
+  showstringspaces=false, xleftmargin=4pt, xrightmargin=4pt,
+  aboveskip=8pt, belowskip=8pt,
+  escapeinside={(*@}{@*)}
+}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\floatname{algorithm}{Thuật toán}
+\renewcommand{\algorithmicrequire}{\textbf{Vào:}}
+\renewcommand{\algorithmicensure}{\textbf{Ra:}}
+
+\setlength{\headheight}{15pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape IT4863 -- Tìm kiếm thông tin}
+\fancyhead[R]{\small\itshape Nhóm Tìm là thấy}
+\fancyfoot[C]{\thepage}
+
+\begin{document}
+
+% ======================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\centering
+{\large\bfseries ĐẠI HỌC BÁCH KHOA HÀ NỘI}\\[2pt]
+{\large\bfseries TRƯỜNG CÔNG NGHỆ THÔNG TIN VÀ TRUYỀN THÔNG}\\[2pt]
+\rule{0.5\textwidth}{0.6pt}\\[2.6cm]
+
+{\Large\bfseries BÁO CÁO ĐỒ ÁN MÔN HỌC}\\[8pt]
+{\large IT4863 -- Tìm kiếm thông tin}\\[1.6cm]
+
+{\LARGE\bfseries MÁY TÌM KIẾM CHO MIỀN \texttt{HUST.EDU.VN}}\\[10pt]
+{\large Thu thập dữ liệu phân tán và xếp hạng kết quả trên Lucene}\\[2cm]
+
+\begin{tabular}{@{}ll@{}}
+Giảng viên hướng dẫn: & \textbf{TS. Nguyễn Bá Ngọc} \\
+Nhóm thực hiện: & \textbf{Tìm là thấy}
+\end{tabular}\\[14pt]
+
+\begin{tabular}{lc}
+\toprule
+Họ và tên & MSHV \\
+\midrule
+Nguyễn Nam Hán & 20252095M \\
+Nguyễn Phúc Nguyên & 20261222M \\
+Lê Văn Đức & 20261233M \\
+\bottomrule
+\end{tabular}
+
+\vfill
+{\large Hà Nội, học kỳ 2026.1A}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+% ======================================================================
+\pagenumbering{roman}
+\chapter*{Tóm tắt}
+\addcontentsline{toc}{chapter}{Tóm tắt}
+
+Báo cáo trình bày máy tìm kiếm cho các website thuộc Đại học Bách khoa Hà Nội (\texttt{*.hust.edu.vn}) do nhóm
+\emph{Tìm là thấy} xây dựng trong môn IT4863. Hệ thống gồm hai phần dùng chung một cơ sở dữ liệu MongoDB.
+
+\begin{enumerate}
+  \item \textbf{Bộ thu thập dữ liệu (crawler)} gồm năm dịch vụ nhỏ trao đổi với nhau qua HTTP/JSON:
+        \texttt{mediator} (Python, hàng đợi SQLite, giãn cách theo host, crawl lại định kỳ),
+        \texttt{downloader} (Node.js, Chromium headless qua Puppeteer, chạy bốn bản),
+        \texttt{reader} (Java, jsoup và Apache Tika),
+        \texttt{storage} (Spring Boot) và MongoDB. Crawler đã thu thập
+        28\,168 trang web từ 95 tên miền con, 4\,690 tài liệu (chủ yếu là PDF), 9\,614 ảnh và 84\,673 cạnh liên kết.
+  \item \textbf{Máy tìm kiếm} xây trên Apache Lucene 10. Văn bản tiếng Việt được phân tích thành unigram âm tiết,
+        bigram và bản bỏ dấu. Việc xếp hạng chia hai bước: BM25 nhiều trường để lấy ứng viên, sau đó xếp hạng lại theo
+        cụm từ và PageRank. Trang rác được phát hiện bằng độ đo ``độ hiếm'' với ngưỡng tự chọn theo thung lũng của
+        histogram; trang trùng nội dung được loại bằng mã băm SHA-1. Bốn cấu hình xếp hạng A--D bật dần từng kỹ thuật,
+        đi kèm công cụ đánh giá offline bằng pooling, P@10 và nDCG@10.
+\end{enumerate}
+
+Cả hệ thống chạy được bằng một lệnh \texttt{docker compose up}. Giao diện web cho phép theo dõi tiến độ crawl, tìm
+kiếm và thêm url cần index ngay.
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+\cleardoublepage
+\pagenumbering{arabic}
+
+% ======================================================================
+\chapter{Giới thiệu}
+
+\section{Bài toán}
+
+Thông tin của Đại học Bách khoa Hà Nội nằm rải rác trên gần một trăm website: cổng chính \texttt{hust.edu.vn}, website
+của các trường, khoa, viện (\texttt{soict}, \texttt{seee}, \texttt{bme}, \texttt{bktextile}\ldots), thư viện, phòng ban
+và các trang dự án. Những thông tin sinh viên hay cần như học phí, lịch thi, quy chế đào tạo thường nằm trong các tệp
+PDF, DOCX đính kèm chứ không phải trong trang web. Các công cụ tìm kiếm tổng quát trả về lẫn cả website ngoài trường
+và ít khi đánh chỉ mục nội dung tệp đính kèm.
+
+Đồ án xây dựng một máy tìm kiếm riêng cho miền \texttt{hust.edu.vn} và làm đủ các khâu của một hệ tìm kiếm web: thu
+thập, bóc nội dung, lưu trữ, đánh chỉ mục, xếp hạng và đánh giá.
+
+\section{Mục tiêu}
+
+\begin{itemize}
+  \item Tự động thu thập trang web, tài liệu và ảnh thuộc \texttt{*.hust.edu.vn}, mở rộng theo liên kết, không gửi
+        yêu cầu dồn dập vào một máy chủ (giới hạn tốc độ theo host) và tự cập nhật định kỳ.
+  \item Lấy được phần nội dung chính của trang, bỏ menu và chân trang; đọc được chữ trong PDF, DOCX, XLSX.
+  \item Lưu nội dung và đồ thị liên kết vào MongoDB theo một lược đồ thống nhất.
+  \item Tìm kiếm tiếng Việt chấp nhận cả truy vấn có dấu và không dấu, có dùng tín hiệu liên kết, lọc trang rác và
+        trang trùng.
+  \item Đo được mỗi kỹ thuật xếp hạng đóng góp bao nhiêu bằng đánh giá offline.
+\end{itemize}
+
+\section{Cấu trúc báo cáo}
+
+Chương~\ref{ch:arch} nói về kiến trúc chung. Chương~\ref{ch:crawler} trình bày bộ thu thập dữ liệu và số liệu thu
+được. Chương~\ref{ch:search} trình bày máy tìm kiếm: phân tích văn bản, chỉ mục, BM25, PageRank, lọc rác, loại trang
+trùng và truy vấn hai bước. Chương~\ref{ch:eval} nói về cách đánh giá, Chương~\ref{ch:ops} về triển khai và kiểm thử,
+Chương~\ref{ch:limit} về hạn chế, hướng phát triển và kết luận.
+
+% ======================================================================
+\chapter{Kiến trúc tổng thể}\label{ch:arch}
+
+\section{Sơ đồ hệ thống}
+
+Hệ thống gồm sáu dịch vụ. Mỗi dịch vụ có một thư mục và một \texttt{Dockerfile} riêng, trao đổi với nhau bằng HTTP và
+JSON (Hình~\ref{fig:arch}). Dữ liệu đi theo một chiều: \texttt{mediator} $\rightarrow$ \texttt{downloader}
+$\rightarrow$ \texttt{reader} $\rightarrow$ \texttt{storage} $\rightarrow$ MongoDB. Vòng lặp crawl khép lại ở chỗ
+\texttt{reader} gửi các url \texttt{hust.edu.vn} mới tìm thấy về lại \texttt{mediator}. Dịch vụ \texttt{search} đọc
+MongoDB để dựng chỉ mục Lucene và trả lời truy vấn.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  svc/.style={draw, rounded corners=3pt, fill=blue!6, align=center, minimum width=2.5cm, minimum height=1.2cm, font=\small},
+  db/.style={draw, cylinder, shape border rotate=90, aspect=0.25, fill=yellow!15, align=center, minimum width=2.2cm, minimum height=1.3cm, font=\small},
+  ext/.style={draw, dashed, rounded corners=3pt, align=center, font=\small, minimum height=0.9cm},
+  arr/.style={-{Stealth[length=2.2mm]}, thick},
+  lbl/.style={font=\scriptsize, midway, inner sep=2pt}
+]
+\node[svc] (med) {mediator\\\scriptsize :5200\\\scriptsize Python, SQLite};
+\node[svc, right=1.9cm of med] (dl) {downloader $\times 4$\\\scriptsize :8800\\\scriptsize Node, Puppeteer};
+\node[svc, right=1.9cm of dl] (rd) {reader\\\scriptsize :6600\\\scriptsize Java, jsoup, Tika};
+\node[svc, below=2.2cm of rd] (st) {storage\\\scriptsize :2222\\\scriptsize Spring Boot};
+\node[db, left=1.9cm of st] (mg) {MongoDB\\\scriptsize :27018};
+\node[svc, left=1.9cm of mg, fill=green!8] (se) {search\\\scriptsize :7700\\\scriptsize Lucene 10};
+\node[ext, above=1.0cm of med] (seed) {\texttt{feed.py}\\\texttt{link\_\allowbreak{}all.txt}};
+\node[ext, below=1.0cm of se] (ui) {\texttt{dashboard.html}\\\scriptsize trình duyệt};
+\node[ext, above=1.0cm of dl] (web) {Website\\\texttt{*.hust.edu.vn}};
+
+\draw[arr] (seed) -- node[lbl,right] {POST /add (url mầm)} (med);
+\draw[arr] (med) -- node[lbl,above] {/ping, /load} (dl);
+\draw[arr] (dl) -- node[lbl,above] {POST /parse} (rd);
+\draw[arr, <->] (dl) -- node[lbl,right] {HTTP GET} (web);
+\draw[arr] (rd) -- node[lbl,right] {POST /add} (st);
+\draw[arr] (st) -- node[lbl,above] {upsert} (mg);
+\draw[arr] (mg) -- node[lbl,above] {dựng chỉ mục} (se);
+\draw[arr] (ui) -- node[lbl,right] {GET /search} (se);
+\draw[arr, dashed] ([xshift=-6mm]rd.south) -- ++(0,-1.0) -| node[lbl,above,pos=0.25] {POST /add \{url hust mới\}} (med.south);
+\end{tikzpicture}
+\caption{Kiến trúc tổng thể của hệ thống}\label{fig:arch}
+\end{figure}
+
+\section{Các dịch vụ}
+
+\begin{table}[ht]
+\centering
+\caption{Các dịch vụ và công nghệ}\label{tab:services}
+\begin{tabularx}{\textwidth}{l L c}
+\toprule
+Dịch vụ (thư mục) & Vai trò, công nghệ & Cổng \\
+\midrule
+\texttt{mediator} & Giữ hàng đợi url (SQLite), giao url cho các bản downloader theo vòng, giãn cách theo host, hẹn lịch crawl lại. Python 3.13, \texttt{asyncio}, \texttt{aiohttp}. & 5200 \\
+\texttt{downloader} & Dùng Chromium headless (Puppeteer) cho trang web, \texttt{fetch} cho tài liệu và ảnh. Mỗi bản chỉ tải một url mỗi lúc. Node.js 24. & 8800 \\
+\texttt{reader} & Lấy tiêu đề, khối nội dung chính, liên kết; đọc chữ trong tệp bằng Apache Tika; chuyển kết quả sang \texttt{storage} và \texttt{mediator}. Java 21. & 6600 \\
+\texttt{storage} & Kiểm tra và ghi bản ghi vào \texttt{html}/\texttt{other}/\texttt{picture}, ghi cạnh vào \texttt{graph}. Java 21, Spring Boot 3.3. & 2222 \\
+\texttt{search} & Dựng chỉ mục, xếp hạng, API \texttt{/search}, phục vụ giao diện web. Java 21, Lucene 10.5. & 7700 \\
+MongoDB & Cơ sở dữ liệu dùng chung, MongoDB 7. & 27018 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Nhóm chia thành nhiều dịch vụ nhỏ vì ba lý do. Thứ nhất, mỗi khâu tốn tài nguyên theo một kiểu: tải trang chủ yếu chờ
+mạng và tốn RAM cho trình duyệt, đọc PDF tốn CPU, nên cần nhân bản riêng từng khâu (hệ chạy bốn bản
+\texttt{downloader}, các khâu khác một bản). Thứ hai, mỗi khâu dùng được ngôn ngữ có thư viện tốt nhất cho nó:
+Puppeteer trên Node.js, jsoup, Tika và Lucene trên Java. Thứ ba, giữa các khâu chỉ có vài endpoint JSON nên kiểm thử
+và thay thế từng phần khá dễ.
+
+\section{Mô hình dữ liệu}
+
+Dữ liệu nằm trong database \texttt{HUST\_\allowbreak{}2026\_\allowbreak{}IT4863\_\allowbreak{}TEST} gồm bốn collection (Bảng~\ref{tab:mongo}). Lược đồ được
+ràng buộc bằng \texttt{\$jsonSchema} ở mức \texttt{strict} (tệp \path{storage/document/ddl_create_document.js}):
+\texttt{url} phải bắt đầu bằng \texttt{http(s)://}, \texttt{base64} phải là chuỗi Base64 hợp lệ. Mỗi collection nội
+dung có chỉ mục duy nhất trên \texttt{url}; \texttt{graph} có chỉ mục duy nhất trên cặp
+(\texttt{source}, \texttt{destinations}) và thêm một chỉ mục phụ trên \texttt{destinations}.
+
+\begin{table}[ht]
+\centering
+\caption{Các collection trong MongoDB}\label{tab:mongo}
+\begin{tabularx}{\textwidth}{l L}
+\toprule
+Collection & Nội dung \\
+\midrule
+\texttt{html} & Trang web: \texttt{url}, \texttt{format}, \texttt{title}, \texttt{content} (văn bản đã bóc), \texttt{createdAt}, \texttt{updatedAt}. \\
+\texttt{other} & Tài liệu (pdf, docx, xlsx\ldots): các trường như trên, có thể thêm \texttt{origin}. \\
+\texttt{picture} & Ảnh: các trường như trên, thêm \texttt{base64} chứa byte ảnh. \\
+\texttt{graph} & Mỗi bản ghi là một cạnh liên kết: \texttt{source}, \texttt{destinations} (một url đích), \texttt{createdAt}, \texttt{updatedAt}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ======================================================================
+\chapter{Thu thập dữ liệu}\label{ch:crawler}
+
+Chương này đi theo đường đi của một url qua bốn dịch vụ: \texttt{mediator} quyết định url nào được tải và khi nào;
+\texttt{downloader} lấy nội dung; \texttt{reader} bóc chữ và liên kết; \texttt{storage} ghi vào MongoDB.
+
+\section{Dịch vụ mediator}
+
+\subsection{Vai trò}
+
+Mỗi bản \texttt{downloader} chỉ tải một url một lúc. Nếu đẩy thẳng hàng nghìn url vào thì nó quá tải, còn nếu gửi dồn
+vào một website thì website đó có thể chặn. \texttt{mediator} đứng giữa để giải quyết cả hai: giữ mọi url trong một hàng
+đợi bền vững, bỏ url trùng, giãn cách các lần gửi vào cùng một host, chỉ giao url khi có bản \texttt{downloader} rảnh
+và hẹn ngày kiểm tra lại từng url.
+
+\texttt{mediator} chạy hai luồng bất đồng bộ trong cùng một tiến trình \texttt{asyncio}, gặp nhau ở hàng đợi:
+
+\begin{enumerate}
+  \item \textbf{Luồng nhận} (\texttt{POST /add}): chuẩn hoá, phân loại và cất url vào hàng đợi, trả lời ngay mà không
+        chờ tải.
+  \item \textbf{Luồng giao}: vòng lặp liên tục, mỗi lượt lấy tối đa một url đến hạn và giao cho một bản
+        \texttt{downloader} đang rảnh.
+\end{enumerate}
+
+Tách như vậy thì bên gửi url gửi bao nhiêu cũng được trả lời ngay, còn tốc độ giao do tốc độ tải quyết định.
+
+\subsection{Chuẩn hoá url}
+
+Cùng một trang có thể viết bằng nhiều cách. Hàm \texttt{canonicalize\_\allowbreak{}url} đưa chúng về một dạng duy nhất để không tải
+một trang hai lần:
+
+\begin{itemize}
+  \item viết thường scheme và tên miền, bỏ dấu chấm cuối tên miền, bỏ cổng mặc định (80 với http, 443 với https);
+  \item chuẩn hoá đường dẫn (bỏ \texttt{.} và \texttt{..}), giữ dấu \texttt{/} cuối nếu có;
+  \item bỏ phần \texttt{\#fragment};
+  \item bỏ các tham số theo dõi và phiên: \texttt{utm\_\allowbreak{}*}, \texttt{fbclid}, \texttt{gclid}, \texttt{sessionid},
+        \texttt{jsessionid}, \texttt{phpsessid};
+  \item sắp xếp các tham số còn lại theo khoá rồi theo giá trị.
+\end{itemize}
+
+\begin{sloppypar}
+Ví dụ, \texttt{HTTPS://Hust.edu.vn:443/a/../b?z=2\&a=1\&\allowbreak utm\_\allowbreak{}source=fb\#top} trở thành
+\texttt{https://hust.edu.vn/b?\allowbreak a=1\&z=2}. Url bị loại nếu không phải \texttt{http}/\texttt{https}, không có host, có
+thông tin đăng nhập (\texttt{user:pass@}) hoặc có hơn 50 cặp tham số (thường là bẫy crawler sinh url vô hạn).
+\end{sloppypar}
+
+\subsection{Phân loại url và chu kỳ crawl lại}
+
+Mỗi url thuộc một trong ba loại vì chúng thay đổi với tốc độ khác nhau (Bảng~\ref{tab:kinds}). Các chu kỳ chỉnh được
+trong tệp cấu hình YAML; giá trị 0 nghĩa là không crawl lại.
+
+\begin{table}[ht]
+\centering
+\caption{Phân loại url và chu kỳ kiểm tra lại}\label{tab:kinds}
+\begin{tabularx}{\textwidth}{l L c}
+\toprule
+Loại & Cách nhận biết & Kiểm tra lại sau \\
+\midrule
+\texttt{hub} (trang chủ) & Đường dẫn rỗng hoặc \texttt{/}; tin mới đăng liên tục. & 1 ngày \\
+\texttt{page} (trang thường) & Các url còn lại. & 7 ngày \\
+\texttt{document} (tài liệu, ảnh) & Đuôi \texttt{.pdf}, \texttt{.doc(x)}, \texttt{.xls(x)}, \texttt{.ppt(x)}, \texttt{.odt}, \texttt{.zip}, \texttt{.jpg}, \texttt{.png}\ldots; hiếm khi đổi. & 30 ngày \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Hàng đợi bền vững trên SQLite}
+
+Hàng đợi là một tệp SQLite có hai bảng. Bảng \texttt{urls} lưu mọi url đã biết cùng loại, hạn giao kế tiếp
+(\texttt{next\_\allowbreak{}due\_\allowbreak{}at}), lần gửi cuối và số lần lỗi liên tiếp. Bảng \texttt{hosts} lưu thời điểm gửi gần nhất vào từng
+host.
+
+\begin{lstlisting}[language=SQL, caption={Lược đồ hàng đợi}]
+CREATE TABLE urls (
+    url TEXT PRIMARY KEY, host TEXT NOT NULL, kind TEXT NOT NULL,
+    next_due_at REAL, last_sent_at REAL, attempts INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX urls_next_due ON urls (next_due_at);
+CREATE TABLE hosts (host TEXT PRIMARY KEY, last_sent_at REAL NOT NULL);
+\end{lstlisting}
+
+Thêm url dùng \texttt{INSERT OR IGNORE}: url đã có thì giữ nguyên lịch cũ, nên gửi lại url cũ không làm nó bị tải thêm.
+Mọi thao tác ghi đều commit ngay, vì vậy tắt dịch vụ rồi bật lại thì việc giao url tiếp tục đúng chỗ đã dừng. Việc chọn
+url kế tiếp là một truy vấn duy nhất, xét cả điều kiện đến hạn lẫn khoảng nghỉ của host:
+
+\begin{lstlisting}[language=SQL, caption={Chọn url kế tiếp}]
+SELECT u.* FROM urls u LEFT JOIN hosts h ON h.host = u.host
+WHERE u.next_due_at <= :now
+  AND (h.last_sent_at IS NULL OR h.last_sent_at + :host_delay <= :now)
+ORDER BY u.next_due_at <= 0 DESC,
+         u.kind = 'document' DESC,
+         u.next_due_at
+LIMIT 1;
+\end{lstlisting}
+
+Thứ tự ưu tiên trong \texttt{ORDER BY} là: url được đánh dấu ưu tiên (\texttt{next\_\allowbreak{}due\_\allowbreak{}at = 0}), rồi tài liệu và ảnh, rồi url đến hạn sớm nhất. Khoảng nghỉ nằm ngay trong mệnh đề \texttt{WHERE}: host chưa nghỉ đủ \texttt{host\_\allowbreak{}delay\_\allowbreak{}seconds} (cấu hình 2 giây) bị
+bỏ qua và truy vấn lấy url của host khác. Nhờ vậy khi một host đang nghỉ, các host khác vẫn được thu thập xen kẽ, và
+không host nào nhận quá một yêu cầu mỗi hai giây từ toàn hệ thống. Tài liệu được ưu tiên trước trang thường vì đó là
+phần thông tin có giá trị nhất (quy chế, thông báo) và tải bằng \texttt{fetch} nhanh hơn dựng trang bằng trình duyệt.
+
+\subsection{Luồng giao url}
+
+\texttt{mediator} làm việc với \texttt{downloader} theo hai bước: hỏi \texttt{GET /ping} xem đã rảnh chưa (trả
+\texttt{\{"status":"đang chờ"\}} hoặc \texttt{"đang bận"}), nếu rảnh thì gửi \texttt{POST /load \{"url": ...\}}. Các bản
+\texttt{downloader} được duyệt theo vòng (round robin), bắt đầu từ bản sau bản vừa dùng và bỏ qua bản đang bị cho nghỉ
+vì lỗi trước đó. Thuật toán~\ref{alg:dispatch} mô tả một lượt giao.
+
+\begin{algorithm}[ht]
+\caption{Một lượt giao url của mediator}\label{alg:dispatch}
+\begin{algorithmic}[1]
+\State $u \gets$ url đến hạn kế tiếp (truy vấn ở trên)
+\If{$u = \varnothing$} \State \Return \textsc{false} \Comment{nghỉ 0,5 giây rồi thử lại}
+\EndIf
+\For{mỗi node $n$ theo thứ tự vòng, bỏ node đang nghỉ}
+  \State $s \gets$ \textsc{Ping}$(n)$ \Comment{hết hạn 2 giây; chuẩn hoá NFC}
+  \If{không có phản hồi} \State cho $n$ nghỉ 30 giây; \textbf{continue}
+  \ElsIf{$s \neq$ ``đang chờ''} \State \textbf{continue}
+  \EndIf
+  \State $r \gets$ \textsc{Load}$(n, u)$ \Comment{hết hạn 10 giây}
+  \If{$r = 409$} \State \textbf{continue} \Comment{node vừa nhận việc khác}
+  \ElsIf{$r = 2xx$}
+    \State $u.\mathit{next} \gets now + \mathit{recrawl}(u.\mathit{kind})$; ghi thời điểm gửi của host
+    \State \Return \textsc{true}
+  \ElsIf{$r = 4xx$} \Comment{lỗi do url, node vẫn khoẻ}
+    \State $u.\mathit{next} \gets now + \mathit{recrawl}(u.\mathit{kind})$; \Return \textsc{false}
+  \Else \Comment{5xx hoặc hết giờ}
+    \State cho $n$ nghỉ 30 giây; $u.\mathit{attempts} \gets u.\mathit{attempts} + 1$
+    \If{$u.\mathit{attempts} \ge 5$} \State $u.\mathit{next} \gets now + \mathit{recrawl}(u.\mathit{kind})$; $u.\mathit{attempts} \gets 0$
+    \Else \State $u.\mathit{next} \gets now$ \Comment{thử lại ở lượt sau}
+    \EndIf
+    \State \Return \textsc{false}
+  \EndIf
+\EndFor
+\State \Return \textsc{false}
+\end{algorithmic}
+\end{algorithm}
+
+Một số chi tiết trong cách xử lý:
+
+\begin{itemize}
+  \item \textbf{Chuẩn hoá Unicode của trạng thái.} Chuỗi ``đang chờ'' có thể đến ở dạng NFD (chữ gốc cộng dấu rời) nếu
+        \texttt{downloader} được viết trên hệ điều hành khác, nên \texttt{mediator} đưa về NFC trước khi so sánh.
+  \item \textbf{Cho node lỗi nghỉ.} Node không trả lời \texttt{/ping} trong 2 giây, hoặc lỗi khi \texttt{/load}, bị
+        bỏ qua 30 giây để không gọi liên tục vào một dịch vụ đang hỏng. Node sống lại thì việc giao tự tiếp tục.
+  \item \textbf{Phân biệt lỗi của url và lỗi của node.} Mã 4xx nghĩa là node vẫn khoẻ nhưng từ chối url đó, nên node
+        không bị cho nghỉ còn url được lùi một chu kỳ thay vì thử lại ngay.
+  \item \textbf{Giới hạn số lần thử.} Url lỗi 5 lần liên tiếp bị lùi một chu kỳ, nên url hỏng được thử vài lần chứ
+        không lặp mãi.
+  \item \textbf{Ưu tiên.} \texttt{POST /add} kèm \texttt{"priority": true} đặt \texttt{next\_\allowbreak{}due\_\allowbreak{}at = 0} cho các url
+        gửi lên (kể cả url đã biết) để chúng được tải ngay. Chức năng ``Thêm url'' trên giao diện dùng cơ chế này.
+\end{itemize}
+
+\subsection{API và cấu trúc mã}
+
+\texttt{mediator} có bốn endpoint: \texttt{POST /add} (nhận một gói url, trả số url mới, trùng, bị loại và url đã
+chuẩn hoá của từng url), \texttt{POST /stop} và \texttt{POST /start} (tạm dừng hoặc chạy tiếp việc giao, hàng đợi giữ
+nguyên), \texttt{GET /status} (trạng thái, tổng số url, số url đến hạn). Cứ 30 giây dịch vụ in một dòng tóm tắt vào log.
+
+\begin{lstlisting}[caption={Ví dụ gọi POST /add}]
+$ curl -X POST localhost:5200/add -d '{"urls": ["https://hust.edu.vn/",
+       "https://HUST.edu.vn:443/#top", "mailto:a@hust.edu.vn"]}'
+{"accepted": 1, "duplicates": 1, "rejected": 1,
+ "urls": ["https://hust.edu.vn/", "https://hust.edu.vn/", null]}
+\end{lstlisting}
+
+Mã nguồn chia lớp theo kiểu ports-and-adapters:
+
+\begin{itemize}
+  \item \texttt{domain/}: logic thuần, không I/O: chuẩn hoá url, phân loại, lập lịch lại, xoay vòng node.
+  \item \texttt{application/}: use case \texttt{add\_\allowbreak{}urls} và \texttt{Dispatcher}, chỉ phụ thuộc vào các giao diện
+        (port) \texttt{UrlQueue}, \texttt{Downloader}, \texttt{Clock}.
+  \item \texttt{infrastructure/}: cài đặt các port bằng SQLite và \texttt{aiohttp}; đọc cấu hình YAML.
+  \item \texttt{api/}: HTTP server \texttt{aiohttp}.
+\end{itemize}
+
+Chia như vậy cho phép kiểm thử luồng giao bằng đồng hồ giả và \texttt{downloader} giả, không cần mạng hay chờ thời gian
+thật. Một bài kiểm thử kiến trúc (\texttt{test\_\allowbreak{}architecture.py}) bảo đảm lớp \texttt{domain} không import lớp ngoài.
+
+\section{Dịch vụ downloader}
+
+\texttt{downloader} là một HTTP server Node.js. Nó nhận url qua \texttt{POST /load}, trả \texttt{202} ngay rồi tải ở
+nền, xong thì gửi kết quả thẳng sang \texttt{reader} (\texttt{POST /parse}). Mỗi bản chỉ tải một url một lúc: khi đang
+tải, \texttt{/ping} trả ``đang bận'' và \texttt{/load} trả \texttt{409}. Hệ thống chạy bốn bản
+(\texttt{deploy.replicas: 4}), địa chỉ của chúng khai báo trong cấu hình của \texttt{mediator}.
+
+\subsection{Tải trang web bằng trình duyệt headless}
+
+Nhiều website của trường nạp nội dung bằng JavaScript nên tải HTML thô là không đủ. \texttt{downloader} dùng Puppeteer
+điều khiển một tiến trình Chromium dùng chung, mỗi lần tải mở một tab:
+
+\begin{enumerate}
+  \item Bật chặn request, huỷ mọi yêu cầu loại \texttt{image}, \texttt{media}, \texttt{font}, \texttt{stylesheet}.
+        \texttt{reader} chỉ cần DOM, nên việc này vừa nhanh hơn vừa bớt request vào website.
+  \item Gọi \texttt{page.goto(url, \{waitUntil: 'load'\})} với hạn 30 giây, sau đó chờ mạng rảnh 300 ms (thêm tối đa
+        2 giây) để các lời gọi AJAX nạp xong nội dung.
+  \item Nếu mã HTTP $\ge 400$ thì ghi log rồi bỏ. Nếu \texttt{Content-Type} không phải \texttt{text/html} (ví dụ url
+        không có đuôi nhưng trả về PDF), hoặc Chromium huỷ điều hướng (\texttt{ERR\_\allowbreak{}ABORTED}) vì đây là tệp tải xuống,
+        thì chuyển sang tải nhị phân.
+  \item Gửi \texttt{page.content()} (DOM sau khi chạy JavaScript) cùng \texttt{final\_\allowbreak{}url} sau chuyển hướng sang
+        \texttt{reader}.
+\end{enumerate}
+
+Khi Chromium chết hoặc mất kết nối, cache của trình duyệt bị xoá để lần tải sau khởi động lại sạch.
+
+\subsection{Tải tài liệu và ảnh}
+
+Url có đuôi tài liệu hoặc ảnh (\texttt{pdf}, \texttt{docx}, \texttt{xlsx}, \texttt{pptx}, \texttt{jpg},
+\texttt{png}\ldots) được tải thẳng bằng \texttt{fetch}, theo chuyển hướng, giới hạn 50 MB (kiểm tra cả
+\texttt{Content-Length} lẫn số byte thực nhận). Nếu có \texttt{Content-Type}, byte của tệp được gửi nguyên trong body
+\texttt{/parse?url=...\&final\_\allowbreak{}url=...}, tránh việc Base64 làm dữ liệu to thêm 33\%; nếu không thì gửi gói JSON với
+\texttt{encoding: "base64"}.
+
+\section{Dịch vụ reader}
+
+\texttt{reader} nhận trang hoặc tệp, bóc chữ và liên kết rồi chuyển tiếp: bản ghi sang \texttt{storage}, url
+\texttt{hust.edu.vn} mới sang \texttt{mediator}. Dịch vụ viết bằng Java 21, dùng HTTP server có sẵn của JDK, jsoup để
+phân tích HTML và Apache Tika 4 để đọc tệp.
+
+\subsection{Lấy tiêu đề}
+
+Tiêu đề lấy theo thứ tự ưu tiên: \texttt{<meta property="og:title">}, thẻ \texttt{<h1>} đầu tiên, rồi \texttt{<title>}.
+Thẻ \texttt{<title>} thường kèm tên website (``Học phí -- Trường CNTT\&TT'') nên để sau cùng. Nếu không có tiêu đề nào
+thì lấy tên tệp trong url.
+
+\subsection{Tìm khối nội dung chính}
+
+Trang của trường có nhiều phần lặp lại như menu, thanh bên, chân trang. Nếu index cả trang thì trang nào cũng khớp với
+các từ trong menu. \texttt{reader} chọn \emph{khối nội dung chính} bằng một heuristic chấm điểm theo mật độ chữ, cùng
+ý tưởng với các thuật toán kiểu Readability:
+
+\begin{enumerate}
+  \item Xoá các phần không hiển thị: \texttt{script}, \texttt{style}, \texttt{noscript}, \texttt{template},
+        \texttt{iframe} và phần tử có thuộc tính \texttt{hidden}.
+  \item Với mỗi phần tử $e$ có chữ trực tiếp (\texttt{ownText}, không tính chữ trong thẻ \texttt{<a>}) dài
+        $n \ge 25$ ký tự: leo lên thẻ khối gần nhất $e'$ (một \texttt{<span>} nằm trong \texttt{<p>} thì tính từ
+        \texttt{<p>}), rồi cộng điểm
+        \[
+          \mathit{score}(\mathrm{cha}(e')) \mathrel{+}= n, \qquad
+          \mathit{score}(\mathrm{ông}(e')) \mathrel{+}= n/2 .
+        \]
+  \item Khối nội dung là phần tử có điểm cao nhất; nếu không có đoạn chữ nào thì lấy \texttt{<body>}.
+\end{enumerate}
+
+Đoạn chữ ngắn hơn 25 ký tự (mục menu, nhãn nút) không được tính, và chữ nằm trong liên kết cũng vậy, nên một menu toàn
+liên kết không thể thắng phần thân bài viết. Cộng thêm một nửa điểm cho phần tử ông giúp chọn được vùng bao ngoài khi
+bài viết bị chia thành nhiều \texttt{<div>} con.
+
+\subsection{Liên kết và văn bản liên kết}
+
+\texttt{reader} tách liên kết thành hai tập:
+
+\begin{itemize}
+  \item \textbf{Liên kết nằm trong khối nội dung} (\texttt{<a href>} và \texttt{<img src>}) được ghi vào đồ thị
+        \texttt{graph}. Văn bản liên kết là \emph{câu chứa liên kết} chứ không chỉ chữ trong thẻ: \texttt{reader} duyệt
+        các nút chữ của khối câu gần nhất (\texttt{p}, \texttt{li}, \texttt{td}, \texttt{h1}--\texttt{h6}\ldots) và cắt
+        từ dấu kết câu gần nhất bên trái đến dấu kết câu đầu tiên bên phải. Nhờ vậy liên kết ``xem tại đây'' vẫn mang
+        ngữ cảnh ``Quy chế đào tạo 2025, xem tại đây''. Với ảnh, văn bản lấy từ \texttt{alt}, không có thì lấy
+        \texttt{title}.
+  \item \textbf{Mọi liên kết của trang}, kể cả menu và chân trang, được lọc lấy các url có host \texttt{hust.edu.vn}
+        hoặc \texttt{*.hust.edu.vn} rồi gửi về \texttt{mediator}. Menu cũng được dùng để mở rộng crawl, vì menu chính
+        là bản đồ của website.
+\end{itemize}
+
+Liên kết được đổi thành url tuyệt đối theo \texttt{final\_\allowbreak{}url}, bỏ fragment, bỏ liên kết về chính trang và bỏ trùng. Ký
+tự không hợp lệ (dấu cách, chữ có dấu) được mã hoá \texttt{\%XX} để \texttt{storage} không từ chối cả bản ghi.
+
+\subsection{Đọc tài liệu và ảnh}
+
+Tệp nhị phân được đưa qua \texttt{AutoDetectParser} của Tika, nó tự nhận dạng định dạng theo nội dung chứ không tin vào
+đuôi tệp. Kết quả:
+
+\begin{itemize}
+  \item \textbf{Tài liệu} (PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX): lấy chữ thuần, cắt ở 1 triệu ký tự. Tiêu đề lấy từ
+        metadata của tệp, không có thì lấy tên tệp. Định dạng ghi theo đuôi tệp, không có đuôi thì suy từ MIME.
+  \item \textbf{Ảnh}: không OCR. Hệ thống lưu tiêu đề (tên tệp), metadata đã chuẩn hoá (MIME, kích thước điểm ảnh, ngày
+        chụp, tác giả, máy ảnh) và byte ảnh dạng Base64. Ảnh trên 11 MB bị bỏ qua, vì Base64 làm dữ liệu to thêm một
+        phần ba, cộng với các trường khác sẽ vượt giới hạn 16 MB của một bản ghi MongoDB.
+\end{itemize}
+
+Tệp không đọc được trả \texttt{415} hoặc \texttt{422}; trang không bóc được chữ trả \texttt{422}. Bảng mã của trang lấy
+từ \texttt{charset} trong \texttt{Content-Type}, mặc định UTF-8.
+
+\subsection{Chuyển tiếp}
+
+Bản ghi được gửi bằng \texttt{POST /add} sang \texttt{storage}, danh sách url hust gửi sang \texttt{POST /add} của
+\texttt{mediator}. Mỗi lời gọi thử lại một lần với hạn 10 giây; nếu vẫn thất bại thì \texttt{/parse} trả \texttt{502}
+kèm tên dịch vụ và lý do. Mỗi request ghi một dòng log gồm url, định dạng, mã trạng thái, thời gian xử lý và số liên
+kết.
+
+\section{Dịch vụ storage}
+
+\texttt{storage} là ứng dụng Spring Boot với một endpoint ghi (\texttt{POST /add}) và hai endpoint đọc:
+\texttt{GET /stats} (số bản ghi, dung lượng từng collection, bản ghi mới nhất) và \texttt{GET /record} (xem một bản
+ghi theo url).
+
+\begin{lstlisting}[caption={Body của POST /add trên storage}]
+{"url": "https://hust.edu.vn/tin-tuc1", "format": "html", "title": "Tin (*@tức@*) 1",
+ "content": "(*@Cơ@*) (*@hội@*) (*@thực@*) (*@tập@*) (*@có@*) (*@lương@*) (*@tại@*) (*@Nhật@*) cho sinh (*@viên@*) HUST.",
+ "out-links": [{"url": "https://hust.edu.vn/tin-tuc2", "text": "(*@Thông@*) tin (*@tuyển@*) (*@dụng@*)"}]}
+\end{lstlisting}
+
+Các bước xử lý:
+
+\begin{enumerate}
+  \item \textbf{Kiểm tra.} \texttt{url} và từng \texttt{out-links.url} phải là url http(s) tuyệt đối, không có thông tin
+        đăng nhập; \texttt{format} khớp \texttt{[a-z0-9][a-z0-9.+\_\allowbreak{}-]\{0,31\}}; \texttt{title} không rỗng; phải có
+        \texttt{content} hoặc \texttt{base64}, và \texttt{base64} phải giải mã được. Sai thì trả \texttt{400} kèm lý do.
+  \item \textbf{Chọn collection theo \texttt{format}.} \texttt{html}/\texttt{htm} vào \texttt{html}; \texttt{jpg},
+        \texttt{png}, \texttt{gif}, \texttt{webp}, \texttt{svg}, \texttt{bmp} vào \texttt{picture}; còn lại vào
+        \texttt{other}.
+  \item \textbf{Upsert theo url} bằng \texttt{findAndModify(upsert=true)}. Crawl lại một trang thì nội dung được ghi đè,
+        \texttt{updatedAt} được cập nhật, \texttt{createdAt} giữ nguyên. Hai request cùng url chạy song song có thể cùng
+        chèn và gặp \texttt{DuplicateKeyException}; khi đó thao tác được làm lại ở dạng cập nhật.
+  \item \textbf{Ghi cạnh đồ thị.} Mỗi liên kết ra là một bản ghi (\texttt{source}, \texttt{destinations}), upsert theo
+        cặp nên không có cạnh trùng.
+\end{enumerate}
+
+Mất kết nối MongoDB thì trả \texttt{503}, các lỗi ghi khác trả \texttt{500}. Mỗi request được gán một
+\texttt{X-Request-ID} và ghi log đầu vào, đầu ra, thời gian (byte Base64 được rút gọn trong log).
+
+\section{Nạp url mầm và theo dõi}
+
+Tệp \texttt{link\_\allowbreak{}all.txt} chứa 101\,461 url mầm thuộc miền \texttt{hust.edu.vn}. Script \texttt{feed.py} chờ
+\texttt{mediator} sẵn sàng, gửi danh sách theo lô (mặc định 2\,000 url mỗi lô) rồi gọi \texttt{/start}. Nạp lại nhiều
+lần cũng không sao vì url đã có sẽ bị bỏ qua. Sau đó crawl tự mở rộng theo các liên kết mà \texttt{reader} tìm được.
+
+Trang \texttt{dashboard.html} (do dịch vụ \texttt{search} phục vụ tại \path{http://localhost:7700/}) có ba thẻ:
+\emph{Theo dõi crawl} (trạng thái \texttt{mediator}, số bản ghi từng collection lấy từ \texttt{/stats}, các bản ghi mới
+nhất), \emph{Tìm kiếm} và \emph{Thêm url}. Ở thẻ Thêm url, người dùng dán một hoặc nhiều url; các url được gửi tới
+\texttt{mediator} với \texttt{priority: true}, đi qua luồng crawl bình thường, rồi được index ngay bằng
+\texttt{POST /index} mà không cần dựng lại cả chỉ mục.
+
+\section{Kết quả thu thập}\label{sec:crawl-stats}
+
+Crawler chạy từ ngày 26/10/2026 đến 31/10/2026. Bảng~\ref{tab:crawl} tổng hợp số liệu từ bản export của MongoDB.
+
+\begin{table}[ht]
+\centering
+\caption{Số liệu dữ liệu thu thập được}\label{tab:crawl}
+\begin{tabularx}{\textwidth}{l r L}
+\toprule
+Collection & Số bản ghi & Ghi chú \\
+\midrule
+\texttt{html} & 28\,168 & 95 tên miền con; độ dài nội dung trung vị 1\,079 ký tự, trung bình 2\,575 ký tự \\
+\texttt{other} & 4\,690 & 25 tên miền con; PDF 4\,289, DOCX 164, DOC 155, XLSX 61, XLS 16, PPTX 5; độ dài trung vị 4\,795 ký tự \\
+\texttt{picture} & 9\,614 & Ảnh kèm metadata và byte Base64 (khoảng 7,5 GB) \\
+\texttt{graph} & 84\,673 & 44\,095 nút; 19\,388 trang có liên kết ra; 79,8\% cạnh trỏ vào miền \texttt{hust.edu.vn} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Các tên miền con có nhiều trang nhất}\label{tab:hosts}
+\small
+\begin{tabular}{l r @{\hspace{0.6cm}} l r}
+\toprule
+Host (\texttt{html}) & Số trang & Host (\texttt{other}) & Số tài liệu \\
+\midrule
+\texttt{bktextile.hust.edu.vn} & 5\,567 & \texttt{hust-dev.hust.edu.vn} & 1\,735 \\
+\texttt{clc.hust.edu.vn} & 5\,444 & \texttt{hust.edu.vn} & 1\,418 \\
+\texttt{fami.hust.edu.vn} & 3\,806 & \texttt{library.hust.edu.vn} & 680 \\
+\texttt{bme.hust.edu.vn} & 1\,535 & \texttt{ctt.hust.edu.vn} & 278 \\
+\texttt{icea.hust.edu.vn} & 1\,485 & \texttt{fami.hust.edu.vn} & 205 \\
+\texttt{inest.hust.edu.vn} & 1\,396 & \texttt{sep.hust.edu.vn} & 146 \\
+\texttt{hust-dev.hust.edu.vn} & 1\,233 & \texttt{sdh.hust.edu.vn} & 67 \\
+\texttt{hust.edu.vn} & 981 & \texttt{soict.hust.edu.vn} & 53 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Số trang giữa các host lệch nhiều (Bảng~\ref{tab:hosts}): ba host lớn nhất chiếm 52\% số trang web. Nguyên nhân là mỗi
+host được thu thập với cùng một tốc độ tối đa, nên host nào có nhiều trang và liên kết dày (website khoa có nhiều bài
+tin tức) thì tích lũy được nhiều trang hơn trong cùng thời gian. Hơn một nửa số tài liệu đến từ cổng chính và bản thử
+nghiệm \texttt{hust-dev}, nơi đăng các văn bản quy chế, thông báo. Đồ thị có 44\,095 nút nhưng chỉ 19\,388 trang có liên
+kết ra; phần còn lại là url được trỏ tới nhưng chưa crawl xong, hoặc là tệp, ảnh, trang ngoài trường.
+
+% ======================================================================
+\chapter{Máy tìm kiếm}\label{ch:search}
+
+\section{Tổng quan}
+
+Dịch vụ \texttt{search} (Java 21, Lucene 10.5) có hai quy trình (Hình~\ref{fig:search}): \emph{dựng chỉ mục} từ MongoDB
+(lúc khởi động nếu chưa có chỉ mục, hoặc khi gọi \texttt{POST /reindex}) và \emph{trả lời truy vấn} qua
+\texttt{GET /search}.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, align=left, font=\small, text width=8cm, inner sep=5pt},
+  arr/.style={-{Stealth[length=2mm]}, thick}
+]
+\node[draw, cylinder, shape border rotate=90, aspect=0.25, fill=yellow!15, font=\small, align=center] (m) {MongoDB\\\scriptsize html, other, picture, graph};
+\node[box, fill=blue!5, below=0.6cm of m] (b) {\textbf{IndexBuilder.build}\\
+1. PageRank trên \texttt{graph}\\
+2. Độ hiếm + ngưỡng thung lũng $\rightarrow$ trang rác\\
+3. SHA-1 nội dung $\rightarrow$ trang trùng\\
+4. Ghi tài liệu Lucene nhiều trường};
+\node[draw, cylinder, shape border rotate=90, aspect=0.25, fill=green!10, font=\small, below=0.6cm of b] (i) {Chỉ mục Lucene};
+\node[box, fill=blue!5, below=0.6cm of i] (s) {\textbf{Searcher.search}\\
+Bước 1: BM25 nhiều trường, lấy 100 ứng viên\\
+Bước 2: xếp hạng lại theo cụm từ và PageRank\\
+Cắt trang, tạo snippet};
+\node[box, fill=gray!8, below=0.6cm of s] (e) {\textbf{Eval}: P@10, nDCG@10 trên nhãn gán tay};
+\draw[arr] (m) -- (b); \draw[arr] (b) -- (i); \draw[arr] (i) -- (s); \draw[arr] (s) -- (e);
+\end{tikzpicture}
+\caption{Hai quy trình của dịch vụ search}\label{fig:search}
+\end{figure}
+
+Nguồn dữ liệu được trừu tượng hoá bằng giao diện \texttt{Source} với hai hàm \texttt{records()} và \texttt{edges()}.
+\texttt{MongoSource} đọc ba collection nội dung (chỉ các trường \texttt{url}, \texttt{format}, \texttt{title},
+\texttt{content}, \texttt{updatedAt}, không bao giờ lấy \texttt{base64}) và collection \texttt{graph}.
+\texttt{JsonFileSource} đọc một tệp JSON dạng mảng \texttt{\{url, title, content, olinks\}}; dịch vụ
+\texttt{search-json} (cổng 7701) dùng nguồn này để chạy cùng mã trên một bộ dữ liệu khác. Mỗi bản ghi tương ứng một
+tài liệu Lucene.
+
+\section{Phân tích văn bản tiếng Việt}
+
+\subsection{Chuẩn hoá Unicode}
+
+Tiếng Việt có hai cách mã hoá cùng một chữ có dấu: ký tự dựng sẵn (``ệ'' là U+1EC7) và ký tự gốc cộng dấu rời (``e''
++ U+0302 + U+0323). Hai chuỗi trông giống hệt nhau nhưng khác byte, nên chữ ``ệ'' gõ ở máy này có thể không khớp với
+``ệ'' lưu ở máy khác. Vì vậy mọi chuỗi đều được chuẩn hoá về NFC (\texttt{Analyzers.nfc}) trước khi index và trước khi
+truy vấn.
+
+\subsection{Tách từ: unigram âm tiết cộng bigram}
+
+Tiếng Việt viết các âm tiết cách nhau bằng dấu cách, còn một từ có thể gồm nhiều âm tiết (``học phí'', ``bách khoa'').
+Nhóm không dùng bộ tách từ riêng (cần thêm mô hình và thư viện) mà dùng \texttt{StandardTokenizer} của Lucene, tách
+theo chuẩn Unicode UAX \#29 nên mỗi âm tiết thành một token, rồi thêm bigram âm tiết để bắt các từ ghép. Có bốn
+analyzer (Bảng~\ref{tab:analyzers}).
+
+\begin{table}[ht]
+\centering
+\caption{Các analyzer, ví dụ với ``Bách Khoa Hà Nội''}\label{tab:analyzers}
+\begin{tabularx}{\textwidth}{l L L}
+\toprule
+Analyzer & Chuỗi xử lý & Token \\
+\midrule
+\texttt{vi} & \texttt{StandardTokenizer} $\rightarrow$ chữ thường & \texttt{bách}, \texttt{khoa}, \texttt{hà}, \texttt{nội} \\
+\texttt{viBi} & \texttt{vi} $\rightarrow$ \texttt{ShingleFilter(2,2)}, không giữ unigram & \texttt{bách khoa}, \texttt{khoa hà}, \texttt{hà nội} \\
+\texttt{viAscii} & \texttt{vi} $\rightarrow$ \texttt{ASCIIFoldingFilter} (bỏ dấu, \texttt{đ}$\rightarrow$\texttt{d}) & \texttt{bach}, \texttt{khoa}, \texttt{ha}, \texttt{noi} \\
+\texttt{urlTokens} & Tách theo mọi ký tự không phải chữ hoặc số $\rightarrow$ chữ thường $\rightarrow$ bỏ dấu & \texttt{.../hoc-phi-654580.html} $\rightarrow$ \texttt{hoc}, \texttt{phi}, \texttt{654580}, \texttt{html} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Như vậy ``học phí'' được biểu diễn bằng hai unigram \texttt{học}, \texttt{phí} và một bigram \texttt{học phí}. Tài liệu
+chứa đúng cụm ``học phí'' khớp cả ba token nên điểm cao hơn tài liệu chỉ chứa ``học'' và ``phí'' ở hai chỗ rời nhau.
+Bigram cũng sinh ra những cặp không phải từ (\texttt{khoa hà}), nhưng các cặp này hiếm khi trùng với truy vấn nên ít
+gây nhiễu.
+
+\subsection{Bản bỏ dấu}
+
+Người dùng hay gõ không dấu (``lich thi''), và url, tên tệp trên website của trường cũng thường không dấu
+(\texttt{lich-thi-hk1.pdf}). Vì thế mỗi trường văn bản được index thêm một bản bỏ dấu. Bản này có trọng số thấp hơn bản
+có dấu, để khi truy vấn có dấu thì trang khớp đúng dấu đứng trên trang chỉ khớp sau khi bỏ dấu (``hồ'' khác ``hổ'', nhưng
+bỏ dấu đều thành ``ho'').
+
+\section{Lược đồ chỉ mục}
+
+\begin{table}[ht]
+\centering
+\caption{Các trường của tài liệu Lucene}\label{tab:fields}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.1cm} l l c L}
+\toprule
+Trường & Loại & Analyzer & Lưu & Mục đích \\
+\midrule
+\texttt{url}, \texttt{host}, \texttt{collection}, \texttt{format} & String & --- & có & Định danh, lọc theo host và loại \\
+\texttt{title} & Text & \texttt{vi} & có & Khớp tiêu đề \\
+\texttt{content} & Text (vị trí, offset) & \texttt{vi} & có & Khớp nội dung, cụm từ, snippet \\
+\texttt{title\_\allowbreak{}bi}, \texttt{content\_\allowbreak{}bi} & Text & \texttt{viBi} & không & Khớp cụm hai âm tiết \\
+\texttt{title\_\allowbreak{}ascii}, \texttt{content\_\allowbreak{}ascii} & Text & \texttt{viAscii} & không & Khớp truy vấn không dấu \\
+\texttt{url\_\allowbreak{}tokens} & Text & \texttt{urlTokens} & không & Khớp từ trong url \\
+\texttt{sig:pagerank} & FeatureField & --- & không & Tín hiệu liên kết \\
+\texttt{updatedAt} & Stored & --- & có & Trả về cho client \\
+\texttt{junk} & String & --- & có & \texttt{spam} hoặc \texttt{dup}, chỉ có khi bị đánh dấu \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Trường \texttt{content} được index với \texttt{DOCS\_\allowbreak{}AND\_\allowbreak{}FREQS\_\allowbreak{}AND\_\allowbreak{}POSITIONS\_\allowbreak{}AND\_\allowbreak{}OFFSETS}: vị trí cần cho truy vấn
+cụm từ ở bước xếp hạng lại, offset cần cho \texttt{UnifiedHighlighter} tạo snippet mà không phải phân tích lại văn bản.
+
+\section{BM25 theo trường}
+
+Điểm văn bản dùng BM25~\cite{robertson2009}. Với truy vấn $q$ và tài liệu $d$ trên trường $f$:
+\begin{gather}
+\mathrm{BM25}_f(d, q) = \sum_{t \in q} \mathrm{IDF}(t)\cdot
+  \frac{\mathit{tf}_{t,d}}{\mathit{tf}_{t,d} + k_1\left(1 - b + b\,\dfrac{|d|_f}{\mathit{avgdl}_f}\right)}, \\
+\mathrm{IDF}(t) = \ln\!\left(1 + \frac{N - n_t + 0{,}5}{n_t + 0{,}5}\right)
+\end{gather}
+trong đó $\mathit{tf}_{t,d}$ là số lần $t$ xuất hiện trong trường $f$ của $d$, $|d|_f$ là độ dài trường,
+$\mathit{avgdl}_f$ là độ dài trung bình của trường, $N$ là số tài liệu và $n_t$ là số tài liệu chứa $t$. (Lucene bỏ thừa
+số $k_1 + 1$ ở tử số; điều này không làm đổi thứ hạng.)
+
+Mọi trường dùng $k_1 = 1{,}2$. Tham số chuẩn hoá độ dài $b$ khác nhau theo trường: $b = 0{,}75$ cho tiêu đề và url,
+$b = 0{,}5$ cho các trường nội dung. Lý do là kho có cả trang web ngắn (trung vị khoảng 1\,000 ký tự) lẫn PDF dài (trung
+bình hơn 26\,000 ký tự). Với $b = 0{,}75$, các văn bản quy chế dài bị phạt quá nặng dù chúng thường chính là kết quả
+cần tìm.
+
+\section{PageRank}
+
+\subsection{Mô hình}
+
+PageRank~\cite{page1999} là xác suất dừng của một người duyệt web ngẫu nhiên: ở mỗi bước, với xác suất $d = 0{,}85$ người
+đó bấm vào một liên kết bất kỳ trên trang hiện tại, với xác suất $1 - d$ thì nhảy sang một trang bất kỳ.
+\begin{equation}
+\mathrm{PR}(v) = \frac{1-d}{N} + d\left(\sum_{u \to v} \frac{\mathrm{PR}(u)}{\mathrm{outdeg}(u)} + \frac{D}{N}\right),
+\qquad D = \sum_{u:\,\mathrm{outdeg}(u)=0} \mathrm{PR}(u)
+\end{equation}
+Ở đây $D$ là tổng PageRank của các nút cụt (không có liên kết ra), được chia đều cho mọi nút để tổng PageRank luôn bằng 1.
+
+\subsection{Cài đặt}
+
+Đồ thị đọc từ collection \texttt{graph}. Khi nạp, cạnh thiếu đầu mút và cạnh tự trỏ bị bỏ; cạnh trùng bị bỏ bằng khoá
+$(a \ll 32) \mid b$ trên chỉ số nút. Mỗi url là một nút, đánh số theo thứ tự gặp, các cạnh lưu trong hai mảng \texttt{int}.
+Giá trị khởi tạo là $1/N$; thuật toán lặp tối đa 50 vòng và dừng sớm khi $\sum_v |\mathrm{PR}_{k+1}(v) - \mathrm{PR}_k(v)| <
+10^{-6}$. Mỗi vòng tốn $O(N + E)$ và chạy hoàn toàn trong bộ nhớ; với đồ thị 44 nghìn nút và 85 nghìn cạnh, thời gian
+tính nhỏ so với thời gian ghi chỉ mục.
+
+\subsection{Đưa vào điểm xếp hạng}
+
+Lúc index, giá trị lưu vào \texttt{FeatureField} là $s = \max(\mathrm{PR} \cdot N,\ 10^{-4})$. Nhân với $N$ để giá trị
+trung bình bằng 1, không phụ thuộc kích thước đồ thị; tài liệu không có trong đồ thị nhận giá trị sàn $10^{-4}$. Lúc xếp
+hạng lại, PageRank đóng góp qua hàm bão hoà
+\begin{equation}
+\mathrm{sat}(s) = w \cdot \frac{s}{s + \mathit{pivot}}, \qquad w = 2,
+\end{equation}
+trong đó \texttt{pivot} do Lucene ước lượng từ phân bố giá trị trong chỉ mục. Hàm này tăng nhanh ở giá trị thấp rồi
+phẳng dần, và bị chặn trên bởi $w$. Nhờ vậy trang chủ có PageRank gấp hàng nghìn lần trung bình cũng không lấn át hoàn
+toàn điểm văn bản.
+
+\section{Phát hiện trang rác bằng độ hiếm}
+
+\subsection{Quan sát}
+
+Một số trang html trên website của trường bị chèn nội dung rác (từ khoá quảng cáo, văn bản lạ không liên quan tới
+trường). Vốn từ của những trang này gần như không trùng với phần còn lại của kho, trong khi trang thật dùng từ vựng
+chung của trường (``đào tạo'', ``sinh viên'', ``thông báo''). Từ đó nhóm định nghĩa \emph{độ hiếm} của một trang là IDF
+trung bình của các từ trong trang.
+
+\subsection{Độ đo}
+
+Với trang html $p$ có ít nhất 50 từ, gọi $W_p$ là dãy các từ (chuỗi chữ cái \verb|\p{L}+|, chữ thường, NFC) của tiêu đề
+và nội dung, $N$ là số trang html đủ dài, và $\mathit{df}(w)$ là số trang html đủ dài chứa $w$:
+\begin{equation}
+\mathrm{odd}(p) = \frac{1}{|W_p|}\sum_{w \in W_p} \ln\frac{N}{\mathit{df}(w)} .
+\end{equation}
+Từ phổ biến cho giá trị gần 0, từ chỉ xuất hiện ở một trang cho giá trị $\ln N$. Trang dưới 50 từ không đủ để ước lượng
+nên không bao giờ bị coi là rác; tài liệu và ảnh không xét.
+
+\subsection{Chọn ngưỡng tự động}
+
+Ngưỡng phụ thuộc vào kho dữ liệu nên nhóm không đặt bằng tay. Histogram độ hiếm của kho có dạng hai cụm: cụm lớn bên
+trái là trang thật, cụm nhỏ nằm cao hơn là trang rác. Ngưỡng được chọn ở đáy thung lũng giữa hai cụm, theo phương pháp
+của Prewitt và Mendelsohn~\cite{prewitt1966} (Thuật toán~\ref{alg:valley}).
+
+\begin{algorithm}[ht]
+\caption{Chọn ngưỡng độ hiếm theo thung lũng của histogram}\label{alg:valley}
+\begin{algorithmic}[1]
+\Require điểm độ hiếm $o_1, \ldots, o_m$; độ rộng bin $\beta = 0{,}1$
+\Ensure ngưỡng $\theta$ ($+\infty$ nếu không có cụm rác)
+\State $h \gets$ histogram của $o$ với bin rộng $\beta$ bắt đầu từ $\min o$; $\mathit{raw} \gets h$
+\For{$r = 1$ \textbf{to} $200$}
+  \State $P \gets$ các đỉnh của $h$ \Comment{cao hơn bên trái, không thấp hơn bên phải; dải bằng nhau tính một đỉnh}
+  \If{$|P| < 2$} \Return $+\infty$ \EndIf
+  \If{$|P| = 2$, gọi hai đỉnh là $a < b$}
+    \If{$h[b] > h[a]$} \Return $+\infty$ \Comment{cụm bên phải đông hơn thì không phải rác} \EndIf
+    \State $v \gets \arg\min_{a \le i \le b} \mathit{raw}[i]$ \Comment{đáy đo trên histogram gốc}
+    \If{$\mathit{raw}[v] \le 0{,}5 \cdot h[b]$} \Return $\min o + (v + 0{,}5)\beta$ \EndIf
+  \EndIf
+  \State $h[i] \gets (h[i-1] + h[i] + h[i+1]) / 3$ với mọi $i$ \Comment{làm mượt}
+\EndFor
+\State \Return $+\infty$
+\end{algorithmic}
+\end{algorithm}
+
+Đáy thung lũng được đo trên histogram gốc vì làm mượt nhiều vòng sẽ lấp mất thung lũng. Điều kiện
+$\mathit{raw}[v] \le 0{,}5\,h[b]$ loại các thung lũng nông do nhiễu. Trang có độ hiếm vượt ngưỡng được gắn
+\texttt{junk:spam}. Ngưỡng của lần dựng gần nhất được ghi vào log và trả ở \texttt{GET /ping}
+(\texttt{stats.oddityThreshold}). Cách làm này có giới hạn: nếu số trang rác quá ít, không đủ tạo thành một đỉnh riêng,
+thì chúng không bị phát hiện. Khi đó có thể đổi sang ngưỡng cố định theo phân vị.
+
+\section{Loại trang trùng nội dung}
+
+Trang mirror, bản in, bản tiếng Việt và tiếng Anh giống hệt nhau, hay cùng một PDF đăng ở nhiều nơi đều làm trang kết
+quả bị lặp. Mỗi tài liệu (cả ba collection) có nội dung từ 200 ký tự trở lên được gán một khoá
+\begin{equation}
+\mathrm{key}(p) = \mathrm{SHA1}\big(\mathrm{trim}(\mathrm{collapse\_\allowbreak{}ws}(\mathrm{lower}(\mathrm{NFC}(\mathit{content}))))\big).
+\end{equation}
+Với mỗi khoá có nhiều url, chỉ giữ \emph{một} url: url có PageRank cao nhất, nếu bằng nhau thì lấy url ngắn hơn; trang đã
+bị đánh dấu rác không được làm bản giữ lại. Các url còn lại của nhóm bị gắn \texttt{junk:dup}. Cách này chỉ bắt được
+trùng khớp hoàn toàn sau chuẩn hoá, không bắt được trang gần trùng.
+
+\section{Quy trình dựng chỉ mục}
+
+\texttt{IndexBuilder.build} dựng lại toàn bộ chỉ mục (\texttt{OpenMode.CREATE}). Để không phải giữ nội dung cả kho trong
+bộ nhớ, nó duyệt nguồn dữ liệu nhiều lượt và giữa các lượt chỉ giữ url cùng các con số:
+
+\begin{enumerate}
+  \item Đếm cạnh và tính PageRank.
+  \item Lượt 1, trên các trang html đủ dài: đếm $\mathit{df}$ của từng từ.
+  \item Lượt 2: tính độ hiếm của từng trang html và khoá SHA-1 của mọi tài liệu; chọn ngưỡng rác; chọn bản giữ lại cho
+        mỗi nhóm trùng.
+  \item Lượt 3: ghi từng tài liệu Lucene kèm cờ \texttt{junk}.
+\end{enumerate}
+
+\texttt{POST /reindex} chạy việc dựng ở luồng nền (trả \texttt{202}, đang dựng thì trả \texttt{409}) rồi gọi
+\texttt{SearcherManager.maybeRefresh()}, nên tìm kiếm vẫn phục vụ được trong lúc dựng. \texttt{POST /index?url=...} thêm
+hoặc thay một trang đã có trong MongoDB vào chỉ mục hiện tại bằng \texttt{updateDocument}; trang thêm lẻ chưa có
+PageRank và chưa được kiểm tra rác cho đến lần dựng lại đầy đủ kế tiếp. Sau mỗi lần dựng, log ghi số tài liệu, số trang
+rác và ngưỡng, số trang trùng, số cạnh và tỉ lệ tài liệu có mặt trong đồ thị liên kết.
+
+\section{Truy vấn hai bước}
+
+\begin{center}
+\small
+$q \rightarrow$ NFC, trim $\rightarrow$ truy vấn BM25 nhiều trường $\rightarrow$ 100 ứng viên $\rightarrow$
+xếp hạng lại (profile C, D) $\rightarrow$ cắt trang $\rightarrow$ snippet
+\end{center}
+
+Việc chia hai bước tách phần rẻ khỏi phần đắt: BM25 trên chỉ mục ngược tính được cho mọi tài liệu khớp, còn truy vấn
+cụm từ (phải đọc vị trí) và các tín hiệu ngoài văn bản chỉ cần tính cho 100 ứng viên tốt nhất.
+
+\subsection{Bước 1: lấy ứng viên bằng BM25 nhiều trường}
+
+Với mỗi trường, \texttt{QueryBuilder} phân tích truy vấn bằng analyzer của trường đó rồi nối các token bằng OR (tài
+liệu chỉ cần khớp một token). Điểm bước 1 là tổng có trọng số:
+\begin{equation}
+S_1(d, q) = \sum_{f \in F} w_f \cdot \mathrm{BM25}_f(d, q).
+\end{equation}
+
+\begin{table}[ht]
+\centering
+\caption{Trọng số trường ở bước lấy ứng viên}\label{tab:weights}
+\begin{tabular}{l c c c}
+\toprule
+Trường & Truy vấn có dấu & Truy vấn không dấu (từ B) & Có từ profile \\
+\midrule
+\texttt{url\_\allowbreak{}tokens} & 1,5 & 1,5 & A \\
+\texttt{title} & 3 & --- & A \\
+\texttt{content} & 1 & --- & A \\
+\texttt{title\_\allowbreak{}bi} & 3 & --- & B \\
+\texttt{content\_\allowbreak{}bi} & 1,5 & --- & B \\
+\texttt{title\_\allowbreak{}ascii} & 2 & 3 & B \\
+\texttt{content\_\allowbreak{}ascii} & 0,7 & 1 & B \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Các trọng số ở Bảng~\ref{tab:weights} được chọn như sau. Tiêu đề do người viết chọn để tóm tắt bài nên nặng gấp ba nội
+dung. Bigram trong nội dung nặng hơn unigram vì khớp cả cụm hai âm tiết là bằng chứng mạnh hơn khớp rời. Bản bỏ dấu nhẹ
+hơn bản có dấu để trang đúng dấu đứng trên.
+
+\paragraph{Truy vấn không dấu.} Từ profile B, nếu truy vấn không có dấu nào (tức bằng chính nó sau khi bỏ dấu, ví dụ
+``lich thi'') thì chỉ hỏi các trường bỏ dấu (\texttt{title\_\allowbreak{}ascii} trọng số 3, \texttt{content\_\allowbreak{}ascii} trọng số 1) cộng
+với \texttt{url\_\allowbreak{}tokens}. Nếu vẫn hỏi cả các trường có dấu, trang chỉ có tên tệp không dấu sẽ được ưu ái hơn trang
+``Lịch thi'' viết đúng dấu, trong khi người dùng gõ không dấu chỉ vì tiện chứ không phải vì muốn tìm chữ không dấu.
+
+\paragraph{Bộ lọc.} Tham số \texttt{type} lọc theo \texttt{collection}, \texttt{host} lọc theo host; cả hai là mệnh đề
+\texttt{FILTER} nên không tham gia chấm điểm. Profile D thêm hai mệnh đề \texttt{MUST\_\allowbreak{}NOT} để loại tài liệu có
+\texttt{junk:spam} hoặc \texttt{junk:dup}.
+
+\subsection{Bước 2: xếp hạng lại}
+
+\texttt{QueryRescorer} xếp hạng lại 100 tài liệu đầu bằng một truy vấn phụ là OR của ba mệnh đề:
+\begin{equation}
+S_2(d, q) = S_1(d, q) + 2\cdot \mathrm{Phrase}_{\texttt{title}}(d, q) + 1\cdot \mathrm{Phrase}_{\texttt{content}}(d, q)
+  + 2\cdot\frac{s_d}{s_d + \mathit{pivot}},
+\end{equation}
+trong đó $\mathrm{Phrase}_f$ là điểm truy vấn cụm từ trên trường $f$ với độ lệch (slop) bằng 2: các token của truy vấn
+phải xuất hiện gần nhau, đúng thứ tự, cho phép chèn tối đa hai vị trí. Mệnh đề cụm từ bị bỏ khi truy vấn chỉ có một
+token. Thành phần cuối là PageRank bão hoà.
+
+\subsection{Bốn profile xếp hạng}
+
+Các kỹ thuật được bật dần qua bốn profile (Bảng~\ref{tab:profiles}), để đo đóng góp của từng tầng bằng đánh giá offline
+trên cùng một chỉ mục. Giao diện mặc định dùng C; khi đánh dấu ``Lọc rác'' thì dùng D.
+
+\begin{table}[ht]
+\centering
+\caption{Bốn profile xếp hạng}\label{tab:profiles}
+\begin{tabularx}{\textwidth}{c L c c}
+\toprule
+Profile & Lấy ứng viên & Xếp hạng lại & Lọc rác, trùng \\
+\midrule
+A & BM25 trên \texttt{url\_\allowbreak{}tokens}, \texttt{title}, \texttt{content} & không & không \\
+B & A + bigram + bỏ dấu, nhánh truy vấn không dấu & không & không \\
+C (mặc định) & như B & cụm từ + PageRank & không \\
+D & như B & như C & có \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Snippet}
+
+Snippet lấy tối đa hai đoạn của \texttt{content} bằng \texttt{UnifiedHighlighter}, bọc từ khớp trong
+\texttt{<b>}\ldots\texttt{</b>} và nối các đoạn bằng dấu ``\ldots''. Với truy vấn không dấu chỉ khớp
+\texttt{content\_\allowbreak{}ascii}, highlight chạy trên trường bỏ dấu: \texttt{ASCIIFoldingFilter} giữ nguyên offset nên vị trí
+trong bản bỏ dấu trùng với vị trí trong văn bản gốc, và dùng lại được để tô đậm trên nội dung có dấu. Nếu vẫn không có
+đoạn nào thì lấy 200 ký tự đầu, đã escape HTML.
+
+\subsection{Ví dụ}
+
+Truy vấn ``học phí'' với profile D:
+\begin{enumerate}
+  \item Lấy ứng viên bằng truy vấn Lucene dưới đây, loại tài liệu rác và trùng, giữ 100 tài liệu đầu:
+\begin{lstlisting}
+url_tokens:((*@học@*) (*@phí@*))^1.5  title:((*@học@*) (*@phí@*))^3      content:((*@học@*) (*@phí@*))
+title_bi:"(*@học@*) (*@phí@*)"^3      content_bi:"(*@học@*) (*@phí@*)"^1.5
+title_ascii:(hoc phi)^2   content_ascii:(hoc phi)^0.7
+-junk:spam  -junk:dup
+\end{lstlisting}
+  \item Xếp hạng lại: trang có tiêu đề chứa đúng cụm ``học phí'' được cộng điểm cụm từ nhân 2; trang được nhiều trang
+        quan trọng trỏ tới được cộng điểm PageRank.
+  \item Trả 10 kết quả đầu kèm snippet.
+\end{enumerate}
+
+\section{API tìm kiếm}
+
+\begin{table}[ht]
+\centering
+\caption{Các endpoint của dịch vụ search}\label{tab:api}
+\begin{tabularx}{\textwidth}{l L}
+\toprule
+Endpoint & Chức năng \\
+\midrule
+\texttt{GET /search} & Tìm kiếm. Tham số: \texttt{q}; \texttt{type} (\texttt{html}, \texttt{other}, \texttt{picture}); \texttt{host}; \texttt{profile} (A--D, mặc định C); \texttt{page}, \texttt{size} ($\le 50$, $\mathit{page}\times\mathit{size} \le 100$). \\
+\texttt{GET /ping} & Số tài liệu, lần index cuối, thống kê (rác, trùng, ngưỡng độ hiếm, số cạnh). \\
+\texttt{POST /reindex} & Dựng lại chỉ mục ở nền. \\
+\texttt{POST /index?url=} & Index ngay một trang đã có trong MongoDB (404 nếu chưa có). \\
+\texttt{GET /} & Giao diện \texttt{dashboard.html}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{lstlisting}[caption={Ví dụ truy vấn và kết quả}]
+$ curl -G localhost:7700/search --data-urlencode 'q=(*@học@*) (*@phí'@*) -d profile=D -d size=10
+{"q": "(*@học@*) (*@phí@*)", "profile": "D", "total": 412, "tookMs": 18, "page": 1,
+ "hits": [{"url": "https://hust.edu.vn/vi/sinh-vien/hoc-bong-hoc-phi/hoc-phi-654580.html",
+           "title": "(*@HỌC@*) (*@PHÍ@*)", "collection": "html", "format": "html",
+           "host": "hust.edu.vn", "score": 9.31,
+           "snippet": "... (*@mức@*) <b>(*@học@*)</b> <b>(*@phí@*)</b> ...", "updatedAt": 1761200000000}, ...]}
+\end{lstlisting}
+
+Trường \texttt{total} là số tài liệu khớp thật (\texttt{IndexSearcher.count}), không chỉ 100. Tuy vậy chỉ 100 kết quả
+đầu được xếp hạng nên phân trang dừng ở đó.
+
+% ======================================================================
+\chapter{Đánh giá}\label{ch:eval}
+
+\section{Mục tiêu và dữ liệu}
+
+Đánh giá offline so sánh bốn profile A--D trên cùng một tập truy vấn để xem bigram và bỏ dấu, xếp hạng lại, lọc rác có
+thật sự cải thiện thứ hạng hay không. Công cụ là lớp \texttt{Eval}, chạy trên cùng thư mục chỉ mục với dịch vụ.
+
+Tập truy vấn \texttt{search/eval/queries.tsv} gồm 25 truy vấn mô phỏng nhu cầu của sinh viên và người ngoài trường, trộn
+nhiều dạng:
+\begin{itemize}
+  \item có dấu, nhiều âm tiết: ``học bổng khuyến khích học tập'', ``chuẩn đầu ra tiếng anh'', ``bảo hiểm y tế sinh viên'';
+  \item không dấu: ``lich thi'', ``thong bao nghi tet'', ``thu vien sach dien tu'';
+  \item tên đơn vị: ``soict tuyển sinh'', ``viện điện'', ``trường cơ khí'', ``dệt may'';
+  \item có năm hoặc tiếng Anh: ``học phí 2025'', ``hust admission''.
+\end{itemize}
+
+Tệp nhãn \texttt{qrels.tsv} có các cột \texttt{qid}, \texttt{grade}, \texttt{url}, \texttt{title}, với
+\texttt{grade} $\in \{0, 1, 2\}$ lần lượt là không liên quan, liên quan một phần và liên quan hoàn toàn.
+
+\section{Quy trình}
+
+\begin{enumerate}
+  \item \textbf{Pooling.} Chạy cả bốn profile cho mỗi truy vấn rồi gộp top 10 của từng profile vào \texttt{qrels.tsv}
+        (\texttt{Eval --pool}). Nhãn cũ được giữ, chỉ thêm các cặp (\texttt{qid}, \texttt{url}) mới, nên chạy lại sau khi
+        sửa thuật toán không mất công gán nhãn. Pooling tránh thiên vị về một hệ: tài liệu nào được bất kỳ profile nào
+        xếp cao đều được người gán nhãn xem.
+  \item \textbf{Gán nhãn tay} vào cột \texttt{grade}.
+  \item \textbf{Chấm điểm} bằng \texttt{Eval} (thêm \texttt{--detail} để in điểm từng truy vấn).
+\end{enumerate}
+
+\section{Độ đo}
+
+Mỗi profile chạy từng truy vấn không lọc \texttt{type}/\texttt{host} và lấy top $K = 10$. Kết quả chưa có nhãn được tính
+là grade 0 và được đếm riêng, để biết số liệu còn thiếu nhãn đến đâu.
+
+\paragraph{Precision@10.} Tỉ lệ kết quả liên quan trong top 10, không xét thứ tự:
+\begin{equation}
+\mathrm{P@10} = \frac{|\{i \le 10 : g_i \ge 1\}|}{10}.
+\end{equation}
+
+\paragraph{nDCG@10}~\cite{jarvelin2002}. Độ lợi là $2^{g} - 1$ (grade 2 có độ lợi 3, gấp ba grade 1), chiết khấu theo vị
+trí:
+\begin{equation}
+\mathrm{DCG@10} = \sum_{i=1}^{10} \frac{2^{g_i} - 1}{\log_2(i + 1)}, \qquad
+\mathrm{nDCG@10} = \frac{\mathrm{DCG@10}}{\mathrm{IDCG@10}},
+\end{equation}
+trong đó IDCG là DCG của thứ hạng lý tưởng, lấy từ \emph{mọi} nhãn đã gán của truy vấn (sắp giảm dần, cắt ở 10). Truy
+vấn chưa có nhãn nào có IDCG $= 0$ và nDCG $= 0$, nhưng vẫn được tính vào trung bình. Điểm của một profile là trung bình
+trên các truy vấn.
+
+\section{Kết quả}
+
+Bước pooling đã sinh 424 cặp (truy vấn, tài liệu) ứng viên trong \texttt{qrels.tsv}, trung bình khoảng 17 tài liệu khác
+nhau cho mỗi truy vấn (tối đa 40 nếu bốn profile không có kết quả nào trùng nhau). Con số này cho thấy top 10 của các
+profile khác nhau khá nhiều, tức là các kỹ thuật bổ sung thật sự làm thay đổi thứ hạng.
+
+Tại thời điểm viết báo cáo, cột \texttt{grade} chưa được gán nhãn đầy đủ nên nhóm chưa công bố số liệu P@10 và nDCG@10.
+Bảng~\ref{tab:eval} là khuôn kết quả do công cụ \texttt{Eval} in ra; chỉ nên tin các con số khi cột ``chưa gán nhãn''
+gần bằng 0.
+
+\begin{table}[ht]
+\centering
+\caption{Kết quả đánh giá offline trên 25 truy vấn (sẽ điền sau khi gán nhãn)}\label{tab:eval}
+\begin{tabular}{c c c c}
+\toprule
+Profile & P@10 & nDCG@10 & Kết quả chưa gán nhãn \\
+\midrule
+A & -- & -- & -- \\
+B & -- & -- & -- \\
+C & -- & -- & -- \\
+D & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Cách đọc kết quả khi đã có số liệu:
+\begin{itemize}
+  \item \textbf{B so với A} cho biết đóng góp của bigram và bỏ dấu. Kỳ vọng rõ nhất ở các truy vấn không dấu
+        (``lich thi'', ``thong bao nghi tet''), vì profile A không có nhánh bỏ dấu nên không khớp được với trang có dấu.
+  \item \textbf{C so với B} cho biết đóng góp của cụm từ và PageRank. Kỳ vọng ở các truy vấn nhiều âm tiết (``quy chế
+        đào tạo'') và truy vấn tìm trang chính của một đơn vị (``viện điện'', ``soict tuyển sinh'').
+  \item \textbf{D so với C} cho biết đóng góp của lọc rác và loại trùng. Kỳ vọng ở các truy vấn mà kết quả bị lặp (cùng
+        một thông báo đăng ở nhiều website khoa) hoặc lẫn trang rác.
+\end{itemize}
+
+% ======================================================================
+\chapter{Triển khai và kiểm thử}\label{ch:ops}
+
+\section{Triển khai}
+
+Toàn bộ hệ thống được mô tả trong một tệp \texttt{compose.yaml}. Mỗi dịch vụ có \texttt{Dockerfile} riêng; dữ liệu bền
+vững nằm trên ba volume: \texttt{mongo\_\allowbreak{}data} (MongoDB), \texttt{mediator\_\allowbreak{}state} (hàng đợi SQLite và log) và
+\texttt{search\_\allowbreak{}index} (chỉ mục Lucene). MongoDB có healthcheck; \texttt{storage} và \texttt{search} chỉ khởi động khi
+MongoDB đã sẵn sàng. Lược đồ \texttt{\$jsonSchema} được nạp tự động khi volume MongoDB còn mới.
+
+\begin{lstlisting}[language=bash, caption={Chạy hệ thống}]
+docker compose up -d --build            # (*@khởi@*) (*@động@*) (*@toàn@*) (*@bộ@*)
+python3 feed.py                         # (*@nạp@*) 101 461 url (*@mầm@*)
+curl localhost:5200/status              # theo (*@dõi@*) (*@hàng@*) (*@đợi@*)
+curl localhost:2222/stats               # (*@số@*) (*@bản@*) ghi (*@từng@*) collection
+curl -X POST localhost:7700/reindex     # (*@dựng@*) (*@lại@*) (*@chỉ@*) (*@mục@*) sau khi crawl
+\end{lstlisting}
+
+Muốn đổi số bản \texttt{downloader} thì sửa hai chỗ cho khớp nhau: \texttt{deploy.replicas} trong \texttt{compose.yaml}
+và danh sách \texttt{downloaders} trong cấu hình của \texttt{mediator}. Các tham số vận hành của \texttt{mediator}
+(khoảng nghỉ theo host 2 giây, hạn ping 2 giây, hạn load 10 giây, thời gian cho node nghỉ 30 giây, tối đa 5 lần thử,
+chu kỳ crawl lại) nằm trong một tệp YAML; cấu hình sai thì dịch vụ báo lý do và không khởi động.
+
+\section{Kiểm thử}
+
+Mỗi dịch vụ có bộ kiểm thử tự động riêng (Bảng~\ref{tab:tests}).
+
+\begin{table}[ht]
+\centering
+\caption{Kiểm thử tự động}\label{tab:tests}
+\begin{tabularx}{\textwidth}{l c L}
+\toprule
+Dịch vụ & Số ca & Nội dung chính \\
+\midrule
+\texttt{mediator} & 65 & Chuẩn hoá url, phân loại, lập lịch lại, xoay vòng node, hàng đợi SQLite, API; tích hợp với \texttt{downloader} giả qua HTTP; kiểm thử kiến trúc phân lớp (pytest). \\
+\texttt{reader} & 28 & Chọn khối nội dung, văn bản liên kết theo câu, đọc tệp bằng Tika, mã hoá url (JUnit 5). \\
+\texttt{storage} & 15 & Kiểm tra đầu vào, chọn collection, upsert, thống kê (JUnit 5). \\
+\texttt{search} & 22 & Analyzer, PageRank, độ hiếm và ngưỡng thung lũng, loại trùng, profile, API HTTP, nguồn JSON, độ đo đánh giá (JUnit 5). \\
+\texttt{downloader} & 1 & Giao thức \texttt{/ping}, \texttt{/load}, trạng thái bận (\texttt{node:test}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Ngoài ra \texttt{mediator} có một \texttt{downloader} giả (\texttt{demo/fake\_\allowbreak{}fetcher.py}) trả lời đúng giao thức và chỉ
+ghi log các url nhận được. Nó dùng để chạy thử \texttt{mediator} trên một máy và làm mã mẫu cho bên viết
+\texttt{downloader}.
+
+% ======================================================================
+\chapter{Hạn chế, hướng phát triển và kết luận}\label{ch:limit}
+
+\section{Hạn chế}
+
+\begin{itemize}
+  \item \textbf{Chưa dùng văn bản liên kết khi xếp hạng.} \texttt{reader} đã bóc được câu chứa liên kết, nhưng collection
+        \texttt{graph} chỉ lưu cặp url nên máy tìm kiếm chưa dùng được anchor text, vốn là tín hiệu mạnh cho truy vấn
+        tìm trang cụ thể.
+  \item \textbf{Chưa tách từ tiếng Việt.} Bigram âm tiết bắt được phần lớn từ ghép hai âm tiết nhưng không xác định được
+        ranh giới từ, và cụm đảo thứ tự (``phí học'') không khớp bigram.
+  \item \textbf{PageRank coi mọi liên kết như nhau.} Liên kết menu và chân trang lặp ở mọi trang làm tăng PageRank của
+        trang gốc các website; đồ thị cũng chỉ gồm các trang đã crawl.
+  \item \textbf{Loại trùng chỉ bắt trùng hoàn toàn.} Hai trang khác nhau một dòng ngày đăng thì không bị coi là trùng.
+  \item \textbf{Phát hiện rác phụ thuộc vào phân bố.} Rác quá ít để thành một cụm riêng trong histogram thì không bị
+        phát hiện.
+  \item \textbf{Phải dựng lại toàn bộ chỉ mục.} Hiện chỉ có thể thêm lẻ từng url; trang thêm lẻ chưa có PageRank và chưa
+        qua lọc rác cho đến lần dựng lại kế tiếp.
+  \item \textbf{Ảnh chỉ tìm được theo tên tệp.} Không có OCR và chưa dùng \texttt{alt} của ảnh làm nội dung.
+  \item \textbf{Dữ liệu crawl lệch theo host.} Giãn cách theo host làm host nhiều trang chiếm phần lớn dữ liệu; chưa có
+        hạn mức số trang theo host hay ưu tiên theo độ quan trọng (ví dụ tính PageRank từng phần ngay lúc crawl).
+  \item \textbf{Đánh giá chưa xong.} Nhãn liên quan chưa gán đủ nên chưa có số liệu định lượng.
+\end{itemize}
+
+\section{Hướng phát triển}
+
+\begin{itemize}
+  \item Lưu văn bản liên kết vào \texttt{graph} và index thành trường \texttt{anchor} riêng cho tài liệu đích.
+  \item Tách từ tiếng Việt (pyvi, VnCoreNLP) cho trường nội dung, giữ bigram làm trường phụ.
+  \item Phát hiện trang gần trùng bằng SimHash hoặc MinHash; giảm trọng số các liên kết điều hướng lặp khi tính PageRank.
+  \item Cập nhật chỉ mục từng phần theo \texttt{updatedAt}, tính lại PageRank định kỳ.
+  \item Gợi ý khi gõ và sửa chính tả, đặc biệt là khôi phục dấu cho truy vấn không dấu.
+  \item OCR cho ảnh và PDF dạng ảnh quét.
+  \item Gán nhãn xong, công bố P@10 và nDCG@10, rồi dùng chúng để chỉnh trọng số trường, tham số $b$ và
+        \texttt{PR\_\allowbreak{}BOOST}.
+\end{itemize}
+
+\section{Kết luận}
+
+Nhóm đã xây dựng một máy tìm kiếm hoàn chỉnh cho miền \texttt{hust.edu.vn}, từ thu thập đến xếp hạng và đánh giá. Bộ
+crawler gồm năm dịch vụ đã thu thập hơn 28 nghìn trang web, gần 4\,700 tài liệu và 9\,600 ảnh từ 95 website của trường,
+với hàng đợi bền vững, khoảng nghỉ theo host, crawl lại định kỳ và tự tiếp tục khi một khâu gặp lỗi. Máy tìm kiếm xử lý
+được các đặc thù của tiếng Việt (chuẩn hoá Unicode, cụm hai âm tiết, truy vấn không dấu), kết hợp BM25 nhiều trường với
+cụm từ và PageRank trong mô hình hai bước, và có cơ chế lọc rác, loại trùng không cần đặt ngưỡng bằng tay. Bốn profile
+xếp hạng cùng công cụ pooling và nDCG@10 là nền để đo và cải tiến chất lượng xếp hạng một cách có căn cứ khi việc gán
+nhãn hoàn tất.
+
+% ======================================================================
+\begin{thebibliography}{9}
+\addcontentsline{toc}{chapter}{Tài liệu tham khảo}
+
+\bibitem{manning2008}
+C.~D. Manning, P.~Raghavan, H.~Schütze.
+\newblock \emph{Introduction to Information Retrieval}.
+\newblock Cambridge University Press, 2008.
+
+\bibitem{robertson2009}
+S.~Robertson, H.~Zaragoza.
+\newblock The Probabilistic Relevance Framework: BM25 and Beyond.
+\newblock \emph{Foundations and Trends in Information Retrieval}, 3(4):333--389, 2009.
+
+\bibitem{page1999}
+L.~Page, S.~Brin, R.~Motwani, T.~Winograd.
+\newblock The PageRank Citation Ranking: Bringing Order to the Web.
+\newblock Technical report, Stanford InfoLab, 1999.
+
+\bibitem{prewitt1966}
+J.~M.~S. Prewitt, M.~L. Mendelsohn.
+\newblock The Analysis of Cell Images.
+\newblock \emph{Annals of the New York Academy of Sciences}, 128(3):1035--1053, 1966.
+
+\bibitem{jarvelin2002}
+K.~Järvelin, J.~Kekäläinen.
+\newblock Cumulated Gain-Based Evaluation of IR Techniques.
+\newblock \emph{ACM Transactions on Information Systems}, 20(4):422--446, 2002.
+
+\bibitem{lucene}
+Apache Software Foundation.
+\newblock Apache Lucene 10. \url{https://lucene.apache.org/}
+
+\bibitem{tika}
+Apache Software Foundation.
+\newblock Apache Tika. \url{https://tika.apache.org/}
+
+\bibitem{uax29}
+Unicode Consortium.
+\newblock Unicode Standard Annex \#29: Unicode Text Segmentation. \url{https://unicode.org/reports/tr29/}
+
+\bibitem{puppeteer}
+Google.
+\newblock Puppeteer: Headless Chrome Node.js API. \url{https://pptr.dev/}
+
+\end{thebibliography}
+
+\end{document}
