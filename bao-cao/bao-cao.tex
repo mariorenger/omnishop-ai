@@ -4,8 +4,6 @@
 \documentclass[12pt,a4paper]{report}
 
 \usepackage{fontspec}
-\setmainfont{TeX Gyre Termes}
-\setmonofont{TeX Gyre Cursor}[Scale=MatchLowercase]
 \usepackage[vietnamese]{babel}
 \usepackage[a4paper,left=3cm,right=2cm,top=2.5cm,bottom=2.5cm]{geometry}
 \usepackage{amsmath,amssymb}
@@ -21,7 +19,6 @@
 \usepackage{caption}
 \usepackage{setspace}
 \usepackage{fancyhdr}
-\usepackage{titlesec}
 \usepackage[hidelinks]{hyperref}
 
 \setstretch{1.2}
@@ -29,9 +26,6 @@
 \setlist{nosep,leftmargin=*}
 \renewcommand{\arraystretch}{1.25}
 \setcounter{tocdepth}{2}
-
-\titleformat{\chapter}[hang]{\bfseries\Large}{\thechapter.}{10pt}{\Large}
-\titlespacing*{\chapter}{0pt}{-10pt}{16pt}
 
 \definecolor{codebg}{RGB}{246,246,246}
 \definecolor{codekw}{RGB}{0,70,140}
@@ -42,7 +36,7 @@
   keywordstyle=\color{codekw}\bfseries,
   commentstyle=\color{codecm}\itshape,
   frame=single, rulecolor=\color{black!20},
-  breaklines=true, columns=fixed, keepspaces=true, basewidth=0.5em,
+  breaklines=true, columns=fullflexible, keepspaces=true,
   showstringspaces=false, xleftmargin=4pt, xrightmargin=4pt,
   aboveskip=8pt, belowskip=8pt,
   escapeinside={(*@}{@*)}
@@ -57,8 +51,8 @@
 \setlength{\headheight}{15pt}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\itshape IT4863 -- Tìm kiếm thông tin}
-\fancyhead[R]{\small\itshape Nhóm Tìm là thấy}
+\fancyhead[L]{\small IT4863 -- Tìm kiếm thông tin}
+\fancyhead[R]{\small Nhóm Tìm là thấy}
 \fancyfoot[C]{\thepage}
 
 \begin{document}
