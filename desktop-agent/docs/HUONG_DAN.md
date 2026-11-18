@@ -60,9 +60,19 @@ Lệnh gõ **tiếng Việt hoặc tiếng Anh** đều được. Không phân b
 | `sửa <tệp> : <cũ> => <mới>` (`edit`) | Thay chữ. Chữ cũ phải **xuất hiện đúng 1 lần** | `sửa a.txt : world => agent` |
 | `đổi tên <cũ> => <mới>` (`mv`, `rename`) | Đổi tên hoặc di chuyển trong dự án | `đổi tên a.txt => b/a.txt` |
 | `xóa <tệp>` (`rm`, `delete`) | Xóa tệp hoặc **thư mục rỗng** | `xóa b.txt` |
-| `chạy <lệnh>` (`run`, `cmd`) | Chạy lệnh terminal (Windows: `cmd`) tại thư mục dự án, tối đa 60 giây | `chạy dir`, `chạy git status` |
+| `chạy <lệnh>` (`run`, `cmd`) | Chạy lệnh terminal (Windows: `cmd`) tại thư mục dự án. **Tự dừng sau 60 giây** | `chạy dir`, `chạy git status` |
+| `chạy -t <giây> <lệnh>` | Như trên nhưng đặt giới hạn thời gian riêng (tối đa 3600 giây) | `chạy -t 300 npm install` |
 
 Cách nhớ cú pháp: **dấu `:`** ngăn *tên tệp* với *nội dung*, **dấu `=>`** ngăn *cũ* với *mới*.
+
+### Giới hạn thời gian của lệnh `chạy`
+
+- Mặc định **60 giây**. Trên thẻ công cụ bạn thấy đồng hồ đếm, ví dụ **`đang chạy… 12s / tối đa 60s`**.
+- Hết giờ bot tự dừng lệnh (giết cả tiến trình con), giữ lại phần output đã có, và báo ⏱️ kèm gợi ý. Nhãn thẻ chuyển thành **hết giờ**.
+- Cần lâu hơn một lần: `chạy -t 300 <lệnh>`. Muốn đổi mặc định: sửa `command_timeout_sec` trong `config.json`.
+- Muốn dừng sớm: bấm nút **Dừng** ở ô nhập.
+- Lệnh mở ứng dụng (`chạy notepad`) không bị chờ: bot trả về sau khoảng 2 giây và để ứng dụng chạy tiếp.
+- Trình soạn thảo/lệnh tương tác (ví dụ `python` không tham số, `vim`) không dùng được vì bot không có bàn phím cho chúng; hãy chạy lệnh một dòng như `python script.py`.
 
 ### Duyệt thao tác
 
@@ -94,7 +104,8 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
   "api_key": "",
   "model": "",
   "port": 7878,
-  "auto_approve": false
+  "auto_approve": false,
+  "command_timeout_sec": 60
 }
 ```
 
@@ -105,6 +116,7 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
 | `api_key` | Khóa API nếu máy chủ yêu cầu |
 | `port` | Cổng mở trang chat (mặc định 7878; bận thì tự chọn cổng khác) |
 | `auto_approve` | `true` = không hỏi duyệt (chỉ nên dùng khi bạn tin tưởng hoàn toàn) |
+| `command_timeout_sec` | Số giây tối đa cho mỗi lệnh `chạy` (mặc định 60, tối đa 3600) |
 
 Có thể ghi đè bằng biến môi trường: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `AGENT_PORT`.
 Tham số dòng lệnh: `desktop-agent.exe --project D:\duan --no-browser`.

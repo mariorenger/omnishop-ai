@@ -286,12 +286,12 @@ function hideTyping(){if(typing){typing.remove();typing=null}}
 const calls={};
 function fmtArgs(a){try{const o=JSON.parse(a);return Object.entries(o).map(([k,v])=>k+': '+v).join('\n')}catch{return a}}
 function brief(a){try{const o=JSON.parse(a);return o.path||o.command||o.pattern||o.from||''}catch{return ''}}
-function toolCard(id,name,args){hideTyping();const d=document.createElement('details');d.className='tool';
+function toolCard(id,name,args,lim){hideTyping();const d=document.createElement('details');d.className='tool';
   d.innerHTML=`<summary>${ic('wrench')}<b></b><span></span><em class="run">đang chạy…</em></summary><pre></pre>`;
   d.querySelector('b').textContent=name;d.querySelector('span').textContent=brief(args);d.querySelector('pre').textContent=fmtArgs(args);
-  d.dataset.t0=Date.now();$('msgs').appendChild(d);calls[id]=d;scrollDown()}
+  d.dataset.t0=Date.now();if(lim)d.dataset.lim=lim;$('msgs').appendChild(d);calls[id]=d;scrollDown()}
 function toolDone(id,res){const d=calls[id];if(!d)return;const em=d.querySelector('em');const bad=res.startsWith('error:');
-  const den=/denied/.test(res);em.className=bad?'bad':'ok';em.textContent=den?'đã từ chối':bad?'lỗi':'xong';delete d.dataset.t0;const p=document.createElement('pre');p.textContent=res;d.appendChild(p);
+  const den=/denied/.test(res);em.className=bad?'bad':'ok';const to=res.includes('[hết giờ sau');const st=res.includes('[đã dừng theo yêu cầu');if(to||st)em.className='bad';em.textContent=den?'đã từ chối':to?'hết giờ':st?'đã dừng':bad?'lỗi':'xong';delete d.dataset.t0;const p=document.createElement('pre');p.textContent=res;d.appendChild(p);
   if(/^(write|edit|append|delete|move|run)/.test(d.querySelector('b').textContent))refreshTree()}
 function approval(c){hideTyping();const d=document.createElement('div');d.className='ap';
   d.innerHTML=`<h4>${ic('shield')}Trợ lý muốn thực hiện: <b></b></h4><pre></pre><div class="btns"><button class="b p">Cho phép</button><button class="b">Từ chối</button><button class="b">Luôn cho phép</button></div>`;
@@ -303,12 +303,12 @@ function approval(c){hideTyping();const d=document.createElement('div');d.classN
   $('msgs').appendChild(d);scrollDown()}
 function onEvent(e){const d=e.data;
   if(e.event==='assistant'){hideTyping();addBot(d)}
-  else if(e.event==='tool_call')toolCard(d.id,d.name,d.args);
+  else if(e.event==='tool_call')toolCard(d.id,d.name,d.args,d.timeout);
   else if(e.event==='tool_result')toolDone(d.id,d.result);
   else if(e.event==='approval')approval(d);
   else if(e.event==='error'){hideTyping();addBot('⚠️ '+d)}}
 
-setInterval(()=>{document.querySelectorAll('.tool[data-t0]').forEach(d=>{const em=d.querySelector('em');const n=Math.floor((Date.now()-d.dataset.t0)/1000);if(em.className==='run')em.textContent='đang chạy… '+n+'s'})},1000);
+setInterval(()=>{document.querySelectorAll('.tool[data-t0]').forEach(d=>{const em=d.querySelector('em');const n=Math.floor((Date.now()-d.dataset.t0)/1000);if(em.className==='run')em.textContent='đang chạy… '+n+'s'+(d.dataset.lim?' / tối đa '+d.dataset.lim+'s':'')})},1000);
 /* ---------- send ---------- */
 function sendState(){$('send').disabled=!$('msg').value.trim()||!project||!!ctl}
 function autosize(){const t=$('msg');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,200)+'px';sendState();cmdMenu()}

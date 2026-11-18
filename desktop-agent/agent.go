@@ -131,7 +131,11 @@ func (s *Server) runAgent(ctx context.Context, userMsg string, emit emitFn) {
 // execTool emits events, asks for approval when needed, runs the tool.
 func (s *Server) execTool(ctx context.Context, root string, tc ToolCall, emit emitFn) string {
 	name, args := tc.Function.Name, tc.Function.Arguments
-	emit("tool_call", map[string]any{"id": tc.ID, "name": name, "args": args})
+	ev := map[string]any{"id": tc.ID, "name": name, "args": args}
+	if name == "run_command" {
+		ev["timeout"] = commandTimeoutOf(args)
+	}
+	emit("tool_call", ev)
 	result := ""
 	if needsApproval(name) && !s.cfg.AutoApprove && !s.isAutoApprove() {
 		if !s.askApproval(ctx, tc.ID, name, args, emit) {

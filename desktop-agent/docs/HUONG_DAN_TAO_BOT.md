@@ -438,7 +438,20 @@ Nếu muốn nhiều tính năng (kỹ năng, bộ nhớ, MCP) thay vì tự vi�
 
 ## 8. Kiểm thử
 
-Chạy thử không cần Windows (trên Linux/macOS):
+Dự án có sẵn bộ test tự động – **chạy trước mỗi lần build**:
+
+```bash
+go test ./...        # ~7 giây
+```
+
+- `tools_test.go`: sandbox (thoát bằng `../`, đường dẫn tuyệt đối, symlink), đọc/ghi/sửa/thêm/đổi tên/xóa, chạy lệnh (dấu nháy, mã thoát, stderr, **timeout**, **tiến trình nền**, **hủy giữa chừng**).
+- `offline_test.go`: hơn 100 câu lệnh người dùng hay gõ (hoa/thường, tiếng Việt/Anh, tên tệp có dấu và khoảng trắng, nội dung chứa dấu `:`, thiếu tham số, từ chối duyệt).
+
+Khi thêm lệnh/luật mới, thêm một dòng `b.expect("câu gõ", "chữ mong đợi")` vào `TestOfflineCommands`. Hai lỗi thật đã được test này bắt được: từ đệm "thư mục" bị cắt nhầm khỏi đường dẫn khi `tạo`, và `thêm` dính chữ khi tệp không kết thúc bằng xuống dòng.
+
+Ghi chú: các test chạy lệnh shell chỉ chạy đủ trên Linux/macOS; trên Windows chúng bỏ qua phần `sleep`. Luôn thử bản exe trên Windows thật trước khi phát hành.
+
+Chạy thử thủ công không cần Windows (trên Linux/macOS):
 
 ```bash
 cd desktop-agent

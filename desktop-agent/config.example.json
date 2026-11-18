@@ -3,5 +3,6 @@
   "api_key": "",
   "model": "",
   "port": 7878,
-  "auto_approve": false
+  "auto_approve": false,
+  "command_timeout_sec": 60
 }

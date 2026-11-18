@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,7 +20,7 @@ const offlineHelp = `Mình là **bot if/else** (chế độ offline, không dùn
 - **sửa** <file> : <cũ> => <mới> – thay chữ trong file
 - **đổi tên** <cũ> => <mới> – đổi tên / di chuyển
 - **xóa** <file> – xóa file hoặc thư mục rỗng
-- **chạy** <lệnh> – chạy lệnh terminal (vd: chạy dir)
+- **chạy** <lệnh> – chạy lệnh terminal (vd: chạy dir). Tự dừng sau 60 giây; muốn lâu hơn: **chạy -t 300 <lệnh>**
 - **project** – cho biết thư mục đang làm việc
 
 Các lệnh làm thay đổi dữ liệu (tạo, thêm, sửa, đổi tên, xóa, chạy) sẽ hỏi bạn duyệt trước.
@@ -39,19 +40,28 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 	}
 	verb := strings.ToLower(fields[0])
 	rest := strings.TrimSpace(text[len(fields[0]):])
-	// drop filler words: "xem file x", "đọc tệp x", "xem thư mục x"
-	low := strings.ToLower(rest)
+	// Bỏ từ đệm ("xem file x", "ls thư mục x", "xóa tệp x") — nhưng CHỈ với những lệnh mà
+	// đối số đầu là một đường dẫn, để không cắt nhầm tên thư mục như "thư mục mới/a.txt" khi tạo.
 	isDir := false
-	for _, p := range []string{"thư mục", "folder", "dir", "directory"} {
-		if strings.HasPrefix(low, p+" ") || low == p {
-			isDir, rest = true, strings.TrimSpace(rest[len(p):])
-			break
+	switch verb {
+	case "ls", "dir", "list", "liệt", "tree", "cây", "xem", "mở", "open", "xóa", "xoá", "rm", "del", "delete":
+		low := strings.ToLower(rest)
+		for _, p := range []string{"thư mục", "folder", "directory", "dir"} {
+			if strings.HasPrefix(low, p+" ") || low == p {
+				isDir, rest = true, strings.TrimSpace(rest[len(p):])
+				break
+			}
 		}
 	}
-	for _, p := range []string{"file", "tệp", "tập tin"} {
-		if strings.HasPrefix(strings.ToLower(rest), p+" ") {
-			rest = strings.TrimSpace(rest[len(p):])
-			break
+	switch verb {
+	case "đọc", "read", "cat", "type", "xem", "mở", "open", "tạo", "write", "ghi", "new", "thêm", "append", "add",
+		"sửa", "edit", "thay", "replace", "xóa", "xoá", "rm", "del", "delete":
+		low := strings.ToLower(rest)
+		for _, p := range []string{"tập tin", "file", "tệp"} {
+			if strings.HasPrefix(low, p+" ") {
+				rest = strings.TrimSpace(rest[len(p):])
+				break
+			}
 		}
 	}
 
@@ -66,6 +76,8 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 		switch {
 		case strings.HasPrefix(res, "error:"):
 			emit("assistant", "⚠️ Không làm được: "+strings.TrimSpace(strings.TrimPrefix(res, "error:")))
+		case strings.Contains(res, "[hết giờ sau"):
+			emit("assistant", "⏱️ Lệnh chạy quá lâu nên đã bị dừng. Muốn cho chạy lâu hơn: `chạy -t 300 <lệnh>` (300 giây) hoặc chỉnh `command_timeout_sec` trong config.json.\n\n```\n"+clip(strings.TrimRight(res, "\n"), 6000)+"\n```")
 		case showOutput:
 			emit("assistant", "```\n"+clip(strings.TrimRight(res, "\n"), 6000)+"\n```")
 		default:
@@ -146,7 +158,15 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 			emit("assistant", "Chạy lệnh gì? Ví dụ: chạy dir")
 			return
 		}
-		call("run_command", map[string]any{"command": rest}, true)
+		args := map[string]any{"command": rest}
+		// optional: chạy -t 120 <lệnh>   (giới hạn 120 giây)
+		if f := strings.Fields(rest); len(f) >= 3 && (f[0] == "-t" || f[0] == "--timeout") {
+			if n, err := strconv.Atoi(strings.TrimSuffix(f[1], "s")); err == nil && n > 0 {
+				idx := strings.Index(rest, f[1]) + len(f[1])
+				args = map[string]any{"command": strings.TrimSpace(rest[idx:]), "timeout_sec": n}
+			}
+		}
+		call("run_command", args, true)
 	default:
 		emit("assistant", fmt.Sprintf("Mình chưa hiểu %q. Gõ help để xem các lệnh mình biết.", msg))
 	}

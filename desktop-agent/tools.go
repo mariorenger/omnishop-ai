@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+// defaultCmdTimeout is set from config at startup.
+var defaultCmdTimeout = 60
+
+const maxCmdTimeout = 3600
+
 const (
 	maxReadBytes   = 200 * 1024
 	maxOutputBytes = 20 * 1024
@@ -43,7 +48,7 @@ var toolDefs = []map[string]any{
 	fn("search_files", "Search project files for a regex pattern. Returns file:line: text.",
 		props{"pattern": str("regular expression"), "path": str("relative directory, default '.'")}, "pattern"),
 	fn("run_command", "Run a shell command in the project directory (cmd on Windows, sh elsewhere). Returns combined output.",
-		props{"command": str("command line"), "timeout_sec": map[string]any{"type": "integer", "description": "default 60, max 300"}}, "command"),
+		props{"command": str("command line"), "timeout_sec": map[string]any{"type": "integer", "description": "seconds before the command is killed (default from config, 60; max 3600)"}}, "command"),
 }
 
 type props map[string]any
@@ -246,12 +251,20 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return "error: " + err.Error()
 		}
-		f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(p, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 		if err != nil {
 			return "error: " + err.Error()
 		}
 		defer f.Close()
-		if _, err := f.WriteString(a.Content + "\n"); err != nil {
+		text := a.Content + "\n"
+		// file không kết thúc bằng xuống dòng → xuống dòng trước, để không dính chữ cũ
+		if st, err := f.Stat(); err == nil && st.Size() > 0 {
+			last := make([]byte, 1)
+			if _, err := f.ReadAt(last, st.Size()-1); err == nil && last[0] != '\n' {
+				text = "\n" + text
+			}
+		}
+		if _, err := f.WriteString(text); err != nil {
 			return "error: " + err.Error()
 		}
 		return "appended to " + a.Path
@@ -342,13 +355,7 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if root == "" {
 			return "error: no project selected"
 		}
-		t := a.TimeoutSec
-		if t <= 0 {
-			t = 60
-		}
-		if t > 300 {
-			t = 300
-		}
+		t := effectiveTimeout(a.TimeoutSec)
 		cctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
 		defer cancel()
 		c := newShellCmd(cctx, a.Command)
@@ -376,4 +383,24 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		return out
 	}
 	return "error: unknown tool " + name
+}
+
+// effectiveTimeout returns the seconds a run_command may take.
+func effectiveTimeout(req int) int {
+	if req <= 0 {
+		req = defaultCmdTimeout
+	}
+	if req > maxCmdTimeout {
+		req = maxCmdTimeout
+	}
+	return req
+}
+
+// commandTimeoutOf extracts the effective timeout from raw tool args (for the UI).
+func commandTimeoutOf(raw string) int {
+	var a struct {
+		TimeoutSec int `json:"timeout_sec"`
+	}
+	_ = json.Unmarshal([]byte(raw), &a)
+	return effectiveTimeout(a.TimeoutSec)
 }

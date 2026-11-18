@@ -50,6 +50,7 @@ func main() {
 	}
 
 	cfg := loadConfig()
+	defaultCmdTimeout = cfg.CmdTimeout
 	tok := make([]byte, 16)
 	_, _ = rand.Read(tok)
 	s := &Server{cfg: cfg, token: hex.EncodeToString(tok), pending: map[string]chan bool{}}
