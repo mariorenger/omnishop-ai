@@ -1,6 +1,7 @@
 # Desktop Agent
 
 Agent desktop tối giản, đóng gói **một file exe** (Go, UI nhúng sẵn bằng `go:embed`, không dependency ngoài).
+Không cấu hình LLM (`base_url` trống) → chạy chế độ **offline if/else** (lệnh: ls, đọc, tìm, tạo, sửa, chạy; gõ `help`).
 Bấm exe → mở trình duyệt tới `http://127.0.0.1:7878` → chat, chọn project, agent đọc/sửa file và chạy lệnh.
 
 ## Tính năng

@@ -1,7 +1,7 @@
 {
-  "base_url": "http://llm.noibo.local:8000/v1",
+  "base_url": "",
   "api_key": "",
-  "model": "ten-model",
+  "model": "",
   "port": 7878,
   "auto_approve": false
 }

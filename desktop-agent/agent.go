@@ -87,6 +87,10 @@ type emitFn func(ev string, data any)
 
 // runAgent executes the tool-calling loop. History is mutated under s.mu by the caller.
 func (s *Server) runAgent(ctx context.Context, userMsg string, emit emitFn) {
+	if strings.TrimSpace(s.cfg.BaseURL) == "" {
+		s.runOffline(ctx, userMsg, emit)
+		return
+	}
 	s.mu.Lock()
 	s.history = append(s.history, Msg{Role: "user", Content: userMsg})
 	root := s.project
@@ -112,18 +116,7 @@ func (s *Server) runAgent(ctx context.Context, userMsg string, emit emitFn) {
 			return
 		}
 		for _, tc := range m.ToolCalls {
-			name, args := tc.Function.Name, tc.Function.Arguments
-			emit("tool_call", map[string]any{"id": tc.ID, "name": name, "args": args})
-			result := ""
-			if needsApproval(name) && !s.cfg.AutoApprove && !s.isAutoApprove() {
-				if !s.askApproval(ctx, tc.ID, name, args, emit) {
-					result = "error: the user denied this action"
-				}
-			}
-			if result == "" {
-				result = runTool(ctx, root, name, args)
-			}
-			emit("tool_result", map[string]any{"id": tc.ID, "result": clip(result, 8000)})
+			result := s.execTool(ctx, root, tc, emit)
 			s.mu.Lock()
 			s.history = append(s.history, Msg{Role: "tool", ToolCallID: tc.ID, Content: result})
 			s.mu.Unlock()
@@ -133,6 +126,23 @@ func (s *Server) runAgent(ctx context.Context, userMsg string, emit emitFn) {
 		}
 	}
 	emit("error", "stopped: too many steps")
+}
+
+// execTool emits events, asks for approval when needed, runs the tool.
+func (s *Server) execTool(ctx context.Context, root string, tc ToolCall, emit emitFn) string {
+	name, args := tc.Function.Name, tc.Function.Arguments
+	emit("tool_call", map[string]any{"id": tc.ID, "name": name, "args": args})
+	result := ""
+	if needsApproval(name) && !s.cfg.AutoApprove && !s.isAutoApprove() {
+		if !s.askApproval(ctx, tc.ID, name, args, emit) {
+			result = "error: the user denied this action"
+		}
+	}
+	if result == "" {
+		result = runTool(ctx, root, name, args)
+	}
+	emit("tool_result", map[string]any{"id": tc.ID, "result": clip(result, 8000)})
+	return result
 }
 
 func (s *Server) askApproval(ctx context.Context, id, name, args string, emit emitFn) bool {

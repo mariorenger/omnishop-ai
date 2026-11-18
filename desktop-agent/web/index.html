@@ -63,7 +63,7 @@ const post=(p,b)=>api(p,{method:'POST',body:JSON.stringify(b)});
 let ctl=null,browsePath='';
 
 async function state(){const s=await(await api('/api/state')).json();
-  $('model').textContent=s.model+' · '+s.base_url;$('auto').checked=s.auto;setProject(s.project)}
+  $('model').textContent=s.base_url?(s.model+' · '+s.base_url):'Offline · bot if/else (không dùng model)';$('auto').checked=s.auto;setProject(s.project)}
 function setProject(p){$('projname').textContent=p||'Chưa chọn';$('tree').innerHTML='';if(p)loadTree('.',$('tree'),0)}
 async function loadTree(path,el,depth){
   const r=await api('/api/tree?path='+encodeURIComponent(path));if(!r.ok)return;

@@ -9,7 +9,7 @@ import (
 
 // Config is read from config.json next to the exe; env vars override.
 type Config struct {
-	BaseURL     string `json:"base_url"` // OpenAI-compatible endpoint, e.g. http://llm.corp:8000/v1
+	BaseURL     string `json:"base_url"` // OpenAI-compatible endpoint, e.g. http://llm.corp:8000/v1. Empty = offline if/else bot
 	APIKey      string `json:"api_key"`  // optional
 	Model       string `json:"model"`
 	Port        int    `json:"port"`         // 0 = default 7878, falls back to random if busy
@@ -17,7 +17,7 @@ type Config struct {
 }
 
 func loadConfig() Config {
-	c := Config{BaseURL: "http://localhost:11434/v1", Model: "llama3.1", Port: 7878}
+	c := Config{BaseURL: "", Model: "", Port: 7878}
 	if exe, err := os.Executable(); err == nil {
 		if b, err := os.ReadFile(filepath.Join(filepath.Dir(exe), "config.json")); err == nil {
 			_ = json.Unmarshal(b, &c)
