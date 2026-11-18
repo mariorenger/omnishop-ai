@@ -77,7 +77,7 @@ func TestListReadTreeSearch(t *testing.T) {
 	wantHas(t, run(d, "search_files", `{"pattern":"zzzz"}`), "no matches")
 	wantHas(t, run(d, "search_files", `{"pattern":"("}`), "bad pattern")
 	must(t, os.WriteFile(filepath.Join(d, "bin.dat"), []byte{0, 1, 2, 3}, 0o644))
-	wantHas(t, run(d, "read_file", `{"path":"bin.dat"}`), "binary")
+	wantHas(t, run(d, "read_file", `{"path":"bin.dat"}`), "nhị phân")
 }
 
 func TestWriteEditAppendMoveDelete(t *testing.T) {

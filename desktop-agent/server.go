@@ -24,6 +24,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	api("/api/approve", s.handleApprove)
 	api("/api/reset", s.handleReset)
 	api("/api/cancel", s.handleCancel)
+	api("/api/tasks", s.handleTasks)
+	api("/api/task", s.handleTaskAction)
 	api("/api/auto", s.handleAuto)
 }
 
@@ -227,4 +229,44 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		c()
 	}
 	jsonOut(w, map[string]bool{"ok": c != nil})
+}
+
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if sched == nil {
+		jsonOut(w, map[string]any{"tasks": []any{}, "alerts": []any{}, "seq": 0})
+		return
+	}
+	tasks, alerts, seq := sched.Snapshot()
+	jsonOut(w, map[string]any{"tasks": tasks, "alerts": alerts, "seq": seq})
+}
+
+// handleTaskAction: buttons in the Tasks panel. Creating tasks is NOT possible here
+// (it needs the approval card in chat); running / pausing / deleting is.
+func (s *Server) handleTaskAction(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Action  string
+		ID      string
+		Enabled bool
+	}
+	_ = json.NewDecoder(r.Body).Decode(&b)
+	if sched == nil {
+		http.Error(w, "scheduler not running", 500)
+		return
+	}
+	var err error
+	switch b.Action {
+	case "run":
+		_, _, err = sched.RunNow(r.Context(), b.ID)
+	case "delete":
+		err = sched.Delete(b.ID)
+	case "toggle":
+		_, err = sched.Toggle(b.ID, b.Enabled)
+	default:
+		err = fmt.Errorf("unknown action")
+	}
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	jsonOut(w, map[string]bool{"ok": true})
 }

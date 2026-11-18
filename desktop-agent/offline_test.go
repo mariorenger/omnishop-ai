@@ -188,21 +188,13 @@ func TestOfflineDenied(t *testing.T) {
 	for _, m := range []string{"tạo deny.txt : x", "xóa a.txt", "chạy echo hi", "sửa a.txt : hello => x"} {
 		var said []string
 		ctx := context.Background()
-		go func() { // người dùng bấm "Từ chối"
-			for i := 0; i < 200; i++ {
-				b.s.mu.Lock()
-				for id, ch := range b.s.pending {
-					ch <- false
-					delete(b.s.pending, id)
-				}
-				b.s.mu.Unlock()
-			}
-		}()
+		stop := denyAll(b.s) // người dùng bấm "Từ chối"
 		b.s.runOffline(ctx, m, func(ev string, data any) {
 			if ev == "assistant" {
 				said = append(said, fmt.Sprint(data))
 			}
 		})
+		stop()
 		if !strings.Contains(strings.Join(said, ""), "denied") {
 			t.Errorf("%q should be denied, got %v", m, said)
 		}

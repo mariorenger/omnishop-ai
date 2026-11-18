@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,11 @@ const offlineHelp = `Mình là **bot if/else** (chế độ offline, không dùn
 - **đổi tên** <cũ> => <mới> – đổi tên / di chuyển
 - **xóa** <file> – xóa file hoặc thư mục rỗng
 - **chạy** <lệnh> – chạy lệnh terminal (vd: chạy dir). Tự dừng sau 60 giây; muốn lâu hơn: **chạy -t 300 <lệnh>**
+- **google** <từ khóa> / **tin tức** <chủ đề> – tìm trên web (cần internet). **đọc** <https://…> – đọc nội dung một trang web
 - **project** – cho biết thư mục đang làm việc
+- **task** – xem các tác vụ định kỳ (monitor; gõ tắt job cũng được). Tạo: **task thêm** <tên> | <lịch> | <lệnh> [báo nếu có|thiếu <chữ>] [timeout <giây>]
+  – lịch: *mỗi 30s*, *mỗi 5 phút*, *mỗi giờ*, *hàng ngày 08:30*. Ví dụ: task thêm ping | mỗi 1 phút | ping -n 1 google.com báo nếu thiếu Reply
+  – quản lý: **task chạy** <id> · **task log** <id> · **task dừng** <id> · **task bật** <id> · **task xóa** <id>
 
 Các lệnh làm thay đổi dữ liệu (tạo, thêm, sửa, đổi tên, xóa, chạy) sẽ hỏi bạn duyệt trước.
 Cũng gõ được tiếng Anh: ls, tree, read, find, write, append, edit, mv, rm, run.`
@@ -30,6 +35,7 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 	s.mu.Lock()
 	root := s.project
 	s.mu.Unlock()
+	s.hint = func(t string) { emit("assistant", t) }
 
 	text := strings.TrimSpace(msg)
 	text = strings.TrimLeft(text, "/!")
@@ -90,6 +96,25 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 	}
 
 	switch {
+	case verb == "google" || verb == "web" || verb == "news" || verb == "tin":
+		q := rest
+		if verb == "tin" { // "tin tức <chủ đề>"
+			q = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(rest), "tức"), " "))
+			if q == "" {
+				s.hint("Tin gì? Ví dụ: tin tức giá vàng hôm nay")
+				return
+			}
+			q = "tin tức " + q
+		}
+		if strings.TrimSpace(q) == "" {
+			s.hint("Tìm gì? Ví dụ: google giá vàng hôm nay · tin tức bóng đá")
+			return
+		}
+		call("web_search", map[string]any{"query": q}, true)
+	case (verb == "đọc" || verb == "mở" || verb == "open" || verb == "read" || verb == "fetch" || verb == "tải") && (strings.HasPrefix(strings.ToLower(rest), "http://") || strings.HasPrefix(strings.ToLower(rest), "https://")):
+		call("fetch_url", map[string]any{"url": rest}, true)
+	case verb == "task" || verb == "tasks" || verb == "job" || verb == "jobs" || verb == "monitor":
+		s.offlineTask(rest, call)
 	case verb == "project" || verb == "pwd" || verb == "cwd":
 		emit("assistant", "📁 Đang làm việc trong: `"+root+"`")
 	case verb == "tree" || verb == "cây":
@@ -214,5 +239,63 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 		call("run_command", args, true)
 	default:
 		emit("assistant", fmt.Sprintf("Mình chưa hiểu %q. Gõ help để xem các lệnh mình biết.", msg))
+	}
+}
+
+var (
+	reAlertHas  = regexp.MustCompile(`(?i)\s+(?:báo nếu có|alert if contains)\s+(.+?)\s*$`)
+	reAlertMiss = regexp.MustCompile(`(?i)\s+(?:báo nếu thiếu|báo nếu không có|alert if missing)\s+(.+?)\s*$`)
+	reTaskTO    = regexp.MustCompile(`(?i)\s+timeout\s+(\d+)\s*$`)
+)
+
+func (s *Server) offlineTask(rest string, call func(string, map[string]any, bool)) {
+	f := strings.Fields(rest)
+	sub := ""
+	arg := ""
+	if len(f) > 0 {
+		sub = strings.ToLower(f[0])
+		arg = strings.TrimSpace(rest[len(f[0]):])
+	}
+	// "tạm dừng" is two words
+	if sub == "tạm" && strings.HasPrefix(strings.ToLower(arg), "dừng") {
+		sub, arg = "dừng", strings.TrimSpace(arg[len("dừng"):])
+	}
+	switch sub {
+	case "", "ds", "list", "danh", "sách", "ls":
+		call("list_tasks", map[string]any{}, true)
+	case "thêm", "tạo", "add", "new":
+		parts := strings.SplitN(arg, "|", 3)
+		if len(parts) < 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[2]) == "" {
+			s.hint("Cú pháp: task thêm <tên> | <lịch> | <lệnh> [báo nếu có|thiếu <chữ>] [timeout <giây>]\nVí dụ: task thêm kiểm tra log | mỗi 5 phút | findstr ERROR app.log báo nếu có ERROR")
+			return
+		}
+		cmd := strings.TrimSpace(parts[2])
+		args := map[string]any{"name": strings.TrimSpace(parts[0]), "schedule": strings.TrimSpace(parts[1])}
+		if m := reTaskTO.FindStringSubmatch(cmd); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			args["timeout_sec"] = n
+			cmd = strings.TrimSpace(cmd[:len(cmd)-len(m[0])])
+		}
+		if m := reAlertHas.FindStringSubmatch(cmd); m != nil {
+			args["alert_contains"] = strings.Trim(m[1], `"'`)
+			cmd = strings.TrimSpace(cmd[:len(cmd)-len(m[0])])
+		} else if m := reAlertMiss.FindStringSubmatch(cmd); m != nil {
+			args["alert_not_contains"] = strings.Trim(m[1], `"'`)
+			cmd = strings.TrimSpace(cmd[:len(cmd)-len(m[0])])
+		}
+		args["command"] = cmd
+		call("create_task", args, false)
+	case "chạy", "run":
+		call("run_task", map[string]any{"id": arg}, true)
+	case "xóa", "xoá", "del", "delete", "rm":
+		call("delete_task", map[string]any{"id": arg}, false)
+	case "dừng", "dung", "pause", "stop", "tắt":
+		call("toggle_task", map[string]any{"id": arg, "enabled": false}, false)
+	case "bật", "bat", "resume", "start", "on":
+		call("toggle_task", map[string]any{"id": arg, "enabled": true}, false)
+	case "log", "xem", "show", "chi":
+		call("list_tasks", map[string]any{"id": arg}, true)
+	default:
+		s.hint("Lệnh task: task · task thêm … · task chạy <id> · task log <id> · task dừng <id> · task bật <id> · task xóa <id>")
 	}
 }

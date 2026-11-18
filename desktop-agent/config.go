@@ -9,12 +9,20 @@ import (
 
 // Config is read from config.json next to the exe; env vars override.
 type Config struct {
-	BaseURL     string `json:"base_url"` // OpenAI-compatible endpoint, e.g. http://llm.corp:8000/v1. Empty = offline if/else bot
-	APIKey      string `json:"api_key"`  // optional
-	Model       string `json:"model"`
-	Port        int    `json:"port"`                // 0 = default 7878, falls back to random if busy
-	AutoApprove bool   `json:"auto_approve"`        // skip confirmation for write/edit/run
-	CmdTimeout  int    `json:"command_timeout_sec"` // default timeout of `run_command` (default 60, max 3600)
+	BaseURL         string `json:"base_url"` // OpenAI-compatible endpoint, e.g. http://llm.corp:8000/v1. Empty = offline if/else bot
+	APIKey          string `json:"api_key"`  // optional
+	Model           string `json:"model"`
+	Port            int    `json:"port"`              // 0 = default 7878, falls back to random if busy
+	AutoApprove     bool   `json:"auto_approve"`      // skip confirmation for write/edit/run
+	ContextTokens   int    `json:"context_tokens"`    // LLM context window (default 16000)
+	MaxOutputTokens int    `json:"max_output_tokens"` // reserved for the answer (default 1500)
+	ToolMode        string `json:"tool_mode"`         // "text" (default, works with any model) | "native" | "auto"
+	SearchProvider  string `json:"search_provider"`   // duckduckgo (default) | google | searxng
+	GoogleAPIKey    string `json:"google_api_key"`
+	GoogleCX        string `json:"google_cx"`
+	SearxngURL      string `json:"searxng_url"`
+	AlertWebhook    string `json:"alert_webhook"`       // POST {"text":...} on task alerts (Teams/Slack/Zalo bridge)
+	CmdTimeout      int    `json:"command_timeout_sec"` // default timeout of `run_command` (default 60, max 3600)
 }
 
 func loadConfig() Config {
@@ -40,6 +48,12 @@ func loadConfig() Config {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Port = n
 		}
+	}
+	if c.ContextTokens <= 0 {
+		c.ContextTokens = 16000
+	}
+	if c.MaxOutputTokens <= 0 {
+		c.MaxOutputTokens = 1500
 	}
 	if c.CmdTimeout <= 0 {
 		c.CmdTimeout = 60

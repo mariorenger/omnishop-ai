@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // defaultCmdTimeout is set from config at startup.
@@ -30,8 +32,8 @@ const (
 var toolDefs = []map[string]any{
 	fn("list_dir", "List files and folders in a directory of the project (relative path, '.' for root).",
 		props{"path": str("relative directory path")}, "path"),
-	fn("read_file", "Read a text file from the project.",
-		props{"path": str("relative file path")}, "path"),
+	fn("read_file", "Read a text file, or the text of a .pdf/.docx/.xlsx/.pptx, from the project. Long files are paged: pass offset from the hint to continue.",
+		props{"path": str("relative file path"), "offset": map[string]any{"type": "integer", "description": "character offset to start from (default 0)"}}, "path"),
 	fn("write_file", "Create or overwrite a file in the project with the given content.",
 		props{"path": str("relative file path"), "content": str("full file content")}, "path", "content"),
 	fn("edit_file", "Replace exactly one occurrence of old_string with new_string in a file. old_string must be unique.",
@@ -47,6 +49,20 @@ var toolDefs = []map[string]any{
 		props{"from": str("relative source path"), "to": str("relative destination path")}, "from", "to"),
 	fn("find_files", "Find files/folders by NAME (case-insensitive substring, or a glob like *.py). Returns relative paths.",
 		props{"pattern": str("name substring or glob"), "path": str("relative directory, default '.'")}, "pattern"),
+	fn("create_task", "Create a scheduled task that runs a shell command (or a script you provide) on a schedule, with alert rules. Schedule examples: 'every 30s', 'every 5m', 'every 1h', 'daily 08:30'. Alerts fire on non-zero exit, or when output contains alert_contains / lacks alert_not_contains.",
+		props{"name": str("short unique task name"), "schedule": str("every 30s | every 5m | every 1h | daily 08:30"),
+			"command": str("shell command to run (use this OR script)"), "script": str("source code to save and run instead of command"),
+			"language":       str("python | powershell | bat | sh (with script)"),
+			"alert_contains": str("alert if output contains this text"), "alert_not_contains": str("alert if output does NOT contain this text"),
+			"timeout_sec": map[string]any{"type": "integer", "description": "kill the run after N seconds (default 60)"}}, "name", "schedule"),
+	fn("list_tasks", "List scheduled tasks with status; pass id to see one task's recent runs.", props{"id": str("task id or name (optional)")}),
+	fn("run_task", "Run a scheduled task right now and return its output.", props{"id": str("task id or name")}, "id"),
+	fn("delete_task", "Delete a scheduled task.", props{"id": str("task id or name")}, "id"),
+	fn("toggle_task", "Pause or resume a scheduled task.", props{"id": str("task id or name"), "enabled": map[string]any{"type": "boolean"}}, "id", "enabled"),
+	fn("web_search", "Search the web (news, facts). Returns up to 8 results with title, URL and snippet. Then use fetch_url to read a result.",
+		props{"query": str("search keywords; add the year or 'tin tức' for news")}, "query"),
+	fn("fetch_url", "Download a web page and return its readable text (paged with offset).",
+		props{"url": str("http(s) URL"), "offset": map[string]any{"type": "integer", "description": "character offset to continue reading"}}, "url"),
 	fn("search_files", "Search project files for a regex pattern. Returns file:line: text.",
 		props{"pattern": str("regular expression"), "path": str("relative directory, default '.'")}, "pattern"),
 	fn("run_command", "Run a shell command in the project directory (cmd on Windows, sh elsewhere). Returns combined output.",
@@ -67,7 +83,7 @@ func fn(name, desc string, p props, required ...string) map[string]any {
 // needsApproval: tools that change state.
 func needsApproval(name string) bool {
 	switch name {
-	case "write_file", "edit_file", "run_command", "append_file", "delete_file", "move_file":
+	case "write_file", "edit_file", "run_command", "append_file", "delete_file", "move_file", "create_task", "delete_task", "fetch_url":
 		return true
 	}
 	return false
@@ -124,23 +140,13 @@ func clip(s string, n int) string {
 
 // runTool executes one tool call and returns text for the LLM.
 func runTool(ctx context.Context, root, name, rawArgs string) string {
-	var a struct {
-		Path       string `json:"path"`
-		Content    string `json:"content"`
-		OldString  string `json:"old_string"`
-		NewString  string `json:"new_string"`
-		Pattern    string `json:"pattern"`
-		Command    string `json:"command"`
-		TimeoutSec int    `json:"timeout_sec"`
-		From       string `json:"from"`
-		To         string `json:"to"`
-	}
-	if err := json.Unmarshal([]byte(rawArgs), &a); err != nil {
-		return "error: invalid arguments: " + err.Error()
+	a, err0 := parseArgs(rawArgs)
+	if err0 != nil {
+		return "error: invalid arguments: " + err0.Error()
 	}
 	switch name {
 	case "list_dir":
-		p, err := resolve(root, a.Path)
+		p, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -168,32 +174,51 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		}
 		return strings.Join(out, "\n")
 	case "read_file":
-		p, err := resolve(root, a.Path)
+		p, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
-		b, err := os.ReadFile(p)
+		st, err := os.Stat(p)
 		if err != nil {
 			return "error: " + err.Error()
 		}
-		if bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 {
-			return "error: binary file"
+		if st.IsDir() {
+			return "error: đây là thư mục, hãy dùng list_dir"
 		}
-		return clip(string(b), maxReadBytes)
+		var text string
+		if isDocExt(p) {
+			text, err = readDocument(p)
+			if err != nil {
+				return "error: " + err.Error()
+			}
+		} else {
+			if st.Size() > 50<<20 {
+				return "error: tệp quá lớn (>50MB)"
+			}
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return "error: " + err.Error()
+			}
+			if bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 {
+				return "error: tệp nhị phân (chỉ đọc được văn bản, .pdf, .docx, .xlsx, .pptx)"
+			}
+			text = string(b)
+		}
+		return window(text, a.num("offset"), a.str("path"))
 	case "write_file":
-		p, err := resolve(root, a.Path)
+		p, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return "error: " + err.Error()
 		}
-		if err := os.WriteFile(p, []byte(a.Content), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(a.str("content")), 0o644); err != nil {
 			return "error: " + err.Error()
 		}
-		return fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)
+		return fmt.Sprintf("wrote %d bytes to %s", len(a.str("content")), a.str("path"))
 	case "edit_file":
-		p, err := resolve(root, a.Path)
+		p, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -201,20 +226,20 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if err != nil {
 			return "error: " + err.Error()
 		}
-		if a.OldString == "" {
+		if a.str("old_string") == "" {
 			return "error: old_string is empty"
 		}
-		n := strings.Count(string(b), a.OldString)
+		n := strings.Count(string(b), a.str("old_string"))
 		if n != 1 {
 			return fmt.Sprintf("error: old_string found %d times, must be exactly 1", n)
 		}
-		out := strings.Replace(string(b), a.OldString, a.NewString, 1)
+		out := strings.Replace(string(b), a.str("old_string"), a.str("new_string"), 1)
 		if err := os.WriteFile(p, []byte(out), 0o644); err != nil {
 			return "error: " + err.Error()
 		}
-		return "edited " + a.Path
+		return "edited " + a.str("path")
 	case "tree":
-		base, err := resolve(root, a.Path)
+		base, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -246,7 +271,7 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		}
 		return strings.Join(lines, "\n")
 	case "append_file":
-		p, err := resolve(root, a.Path)
+		p, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -258,7 +283,7 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		defer f.Close()
-		text := a.Content + "\n"
+		text := a.str("content") + "\n"
 		// file không kết thúc bằng xuống dòng → xuống dòng trước, để không dính chữ cũ
 		if st, err := f.Stat(); err == nil && st.Size() > 0 {
 			last := make([]byte, 1)
@@ -269,9 +294,9 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if _, err := f.WriteString(text); err != nil {
 			return "error: " + err.Error()
 		}
-		return "appended to " + a.Path
+		return "appended to " + a.str("path")
 	case "delete_file":
-		p, err := resolve(root, a.Path)
+		p, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -281,13 +306,13 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if err := os.Remove(p); err != nil {
 			return "error: " + err.Error()
 		}
-		return "deleted " + a.Path
+		return "deleted " + a.str("path")
 	case "move_file":
-		src, err := resolve(root, a.From)
+		src, err := resolve(root, a.str("from"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
-		dst, err := resolve(root, a.To)
+		dst, err := resolve(root, a.str("to"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -300,13 +325,13 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if err := os.Rename(src, dst); err != nil {
 			return "error: " + err.Error()
 		}
-		return fmt.Sprintf("moved %s -> %s", a.From, a.To)
+		return fmt.Sprintf("moved %s -> %s", a.str("from"), a.str("to"))
 	case "find_files":
-		pat := strings.ToLower(strings.TrimSpace(a.Pattern))
+		pat := strings.ToLower(strings.TrimSpace(a.str("pattern")))
 		if pat == "" {
 			return "error: empty pattern"
 		}
-		base, err := resolve(root, a.Path)
+		base, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -360,11 +385,11 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		}
 		return strings.Join(found, "\n")
 	case "search_files":
-		re, err := regexp.Compile(a.Pattern)
+		re, err := regexp.Compile(a.str("pattern"))
 		if err != nil {
 			return "error: bad pattern: " + err.Error()
 		}
-		base, err := resolve(root, a.Path)
+		base, err := resolve(root, a.str("path"))
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -415,32 +440,29 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if root == "" {
 			return "error: no project selected"
 		}
-		t := effectiveTimeout(a.TimeoutSec)
-		cctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
-		defer cancel()
-		c := newShellCmd(cctx, a.Command)
-		c.Dir = root
-		// If the command leaves a background/GUI process holding our output pipe
-		// (notepad, `start x`, ping -t ...), don't wait for it forever.
-		c.WaitDelay = 2 * time.Second
-		var buf bytes.Buffer
-		c.Stdout, c.Stderr = &buf, &buf
-		err := c.Run()
-		out := clip(buf.String(), maxOutputBytes)
+		tsec := effectiveTimeout(a.num("timeout_sec"))
+		r := runShell(ctx, root, a.str("command"), tsec)
+		out := clip(r.Out, maxOutputBytes)
 		switch {
-		case cctx.Err() == context.DeadlineExceeded:
-			return out + fmt.Sprintf("\n[hết giờ sau %ds, đã dừng lệnh]", t)
-		case ctx.Err() != nil:
+		case r.TimedOut:
+			return out + fmt.Sprintf("\n[hết giờ sau %ds, đã dừng lệnh]", tsec)
+		case r.Canceled:
 			return out + "\n[đã dừng theo yêu cầu]"
-		case errors.Is(err, exec.ErrWaitDelay):
+		case r.Detached:
 			return out + "\n[lệnh đã khởi chạy tiến trình nền, bot không chờ nó kết thúc]"
-		case err != nil:
-			return out + "\n[" + err.Error() + "]"
+		case r.Err != nil:
+			return out + "\n[" + r.Err.Error() + "]"
 		}
 		if out == "" {
 			return "(không có output, exit 0)"
 		}
 		return out
+	case "web_search":
+		return webSearch(ctx, a.str("query")+a.str("pattern"))
+	case "fetch_url":
+		return fetchURL(ctx, a.str("url"), a.num("offset"))
+	case "create_task", "list_tasks", "run_task", "delete_task", "toggle_task":
+		return taskTool(ctx, root, name, a)
 	}
 	return "error: unknown tool " + name
 }
@@ -458,9 +480,170 @@ func effectiveTimeout(req int) int {
 
 // commandTimeoutOf extracts the effective timeout from raw tool args (for the UI).
 func commandTimeoutOf(raw string) int {
-	var a struct {
-		TimeoutSec int `json:"timeout_sec"`
+	a, _ := parseArgs(raw)
+	return effectiveTimeout(a.num("timeout_sec"))
+}
+
+// targs are tool arguments as sent by the model. Weak models send numbers as strings,
+// use other key names, etc. – be forgiving.
+type targs map[string]any
+
+func parseArgs(raw string) (targs, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return targs{}, nil
 	}
-	_ = json.Unmarshal([]byte(raw), &a)
-	return effectiveTimeout(a.TimeoutSec)
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return nil, err
+	}
+	return targs(m), nil
+}
+
+var argAliases = map[string][]string{
+	"url":                {"link", "uri", "href", "address"},
+	"query":              {"q", "keyword", "keywords", "search", "text"},
+	"path":               {"file_path", "filepath", "file", "filename", "dir", "directory", "folder"},
+	"content":            {"contents", "text", "data", "body"},
+	"old_string":         {"old", "find", "search", "old_text"},
+	"new_string":         {"new", "replace", "replacement", "new_text"},
+	"pattern":            {"query", "regex", "keyword", "name", "q"},
+	"command":            {"cmd", "script", "shell", "commandline"},
+	"timeout_sec":        {"timeout", "timeoutsec", "seconds"},
+	"schedule":           {"cron", "interval", "when", "every"},
+	"alert_contains":     {"contains", "alert_if_contains"},
+	"alert_not_contains": {"not_contains", "alert_if_missing"},
+	"language":           {"lang"},
+	"from":               {"src", "source", "old_path"},
+	"to":                 {"dst", "dest", "destination", "new_path"},
+}
+
+func (a targs) get(k string) (any, bool) {
+	if v, ok := a[k]; ok && v != nil {
+		return v, true
+	}
+	for _, al := range argAliases[k] {
+		if v, ok := a[al]; ok && v != nil {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func (a targs) str(k string) string {
+	v, ok := a.get(k)
+	if !ok {
+		return ""
+	}
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(x)
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func (a targs) num(k string) int {
+	v, ok := a.get(k)
+	if !ok {
+		return 0
+	}
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(x, "s")))
+		return n
+	}
+	return 0
+}
+
+func (a targs) boolean(k string, def bool) bool {
+	v, ok := a.get(k)
+	if !ok {
+		return def
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		switch strings.ToLower(strings.TrimSpace(x)) {
+		case "true", "1", "yes", "có", "co":
+			return true
+		case "false", "0", "no", "không", "khong":
+			return false
+		}
+	case float64:
+		return x != 0
+	}
+	return def
+}
+
+// readChunkChars is how much of a file one read_file call returns (set from the context budget).
+var readChunkChars = 6000
+
+// window returns text[offset:offset+readChunkChars] (UTF-8 safe) with a hint for the next page.
+func window(text string, offset int, path string) string {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(text) {
+		if offset == 0 {
+			return "(tệp rỗng)"
+		}
+		return "(hết tệp)"
+	}
+	start := offset
+	for start < len(text) && !utf8.RuneStart(text[start]) {
+		start++
+	}
+	end := start + readChunkChars
+	if end >= len(text) {
+		return text[start:]
+	}
+	for end < len(text) && !utf8.RuneStart(text[end]) {
+		end++
+	}
+	return fmt.Sprintf("%s\n[... còn %d ký tự nữa. Đọc tiếp: read_file path=%q offset=%d]", text[start:end], len(text)-end, path, end)
+}
+
+type shellResult struct {
+	Out                          string
+	Exit                         int
+	TimedOut, Canceled, Detached bool
+	Err                          error
+}
+
+// runShell runs one shell command line in dir with a hard timeout. It never blocks on
+// leftover background processes and kills the whole process tree on timeout/cancel.
+func runShell(ctx context.Context, dir, command string, timeoutSec int) shellResult {
+	cctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+	c := newShellCmd(cctx, command)
+	c.Dir = dir
+	c.WaitDelay = 2 * time.Second
+	var buf bytes.Buffer
+	c.Stdout, c.Stderr = &buf, &buf
+	err := c.Run()
+	r := shellResult{Out: buf.String()}
+	switch {
+	case cctx.Err() == context.DeadlineExceeded:
+		r.TimedOut, r.Exit = true, -1
+	case ctx.Err() != nil:
+		r.Canceled, r.Exit = true, -1
+	case errors.Is(err, exec.ErrWaitDelay):
+		r.Detached = true
+	case err != nil:
+		r.Err = err
+		r.Exit = -1
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			r.Exit = ee.ExitCode()
+		}
+	}
+	return r
 }

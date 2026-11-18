@@ -1,7 +1,13 @@
 # Trợ lý Desktop – Hướng dẫn sử dụng
 
-Bot chạy **một file exe duy nhất**, không cần cài đặt, không cần model AI.
-Bạn gõ lệnh, bot xử lý bằng luật if/else và thao tác trực tiếp lên thư mục dự án của bạn.
+Bot chạy **một file exe duy nhất**, không cần cài đặt. Có hai chế độ:
+
+| Chế độ | Khi nào | Cách dùng |
+|---|---|---|
+| **Bot if/else (offline)** – mặc định | `base_url` trong `config.json` để trống | Gõ lệnh ngắn: `ls`, `đọc`, `tìm`, `chạy`, `task`… (mục 3) |
+| **Trợ lý LLM** | Điền `base_url` + `model` của LLM nội bộ | Nói chuyện bình thường, trợ lý tự gọi công cụ thật: đọc/sửa tệp, **chạy lệnh/viết code rồi chạy**, đọc PDF/Word/Excel, tìm web, **tạo task định kỳ** (mục 8–11) |
+
+Cả hai chế độ dùng chung bộ công cụ, cùng thẻ xin duyệt và cùng bảng Tasks.
 
 ---
 
@@ -88,6 +94,16 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
 
 ---
 
+### Đọc tài liệu và web trong chế độ lệnh
+
+| Gõ | Tác dụng |
+|---|---|
+| `đọc bao_cao.pdf` / `.docx` / `.xlsx` / `.pptx` | Đọc chữ trong PDF, Word, Excel, PowerPoint (mục 9) |
+| `đọc <tệp> ` rồi làm theo gợi ý `offset=` | Đọc tiếp phần sau của tệp dài |
+| `google <từ khóa>`, `tin tức <chủ đề>` | Tìm trên web (mục 11) |
+| `đọc https://…` | Đọc nội dung một trang web (cần duyệt) |
+| `task`, `task thêm …` | Quản lý tác vụ định kỳ (mục 10) |
+
 ## 4. An toàn dữ liệu
 
 - Bot **chỉ thao tác trong thư mục dự án** bạn chọn. Đường dẫn trỏ ra ngoài (`../..`, ổ đĩa khác, symlink thoát ra) bị chặn.
@@ -121,6 +137,11 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
 | `port` | Cổng mở trang chat (mặc định 7878; bận thì tự chọn cổng khác) |
 | `auto_approve` | `true` = không hỏi duyệt (chỉ nên dùng khi bạn tin tưởng hoàn toàn) |
 | `command_timeout_sec` | Số giây tối đa cho mỗi lệnh `chạy` (mặc định 60, tối đa 3600) |
+| `context_tokens` | Cửa sổ ngữ cảnh của LLM (mặc định **16000**). Bot tự cắt đầu vào cho vừa |
+| `max_output_tokens` | Phần dành cho câu trả lời (mặc định 1500) |
+| `tool_mode` | `text` (mặc định, chạy với **mọi** LLM kể cả loại không hỗ trợ function-calling) · `native` · `auto` |
+| `search_provider`, `google_api_key`, `google_cx`, `searxng_url` | Tìm web (mục 11) |
+| `alert_webhook` | URL nhận cảnh báo của task (mục 10) |
 
 Có thể ghi đè bằng biến môi trường: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `AGENT_PORT`.
 Tham số dòng lệnh: `desktop-agent.exe --project D:\duan --no-browser`.
@@ -141,6 +162,8 @@ Khi có model, mọi thứ giữ nguyên – chỉ khác là bạn nói chuyện
 | `sửa` báo "found 0 times" | Chữ cũ không có trong tệp (kiểm tra hoa/thường, khoảng trắng) |
 | `sửa` báo "found 2 times" | Chữ cũ xuất hiện nhiều lần; gõ dài hơn để duy nhất |
 | `đọc` báo "binary file" | Tệp nhị phân (ảnh, exe…) – bot chỉ đọc văn bản |
+| `google`/`tin tức` báo "máy này có ra được internet không?" | Máy không ra được mạng ngoài hoặc cần proxy. Thử `search_provider: searxng` với máy chủ nội bộ, hoặc nhờ IT mở đường ra |
+| LLM trả lời nhưng không gọi công cụ | Xem log; kiểm tra `tool_mode` là `text`; model quá nhỏ có thể không tuân theo định dạng khối ```tool — thử model lớn hơn |
 | Lệnh cứ ghi "đang chạy… Ns" mãi | Bấm nút **Dừng** (hình vuông ở ô nhập): bot dừng ngay và giết cả tiến trình con. Lệnh tự dừng sau 60 giây nếu bạn không bấm. Lệnh mở ứng dụng (`chạy notepad`) trả về sau ~2 giây và để ứng dụng chạy tiếp |
 | "agent is busy" | Bot đang xử lý lệnh trước; bấm **Dừng** rồi gửi lại. Nếu vẫn báo bận: đóng tab, mở lại trang chat |
 | Thẻ công cụ ghi **chờ bạn duyệt** | Bot đang đợi bạn bấm *Cho phép / Từ chối* ở thẻ vàng bên dưới |
@@ -153,3 +176,118 @@ Khi có model, mọi thứ giữ nguyên – chỉ khác là bạn nói chuyện
 ## 7. Gỡ bỏ
 
 Xóa thư mục chứa exe và thư mục `%AppData%\desktop-agent\`. Bot không ghi gì vào Registry, không cài dịch vụ.
+
+
+---
+
+## 8. Chế độ trợ lý LLM (có model)
+
+Điền `config.json`:
+
+```json
+{ "base_url": "http://llm.noibo:8000/v1", "model": "ten-model", "api_key": "",
+  "context_tokens": 16000, "max_output_tokens": 1500, "tool_mode": "text" }
+```
+
+`base_url` là địa chỉ API kiểu OpenAI (có `/chat/completions`). Khởi động lại exe, góc trên giao diện sẽ hiện tên model.
+
+**Trợ lý làm việc như agent thật:** nhận yêu cầu → quyết định công cụ → bot **chạy thật** → gửi kết quả lại → trợ lý chạy tiếp hoặc trả lời. Ví dụ bạn nói *"viết script python đếm số dòng các file .txt rồi chạy thử"*, trợ lý sẽ `write_file` ra `dem.py`, `run_command python dem.py`, đọc kết quả rồi báo lại. Mọi thao tác ghi/chạy vẫn hiện thẻ xin duyệt.
+
+**Không cần LLM hỗ trợ "tool calling".** Ở `tool_mode: "text"` (mặc định), bot dạy LLM trả lời bằng một khối:
+
+````
+```tool
+{"name":"run_command","args":{"command":"dir"}}
+```
+````
+
+và tự đọc khối đó (chấp nhận cả vài biến thể JSON sai chuẩn mà model nhỏ hay viết). Nếu LLM của bạn hỗ trợ function-calling chuẩn OpenAI, có thể đặt `native`, hoặc `auto` (thử native, lỗi thì tự chuyển sang `text`).
+
+### Giới hạn 16k token – bot xử lý thế nào
+- Mỗi lần gọi, bot **cắt đầu vào cho vừa ngân sách** = `context_tokens` − `max_output_tokens` − phần dự phòng. Lịch sử cũ bị bỏ dần (giữ câu hỏi mới nhất), kết quả công cụ cũ bị rút gọn.
+- Tệp dài được **đọc theo trang** (~3000 ký tự/lần); LLM tự gọi tiếp bằng `offset`.
+- Kết quả công cụ gửi cho LLM bị giới hạn kích thước (giao diện vẫn thấy tối đa 8000 ký tự).
+- Nếu máy chủ LLM vẫn báo "vượt context", bot tự **giảm 40% rồi gửi lại**.
+- Nghĩa là: LLM sẽ **quên các đoạn hội thoại rất cũ** và không nhìn được cả tệp lớn một lúc. Muốn nhắc lại thứ cần nhớ, hãy nhắc trong câu hỏi mới.
+
+### Cơ chế an toàn của vòng lặp
+Tối đa 15 bước/lượt; lặp lại đúng một lệnh 3 lần thì dừng; khối `tool` sai JSON được nhắc sửa 2 lần; nút **Dừng** hủy ngay.
+
+---
+
+## 9. Đọc PDF / Word / Excel / PowerPoint
+
+Dùng được qua `đọc <tệp>` hoặc nhờ trợ lý ("tóm tắt hợp đồng.docx").
+
+| Định dạng | Kết quả |
+|---|---|
+| `.pdf` | Chữ theo từng trang (`--- Trang N ---`), hỗ trợ tiếng Việt |
+| `.docx` | Văn bản, bảng (các ô cách nhau ` | `) |
+| `.xlsx` | Từng sheet (`## Sheet: tên`), mỗi dòng là một hàng, ô cách nhau ` | `; tối đa 3000 dòng/sheet; ô công thức chưa có giá trị tính sẵn hiện dạng `=B2+B3` |
+| `.pptx` | Chữ của từng slide |
+
+**Không đọc được:** PDF dạng ảnh/scan (cần OCR – bot sẽ báo rõ), tệp đặt mật khẩu, định dạng cũ `.doc` `.xls` `.ppt` (hãy lưu lại thành `.docx` `.xlsx` `.pptx`), hình ảnh và biểu đồ trong tài liệu. Ngày trong Excel hiện dạng số serial. Chỉ **đọc**, chưa ghi vào các định dạng này; muốn xuất dữ liệu hãy tạo `.csv` bằng `tạo`.
+
+---
+
+## 10. Task định kỳ (monitor, lịch hàng ngày)
+
+Task = *một lệnh (hoặc đoạn code)* + *lịch* + *điều kiện báo động*. Task được lưu trong `%AppData%\desktop-agent\tasks.json` nên **còn nguyên sau khi mở lại**. Task **chỉ chạy khi chương trình đang mở** (bỏ lỡ lúc tắt thì không chạy bù).
+
+### Tạo bằng lệnh
+_Ghi chú: gõ tắt `job …` vẫn dùng được như `task …`; dữ liệu lưu bởi bản cũ (`jobs.json`) tự được nạp._
+
+```
+task thêm <tên> | <lịch> | <lệnh> [báo nếu có <chữ>] [báo nếu thiếu <chữ>] [timeout <giây>]
+```
+
+| Ví dụ | Ý nghĩa |
+|---|---|
+| `task thêm mạng | mỗi 1 phút | ping -n 1 google.com báo nếu thiếu Reply` | Mỗi phút ping, báo nếu output không có "Reply" |
+| `task thêm log lỗi | mỗi 5 phút | findstr /C:"ERROR" app.log báo nếu có ERROR` | Báo khi log xuất hiện ERROR |
+| `task thêm ổ đĩa | hàng ngày 08:30 | wmic logicaldisk get freespace,caption` | Mỗi sáng 8:30 chạy lệnh |
+| `task thêm backup | hàng ngày 23:00 | python backup.py timeout 600` | Chạy script hằng đêm, tối đa 10 phút |
+
+**Lịch hiểu được:** `mỗi 30s`, `mỗi 90 giây`, `mỗi 5 phút`, `mỗi giờ`, `mỗi 2 giờ`, `mỗi ngày`, `hàng ngày 08:30`, `hàng ngày 8h30`, `daily 08:30`, `every 5m`. Chu kỳ tối thiểu **10 giây**; tối đa **30 task**.
+
+**Điều kiện báo động** (mặc định luôn báo khi lệnh **thoát với mã lỗi ≠ 0** hoặc **hết giờ**): thêm `báo nếu có <chữ>` hoặc `báo nếu thiếu <chữ>` (không phân biệt hoa thường).
+
+### Tạo bằng trợ lý (khi có LLM)
+Nói: *"tạo task hàng ngày 8h sáng chạy script python lấy tỷ giá và lưu ra file"*. Trợ lý sẽ viết code, lưu vào `%AppData%\desktop-agent\tasks\`, và tạo task (có thẻ duyệt hiện **toàn bộ lệnh** để bạn xem trước). Hỗ trợ code `python`, `powershell`, `bat`, `sh` (cần máy đã cài Python/PowerShell tương ứng).
+
+### Quản lý
+| Gõ | Tác dụng |
+|---|---|
+| `task` | Danh sách task và trạng thái |
+| `task chạy <id/tên>` | Chạy ngay một lần |
+| `task log <id>` | Xem 5 lần chạy gần nhất kèm output |
+| `task dừng <id>` / `task bật <id>` | Tạm dừng / chạy lại |
+| `task xóa <id>` | Xóa (có thẻ duyệt) |
+
+Hoặc bấm nút **Tasks định kỳ** ở thanh bên: bảng hiển thị chấm trạng thái (xanh = ổn, đỏ = đang báo động, xám = tạm dừng), lần chạy kế tiếp, lịch sử và các nút *Chạy ngay / Tạm dừng / Lịch sử / Xóa*.
+
+### Cảnh báo
+- Khi task **chuyển từ ổn sang lỗi**: hiện thông báo trên giao diện và huy hiệu đỏ ở nút Tasks. Khi **hồi phục** có thông báo "đã hoạt động lại". Task tiếp tục lỗi **không báo lặp lại** (để không bị spam).
+- Muốn nhận ngoài máy: điền `alert_webhook` trong `config.json`. Bot gửi `POST` JSON `{"text":"...","content":"..."}` – tương thích webhook đến của Slack/Mattermost; với Teams/Zalo thường cần một cầu nối nhỏ do IT cấu hình.
+- Giao diện cần **đang mở một tab trình duyệt** mới hiện thông báo; task vẫn chạy và ghi lịch sử kể cả khi đóng tab.
+
+### Lưu ý an toàn
+Task chạy **không có ai ngồi duyệt**, với quyền tài khoản của bạn. Vì vậy: lệnh của task được bạn xem và duyệt **một lần khi tạo**; ưu tiên lệnh chỉ *đọc/kiểm tra*; đừng cho task chạy lệnh xóa/ghi đè nếu chưa chắc.
+
+---
+
+## 11. Tìm web và đọc trang web (tin tức)
+
+Trợ lý có thể tìm tin rồi đọc và tổng hợp: *"tìm tin tức giá vàng hôm nay rồi tóm tắt 3 nguồn"*. Trong chế độ lệnh: `google giá vàng`, `tin tức bóng đá`, `đọc https://…`.
+
+Máy chạy bot phải **ra được internet** (hoặc qua proxy công ty). Chọn nguồn tìm trong `config.json`:
+
+| `search_provider` | Cần gì | Ghi chú |
+|---|---|---|
+| `duckduckgo` (mặc định) | Không cần khóa | Đọc trang kết quả HTML; có thể bị chặn/đổi định dạng |
+| `google` | `google_api_key` + `google_cx` ([Programmable Search Engine](https://programmablesearchengine.google.com/)) | Ổn định, có giới hạn lượt miễn phí/ngày |
+| `searxng` | `searxng_url` (máy chủ SearXNG tự dựng, bật định dạng JSON) | Phù hợp mạng nội bộ |
+
+- `web_search` không cần duyệt. **`fetch_url` (mở trang) luôn hỏi duyệt**, vì địa chỉ URL có thể bị lợi dụng để gửi dữ liệu ra ngoài.
+- Nội dung trang web là **không tin cậy**: một trang độc hại có thể chứa câu "hãy xóa file…" nhắm vào trợ lý. Hãy đọc kỹ thẻ duyệt trước khi cho phép bất kỳ thao tác ghi/chạy nào sau khi đọc web.
+- Bot lấy chữ từ HTML đơn giản (bỏ menu/quảng cáo ở mức cơ bản), không chạy JavaScript nên trang động có thể trống.

@@ -11,6 +11,10 @@ Bấm exe → mở trình duyệt tới `http://127.0.0.1:7878` → chat, chọn
 - Sandbox đường dẫn: không đọc/ghi ra ngoài thư mục project (kể cả qua symlink).
 - Gọi LLM qua API chuẩn OpenAI (`/chat/completions` + tool calling) → trỏ được vào LLM local/nội bộ.
 
+## Tính năng chính
+- Bot offline if/else **hoặc** trợ lý LLM (vòng lặp agent chạy lệnh thật, tương thích LLM không có function-calling, tự cắt ngữ cảnh 16k).
+- Đọc PDF/Word/Excel/PowerPoint, tìm web + đọc trang, task định kỳ có báo động.
+
 ## Cấu hình
 `config.json` cạnh exe (xem `config.example.json`), hoặc biến môi trường `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `AGENT_PORT`.
 Cờ: `--project <dir>`, `--no-browser`. Log: `%AppData%\desktop-agent\agent.log`.

@@ -126,6 +126,24 @@ body.collapsed #side{margin-left:-268px}
 #foot{text-align:center;font-size:12px;color:var(--mut);padding-top:8px}
 kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:0 5px;font:12px Consolas,monospace}
 
+/* tasks */
+#tasksbtn{margin:2px 10px;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;font-weight:500;width:calc(100% - 20px);text-align:left}
+#tasksbtn:hover{background:var(--hover)}
+#tasksbadge{margin-left:auto;min-width:20px;height:20px;border-radius:10px;background:#dc2626;color:#fff;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 6px}
+#tasksbadge.on{display:inline-flex}
+#tasks{position:fixed;right:0;top:0;bottom:0;width:min(640px,100%);background:var(--bg);border-left:1px solid var(--bd);box-shadow:var(--shadow);display:none;flex-direction:column;z-index:16}
+#tasks header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--bd)}#tasks header b{flex:1;font-size:16px}
+#taskslist{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.task{border:1px solid var(--bd);border-radius:14px;padding:12px 14px;background:var(--card)}
+.task .hd{display:flex;gap:10px;align-items:center}.task .dot{width:10px;height:10px;border-radius:50%;background:#16a34a;flex:none}
+.task .dot.alert{background:#dc2626}.task .dot.off{background:#9ca3af}.task .dot.run{background:var(--acc);animation:bl 1s infinite}
+.task .nm{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task .meta{font-size:12.5px;color:var(--mut);margin:4px 0 8px}
+.task .cmd{font:12px Consolas,monospace;background:var(--comp);padding:6px 8px;border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.task .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.task .btns .b{padding:4px 12px;font-size:12.5px}
+.task .hist{margin-top:8px;display:none;font-size:12px}.task .hist.on{display:block}
+.task .hist div{border-top:1px solid var(--bd);padding:6px 0}.task .hist pre{margin:4px 0 0;white-space:pre-wrap;max-height:120px;overflow:auto;font:12px Consolas,monospace;color:var(--mut)}
+.task .bad{color:#dc2626}.task .good{color:#16a34a}
+#taskhint{font-size:12.5px;color:var(--mut);padding:10px 14px;border-top:1px solid var(--bd)}
 /* modal + viewer */
 #modal{position:fixed;inset:0;background:#0007;display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
 #box{background:var(--bg);width:min(580px,100%);max-height:84vh;border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow)}
@@ -166,6 +184,7 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <symbol id="i-term" viewBox="0 0 24 24"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
 </defs></svg>
 
@@ -178,6 +197,8 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <div class="s-sec">Dự án</div>
   <button id="projbox" title="Đổi thư mục dự án"><svg><use href="#i-folder"/></svg>
     <div id="projtxt"><div id="projname">Chưa chọn</div><div id="projpath"></div></div></button>
+  <div class="s-sec">Tác vụ nền</div>
+  <button id="tasksbtn"><svg><use href="#i-clock"/></svg>Tasks định kỳ<span id="tasksbadge"></span></button>
   <div class="s-sec">Tệp</div>
   <div id="tree"></div>
   <div class="s-foot">
@@ -223,6 +244,9 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
 
 <aside id="viewer"><header><svg><use href="#i-file"/></svg><b id="vname"></b><button class="ic" id="vcopy" title="Sao chép"><svg><use href="#i-copy"/></svg></button><button class="ic" id="vclose"><svg><use href="#i-x"/></svg></button></header><pre id="vbody"></pre></aside>
 
+<aside id="tasks"><header><svg><use href="#i-clock"/></svg><b>Tasks định kỳ</b><button class="ic" id="tasksclose"><svg><use href="#i-x"/></svg></button></header>
+  <div id="taskslist"></div>
+  <div id="taskhint">Tạo task: nhắn trong chat, ví dụ <code>task thêm kiểm tra log | mỗi 5 phút | type app.log báo nếu có ERROR</code> hoặc nhờ trợ lý (khi đã kết nối LLM). Task chạy khi chương trình đang mở.</div></aside>
 <div id="modal"><div id="box"><h3>Chọn thư mục dự án</h3><div id="cur"></div><div id="list"></div>
   <div class="acts2"><button class="b" id="mcancel">Huỷ</button><button class="b p" id="mok">Chọn thư mục này</button></div></div></div>
 <div id="toast"></div>
@@ -338,7 +362,7 @@ const CMDS=[
   ['ls','liệt kê tệp','ls '],['tree','xem cây thư mục','tree '],['đọc','xem nội dung tệp','đọc '],['tìm','tìm theo tên tệp và nội dung','tìm '],['tìm tên','chỉ tìm theo tên tệp','tìm tên *.pdf'],['tìm nội dung','chỉ tìm trong nội dung','tìm nội dung '],
   ['tạo','tạo / ghi tệp','tạo tên.txt : nội dung'],['thêm','thêm dòng vào cuối tệp','thêm tên.txt : dòng mới'],
   ['sửa','thay chữ trong tệp','sửa tên.txt : cũ => mới'],['đổi tên','đổi tên / di chuyển','đổi tên cũ.txt => mới.txt'],
-  ['xóa','xóa tệp','xóa '],['chạy','chạy lệnh terminal','chạy '],['project','thư mục đang làm việc','project'],['help','xem hướng dẫn','help']];
+  ['xóa','xóa tệp','xóa '],['chạy','chạy lệnh terminal','chạy '],['task','xem các task định kỳ','task'],['task thêm','tạo task định kỳ','task thêm tên | mỗi 5 phút | lệnh báo nếu có ERROR'],['google','tìm trên web','google '],['tin tức','tìm tin tức','tin tức '],['project','thư mục đang làm việc','project'],['help','xem hướng dẫn','help']];
 let selCmd=-1,shown=[];
 function hideCmds(){$('cmds').style.display='none';selCmd=-1}
 function cmdMenu(){const v=$('msg').value;if(!v.startsWith('/')||v.includes('\n')){hideCmds();return}
@@ -382,7 +406,39 @@ $('projbox').onclick=openPicker;$('pickbig').onclick=openPicker;
 $('mcancel').onclick=()=>$('modal').style.display='none';
 $('mok').onclick=async()=>{const r=await post('/api/project',{path:browsePath});
   if(r.ok){$('modal').style.display='none';$('msgs').innerHTML='';showWelcome(true);setProject((await r.json()).project)}else toast(await r.text())};
-addEventListener('keydown',e=>{if(e.key==='Escape'){$('modal').style.display='none';$('viewer').style.display='none'}});
+addEventListener('keydown',e=>{if(e.key==='Escape'){$('modal').style.display='none';$('viewer').style.display='none';$('tasks').style.display='none'}});
+/* ---------- tasks ---------- */
+let lastSeq=null,openHist={};
+const fmtT=s=>{const d=new Date(s);return isNaN(d)?'':d.toLocaleString('vi-VN',{hour12:false,day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})};
+const ST={ok:['good','ok'],alert:['bad','báo động'],timeout:['bad','hết giờ'],error:['bad','lỗi']};
+async function pollTasks(){let j;try{const r=await api('/api/tasks');if(!r.ok)return;j=await r.json()}catch{return}
+  const bad=j.tasks.filter(x=>x.enabled&&x.last&&x.last.status!=='ok').length;
+  const bd=$('tasksbadge');bd.textContent=bad;bd.classList.toggle('on',bad>0);
+  if(lastSeq!==null&&j.seq>lastSeq){const a=j.alerts.filter(x=>x.seq>lastSeq).pop();if(a){toast((a.kind==='alert'?'⚠️ ':'✅ ')+a.task_name+': '+a.message.split('\n')[0].replace(/^[^ ]+ /,''));
+    document.title=(a.kind==='alert'?'⚠️ ':'')+'Trợ lý'}}
+  lastSeq=j.seq;if($('tasks').style.display==='flex')renderTasks(j.tasks)}
+function renderTasks(tasks){const l=$('taskslist');
+  if(!tasks.length){l.innerHTML='<div style="color:var(--mut);padding:30px 10px;text-align:center">Chưa có task nào.<br>Tạo task bằng lệnh <code>task thêm …</code> trong chat.</div>';return}
+  l.innerHTML='';for(const j of tasks){const d=document.createElement('div');d.className='task';
+    const st=j.last?ST[j.last.status]||['', j.last.status]:null;
+    const cls=!j.enabled?'off':j.running?'run':(j.last&&j.last.status!=='ok'?'alert':'');
+    d.innerHTML=`<div class="hd"><span class="dot ${cls}"></span><span class="nm"></span><span class="pill">#${j.id}</span></div>
+      <div class="meta"></div><div class="cmd"></div><div class="btns"><button class="b" data-a="run">Chạy ngay</button><button class="b" data-a="toggle"></button><button class="b" data-a="hist">Lịch sử</button><button class="b" data-a="delete">Xóa</button></div><div class="hist"></div>`;
+    d.querySelector('.nm').textContent=j.name;
+    d.querySelector('.meta').innerHTML=`<b></b> · ${j.enabled?'lần sau '+fmtT(j.next_run):'<b>đang tạm dừng</b>'} · `+(st?`lần cuối: <span class="${st[0]}">${st[1]}</span> lúc ${fmtT(j.last.at)}${j.last.reason?' ('+esc(j.last.reason)+')':''}`:'chưa chạy lần nào');
+    d.querySelector('.meta b').textContent=j.schedule;
+    d.querySelector('.cmd').textContent=j.command;
+    d.querySelector('[data-a=toggle]').textContent=j.enabled?'Tạm dừng':'Bật lại';
+    const h=d.querySelector('.hist');h.classList.toggle('on',!!openHist[j.id]);
+    h.innerHTML=(j.history||[]).slice().reverse().map(r=>`<div><span class="${(ST[r.status]||[''])[0]}">${(ST[r.status]||['',r.status])[1]}</span> · ${fmtT(r.at)} · exit ${r.exit} · ${r.dur_ms}ms ${r.reason?'· '+esc(r.reason):''}<pre>${esc(r.output||'')}</pre></div>`).join('')||'<div>Chưa có lịch sử.</div>';
+    d.onclick=async e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;
+      if(a==='hist'){openHist[j.id]=!openHist[j.id];h.classList.toggle('on')}
+      else if(a==='delete'){if(confirm('Xóa task "'+j.name+'"?')){await post('/api/task',{action:'delete',id:j.id});pollTasks()}}
+      else if(a==='toggle'){await post('/api/task',{action:'toggle',id:j.id,enabled:!j.enabled});pollTasks()}
+      else if(a==='run'){b.disabled=true;b.textContent='Đang chạy…';const r=await post('/api/task',{action:'run',id:j.id});if(!r.ok)toast(await r.text());pollTasks()}};
+    l.appendChild(d)}}
+$('tasksbtn').onclick=()=>{$('tasks').style.display='flex';pollTasks()};$('tasksclose').onclick=()=>$('tasks').style.display='none';
+setInterval(pollTasks,5000);setTimeout(pollTasks,800);
 state();
 </script>
 </body>

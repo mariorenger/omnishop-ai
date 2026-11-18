@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -22,16 +23,18 @@ import (
 var webFS embed.FS
 
 type Server struct {
-	cfg     Config
-	token   string
-	addr    string
-	mu      sync.Mutex
-	project string
-	history []Msg
-	pending map[string]chan bool
-	auto    bool
-	busy    bool
-	cancel  context.CancelFunc
+	cfg       Config
+	token     string
+	addr      string
+	mu        sync.Mutex
+	project   string
+	history   []Msg
+	pending   map[string]chan bool
+	auto      bool
+	busy      bool
+	cancel    context.CancelFunc
+	forceText bool
+	hint      func(string)
 }
 
 func (s *Server) isAutoApprove() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.auto }
@@ -51,6 +54,16 @@ func main() {
 
 	cfg := loadConfig()
 	defaultCmdTimeout = cfg.CmdTimeout
+	if strings.TrimSpace(cfg.BaseURL) != "" { // small-context LLM: page file reads to fit
+		readChunkChars = min(8000, max(1500, cfg.ContextTokens/5))
+	}
+	if dir, err := os.UserConfigDir(); err == nil {
+		sched = newScheduler(filepath.Join(dir, "desktop-agent", "tasks.json"), cfg.AlertWebhook)
+	} else {
+		sched = newScheduler("", cfg.AlertWebhook)
+	}
+	sched.Start()
+	webConf = webCfg{Provider: cfg.SearchProvider, GoogleKey: cfg.GoogleAPIKey, GoogleCX: cfg.GoogleCX, SearxURL: cfg.SearxngURL}
 	tok := make([]byte, 16)
 	_, _ = rand.Read(tok)
 	s := &Server{cfg: cfg, token: hex.EncodeToString(tok), pending: map[string]chan bool{}}
@@ -94,3 +107,5 @@ func openBrowser(url string) {
 	}
 	_ = c.Start()
 }
+
+func osName() string { return runtime.GOOS }

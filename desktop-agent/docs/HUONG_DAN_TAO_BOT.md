@@ -39,7 +39,7 @@ Vì sao thiết kế như vậy:
 | Thứ | Chọn | Lý do |
 |---|---|---|
 | Ngôn ngữ | **Go ≥ 1.22** | Build ra binary tĩnh, build chéo sang Windows từ Linux/macOS chỉ bằng biến môi trường |
-| Thư viện | **Chỉ stdlib** | Không `go get`, không rủi ro chuỗi cung ứng, build offline được |
+| Thư viện | **stdlib + 1 thư viện PDF** (`github.com/ledongthuc/pdf`, MIT, thuần Go) | Mọi thứ khác (HTTP, JSON, zip/XML cho docx/xlsx, lập lịch) dùng stdlib. Thư viện PDF được `go mod vendor` vào thư mục `vendor/` nên **build offline được** và không kéo mã lạ lúc build |
 | UI | HTML + CSS + JS thuần, 1 file | Không cần npm/webpack; nhúng bằng `go:embed` |
 | Realtime | **SSE** (Server-Sent Events qua `fetch` stream) | Đơn giản hơn WebSocket, đủ cho "bot đẩy sự kiện về trình duyệt" |
 
@@ -51,18 +51,23 @@ Cài Go: https://go.dev/dl/ (Windows: file `.msi`). Kiểm tra `go version`.
 
 ```
 desktop-agent/
-├── go.mod            # module desktopagent, go 1.24
-├── main.go           # khởi động: đọc config, mở cổng, mở trình duyệt, nhúng UI
-├── config.go         # đọc config.json + biến môi trường
-├── server.go         # các endpoint /api/* + bảo vệ token/Host
-├── agent.go          # vòng lặp agent (chế độ LLM) + xin duyệt (execTool)
-├── offline.go        # BỘ NÃO IF/ELSE  ← nơi bạn thêm luật
-├── tools.go          # công cụ: list/read/write/edit/append/delete/move/tree/search/run + sandbox
-├── proc_windows.go   # ẩn cửa sổ console khi chạy lệnh (chỉ Windows)
-├── proc_other.go     # bản rỗng cho Linux/macOS
-├── web/index.html    # toàn bộ giao diện
-├── build.sh          # build chéo ra dist/desktop-agent.exe
-└── config.example.json
+├── main.go           # khởi động: config, mở cổng, nhúng UI, khởi động bộ lập lịch, mở trình duyệt
+├── config.go         # config.json + biến môi trường
+├── server.go         # /api/*: chat (SSE), duyệt, dừng, tasks; bảo vệ token + Host
+├── agent.go          # VÒNG LẶP AGENT cho LLM (giao thức khối ```tool, native, auto) + execTool/xin duyệt
+├── context.go        # ngân sách token, cắt lịch sử cho LLM 16k (fitContext)
+├── offline.go        # bộ não if/else (không LLM) – nơi thêm luật/lệnh
+├── tools.go          # tất cả công cụ + sandbox + runShell + đọc trang (window)
+├── docs.go           # đọc PDF / DOCX / XLSX / PPTX
+├── tasks.go           # task định kỳ: lịch, chạy, báo động, lưu JSON, tool create_task…
+├── web.go            # web_search (DuckDuckGo/Google/SearXNG) + fetch_url
+├── proc_windows.go   # chạy cmd.exe đúng cách + giết cả cây tiến trình
+├── proc_other.go     # bản Linux/macOS
+├── web/index.html    # toàn bộ giao diện (nhúng vào exe)
+├── vendor/           # thư viện PDF (đã vendor)
+├── testdata/         # PDF/DOCX/XLSX mẫu cho test
+├── *_test.go         # ~40 test (tools, offline, docs, tasks, agent với LLM giả, web với server giả)
+├── build.sh · config.example.json
 ```
 
 ---
@@ -286,6 +291,64 @@ Sửa giao diện: chỉnh trực tiếp `web/index.html`, `go build` lại là 
 
 ---
 
+## 4b. Các phần mở rộng (agent thật, đọc tài liệu, task, web)
+
+### 4b.1 Vòng lặp agent cho LLM nhỏ (`agent.go`, `context.go`)
+
+**Vấn đề:** nhiều LLM nội bộ không hỗ trợ `tools`/function-calling, và chỉ có 16k ngữ cảnh. Cách xử lý:
+
+1. **Giao thức công cụ bằng văn bản** (`tool_mode: "text"`, mặc định). System prompt liệt kê công cụ dạng `read_file(path, offset?)` và yêu cầu trả lời bằng khối ```` ```tool {"name":..,"args":{..}} ``` ````. `parseToolText` đọc rất rộng lượng: khối fenced (`tool`/`json`), `<tool_call>…</tool_call>`, JSON "trần" lẫn trong văn bản; khóa `args`/`arguments`/`parameters`/`input`; tham số có thể là chuỗi JSON hoặc đặt phẳng; bí danh tên (`bash`→`run_command`, `cat`→`read_file`…). JSON thường (không có `name` là công cụ có thật) **không bị coi là lệnh**.
+2. **Mỗi lượt một công cụ**; kết quả trả lại dưới dạng tin nhắn `user` ("Kết quả của `x`: …") – nên lịch sử chỉ gồm `user`/`assistant`, không có tin nhắn `tool` mồ côi, rất dễ cắt.
+3. **Tham số khoan dung** (`targs` trong `tools.go`): số dạng chuỗi (`"30"`), bí danh khóa (`cmd`→`command`, `file`→`path`, `q`→`query`…), boolean dạng chữ (`"false"`).
+4. **Vòng lặp** tối đa 15 bước; chặn lặp lại cùng một lệnh; nhắc sửa khối JSON hỏng (tối đa 2 lần); tự chuyển `auto`→`text` nếu máy chủ từ chối `tools`.
+
+```go
+for step := 0; step < maxAgentSteps; step++ {
+    msgs := fitContext(systemPrompt, history, budget)   // cắt cho vừa 16k
+    m, err := callLLM(ctx, msgs, native)                // POST /chat/completions (max_tokens, temperature 0.2)
+    call := m.ToolCalls ?? parseToolText(m.Content)     // native hoặc khối ```tool
+    if no call { emit(answer); return }
+    result := execTool(ctx, root, call, emit)           // xin duyệt → chạy THẬT → kết quả
+    history += assistant(m) + result(clipped)
+}
+```
+
+**Ngân sách token (`context.go`)**: `estTokens` ước lượng *bi quan* (ASCII ≈ 3 ký tự/token, ký tự có dấu ≈ 1.5 ký tự/token) – thà gửi ít còn hơn bị lỗi vượt context. `fitContext(system, history, budget)`:
+- luôn giữ **system** và **lượt hỏi mới nhất**; nếu lượt mới quá lớn thì rút gọn dần kết quả công cụ (6000→2500→1000→400→150 ký tự), sau đó bỏ nhóm (assistant+kết quả) cũ nhất;
+- lượt cũ hơn: chỉ giữ nếu còn chỗ, kết quả công cụ rút còn 500 ký tự;
+- không bao giờ bắt đầu giữa một lượt; ở chế độ `native` không để lại tin nhắn `tool` mồ côi.
+Ngoài ra: `read_file` trả theo trang (`readChunkChars` ≈ `context_tokens/5` ký tự) kèm gợi ý `offset=`; lịch sử lưu tối đa ~120 tin; lỗi 4xx có chữ "context/token/maximum" → thử lại với ngân sách ×0.6.
+
+### 4b.2 Đọc tài liệu (`docs.go`)
+
+DOCX/XLSX/PPTX **là file zip chứa XML** nên chỉ cần `archive/zip` + `encoding/xml` (đọc dạng luồng):
+- **DOCX**: `word/document.xml` → gom các thẻ `<w:t>`; `</w:p>` xuống dòng; `<w:tc>` nối ` | `, `</w:tr>` xuống dòng.
+- **XLSX**: `xl/workbook.xml` (tên sheet + id) → `xl/_rels/workbook.xml.rels` (id → tệp) → `xl/sharedStrings.xml` (chuỗi dùng chung) → từng `sheetN.xml`. Ô kiểu `t="s"` tra bảng chuỗi; vị trí cột lấy từ thuộc tính `r="C5"` (nên ô trống ở giữa vẫn giữ đúng cột); ô `<f>` không có giá trị tính sẵn → hiện `=công_thức`.
+- **PPTX**: `ppt/slides/slideN.xml` → các `<a:t>`.
+- **PDF**: giải mã luồng/font phức tạp nên dùng thư viện `ledongthuc/pdf` (`GetPlainText`), bọc `recover()` vì parser có thể panic với tệp hỏng; trang không có chữ → báo "bản scan, cần OCR".
+- Giới hạn: 400 KB chữ, 200 trang, 3000 dòng/sheet, mỗi mục zip ≤ 64 MB (chống zip-bomb).
+`read_file` tự nhận đuôi tệp và gọi `readDocument`, nên cả chế độ lệnh lẫn LLM đều đọc được.
+
+### 4b.3 Task định kỳ (`tasks.go`)
+
+```go
+type Task struct { ID, Name, Schedule, Command, Dir string; TimeoutSec int
+    AlertOnFail bool; AlertContains, AlertNotContains string
+    Enabled bool; NextRun time.Time; History []Run /* ≤20 */ }
+```
+- `parseSchedule` (regex) hiểu "mỗi 5 phút", "every 30s", "hàng ngày 8h30"…; `schedule.next(after)` tính lần chạy kế (interval: +Every; daily: hôm nay hoặc ngày mai lúc HH:MM).
+- `Scheduler.Start()` chạy một goroutine, **tick mỗi giây**: task tới hạn (`Enabled && !Running && NextRun<=now`) → đặt `Running`, tính `NextRun` ngay, rồi chạy trong goroutine riêng (không bao giờ chạy chồng lên chính nó).
+- `execute` dùng lại `runShell` (timeout, giết cây tiến trình) → tạo `Run` → đánh giá điều kiện (mã thoát, `contains`, `not contains`, hết giờ) → ghi lịch sử → lưu `tasks.json` (ghi tệp tạm rồi `rename` để không hỏng nửa chừng).
+- **Chống spam**: chỉ phát cảnh báo khi trạng thái *đổi* (ổn→lỗi, lỗi→ổn). Cảnh báo vào hàng đợi `alerts` (UI poll `/api/tasks` mỗi 5 giây, hiện toast + huy hiệu) và tùy chọn `POST` tới `alert_webhook`.
+- Khi mở lại chương trình, task có `NextRun` quá khứ được **tính lại từ bây giờ** (không chạy bù hàng loạt).
+- Task dạng *script*: `scriptCommand` lưu mã ra `%AppData%\desktop-agent\tasks\<id>.py|.ps1|.bat|.sh` rồi tạo lệnh chạy nó.
+- Duyệt: `create_task`/`delete_task` nằm trong `needsApproval` → thẻ duyệt hiện toàn bộ lệnh; task chạy sau đó không cần duyệt lại.
+- Giới hạn: 30 task, chu kỳ ≥ 10 giây.
+
+### 4b.4 Web (`web.go`)
+
+`web_search`: DuckDuckGo (`html.duckduckgo.com/html/?q=`, tách `result__a`/`result__snippet` bằng regex, gỡ lớp chuyển hướng `uddg=`), Google Programmable Search (JSON API), hoặc SearXNG (`format=json`). `fetch_url`: tải (giới hạn 2 MB, timeout 20 giây), bỏ `script/style/nav/footer`, đổi thẻ khối thành xuống dòng, bỏ thẻ còn lại, `html.UnescapeString`, đọc theo trang. Chỉ nhận `http(s)://`. **`fetch_url` cần duyệt** (chống rò dữ liệu qua URL / prompt-injection).
+
 ## 5. Build ra file exe
 
 ### 5.1 Build trên Windows
@@ -371,7 +434,7 @@ Muốn tự chạy khi đăng nhập Windows: thêm `Name: "{userstartup}\Tro Ly
 ```yaml
 name: build
 on: { push: { tags: ['v*'] } }
-jobs:
+tasks:
   win:
     runs-on: ubuntu-latest
     steps:
@@ -443,9 +506,14 @@ Nếu muốn nhiều tính năng (kỹ năng, bộ nhớ, MCP) thay vì tự vi�
 Dự án có sẵn bộ test tự động – **chạy trước mỗi lần build**:
 
 ```bash
-go test ./...        # ~7 giây
+go test ./...        # ~10 giây
+go test -race ./...  # kiểm tra tranh chấp dữ liệu (nên chạy trước khi phát hành)
 ```
 
+- `agent_test.go`: **LLM giả** (httptest) chạy đủ 3 chế độ – text, native, auto; kiểm tra lệnh chạy thật và kết quả quay lại LLM, 8 biến thể cú pháp khối tool, sửa khối hỏng, chặn lặp, giới hạn bước, từ chối duyệt, lỗi 500, **hội thoại 25 lượt không vượt ngân sách 16k**, kết quả khổng lồ bị cắt, **thử lại khi server báo tràn context**.
+- `docs_test.go`: PDF tiếng Việt, PDF do LibreOffice xuất, PDF scan, DOCX có bảng, XLSX nhiều sheet/ô trống/công thức/ký tự đặc biệt, tệp giả đuôi `.docx`, phân trang UTF-8.
+- `tasks_test.go`: phân tích lịch (hợp lệ/không hợp lệ), tính lần chạy kế, báo động + hồi phục + không spam, các luật `contains`, timeout, lưu/nạp JSON, không chạy bù, tick, lệnh `task …`.
+- `web_test.go`: DuckDuckGo/Google/SearXNG bằng server giả, bóc chữ HTML, URL sai, duyệt.
 - `tools_test.go`: sandbox (thoát bằng `../`, đường dẫn tuyệt đối, symlink), đọc/ghi/sửa/thêm/đổi tên/xóa, chạy lệnh (dấu nháy, mã thoát, stderr, **timeout**, **tiến trình nền**, **hủy giữa chừng**).
 - `offline_test.go`: hơn 100 câu lệnh người dùng hay gõ (hoa/thường, tiếng Việt/Anh, tên tệp có dấu và khoảng trắng, nội dung chứa dấu `:`, thiếu tham số, từ chối duyệt).
 
@@ -483,3 +551,28 @@ Các điểm cần thử khi sửa code: lệnh đọc ngoài dự án (`đọc 
 | UI cũ dù đã sửa | Trình duyệt cache; `Ctrl+F5`. Nhớ build lại vì UI nằm *trong* exe |
 | Defender đánh dấu virus | Do exe chưa ký + có hành vi "chạy lệnh"; ký số, thêm icon/version info, nhờ IT whitelist theo SHA-256 |
 | Streaming bị "đứng" sau proxy công ty | Proxy gom đệm; tắt buffering ở proxy hoặc chạy trực tiếp localhost |
+
+
+---
+
+## 10. Có nên dùng framework agent có sẵn?
+
+Phần "agent" ở đây (vòng lặp + công cụ + cắt ngữ cảnh) chỉ khoảng 300 dòng Go, nên tôi **tự viết** để: ra được **một exe nhỏ (~8 MB)**, kiểm soát chặt quyền hạn/duyệt, chạy với LLM nhỏ không có function-calling, và hiểu từng dòng. Nếu bạn vẫn muốn dùng framework, đây là các lựa chọn phổ biến (**tôi chưa thử đóng gói các framework này thành exe trong dự án này** – nhận định dưới đây dựa trên cách chúng được thiết kế, hãy tự kiểm chứng):
+
+| Framework | Ngôn ngữ | Hợp với | Lưu ý khi muốn ra `.exe` |
+|---|---|---|---|
+| **smolagents** (Hugging Face) | Python | Agent nhỏ gọn, mô hình viết *mã Python* để làm việc; dễ đọc | Đóng bằng PyInstaller ~50–100 MB; để model chạy mã tùy ý thì **phải sandbox** |
+| **PydanticAI** | Python | Công cụ có kiểu dữ liệu chặt, đầu ra có cấu trúc | Như trên |
+| **LangGraph / LangChain** | Python | Luồng nhiều bước, đồ thị trạng thái, lưu/khôi phục tiến trình | Phụ thuộc nhiều, exe nặng; hay đổi API |
+| **OpenAI Agents SDK** | Python | Agent + công cụ + handoff | Thiết kế cho API OpenAI; dùng LLM nội bộ cần endpoint tương thích |
+| **AutoGen/AG2, CrewAI** | Python | Nhiều agent phối hợp | Thường thừa với nhu cầu "một trợ lý làm việc với tệp" |
+| **langchaingo, Eino** | Go | Nếu muốn ở lại Go và có sẵn nhiều tích hợp | Thêm phụ thuộc; vẫn ra được một binary |
+| **Vercel AI SDK, Mastra** | TypeScript | Nếu đã có hệ sinh thái Node/React | Cần Node runtime hoặc `bun build --compile` |
+
+**Gợi ý chọn:**
+- Cần *một exe gọn, kiểm soát quyền, LLM nhỏ 16k* → giữ bản Go này.
+- Muốn **thử ý tưởng nhanh** và không quan tâm kích thước exe → viết prototype bằng **smolagents hoặc PydanticAI** (Python), sau này mới quyết định có chuyển sang Go.
+- Cần **quy trình nhiều bước, nhiều agent, lưu trạng thái** → LangGraph, nhưng cân nhắc nó trên máy Windows nhân viên (nặng, nhiều phụ thuộc).
+- Dù chọn gì, giữ nguyên các nguyên tắc ở mục 7: *sandbox đường dẫn, duyệt trước khi ghi/chạy, giới hạn thời gian, coi nội dung đọc từ web/tệp là không tin cậy*. Framework không tự làm các việc này cho bạn.
+
+**Việc "đặt lịch kiểm tra công việc"** nên tách khỏi framework agent: dùng bộ lập lịch đơn giản (như `tasks.go`) chạy *lệnh/script cố định*, chỉ gọi LLM khi cần diễn giải kết quả. Như vậy task vẫn chạy ổn khi LLM tắt hoặc chậm.

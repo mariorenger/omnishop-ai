@@ -2,7 +2,15 @@
   "base_url": "",
   "api_key": "",
   "model": "",
+  "context_tokens": 16000,
+  "max_output_tokens": 1500,
+  "tool_mode": "text",
   "port": 7878,
   "auto_approve": false,
-  "command_timeout_sec": 60
+  "command_timeout_sec": 60,
+  "search_provider": "duckduckgo",
+  "google_api_key": "",
+  "google_cx": "",
+  "searxng_url": "",
+  "alert_webhook": ""
 }
