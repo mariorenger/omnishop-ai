@@ -2,8 +2,9 @@
 # Export the Markdown guides to HTML, Word (.docx) and PDF.   Usage:  docs/export-docs.sh [outdir]
 # Needs: python3 + `pip install markdown`  and  LibreOffice (soffice).   (pandoc is used instead if installed.)
 set -euo pipefail
-cd "$(dirname "$0")"
-out="${1:-../dist/docs}"; mkdir -p "$out"
+here="$(cd "$(dirname "$0")" && pwd)"
+out="${1:-$here/../dist/docs}"; mkdir -p "$out"; out="$(cd "$out" && pwd)"   # absolute, so it is not affected by the cd below
+cd "$here"
 css='body{font-family:"Segoe UI",Arial,sans-serif;line-height:1.55;max-width:900px;margin:24px auto;padding:0 16px}
 code,pre{font-family:Consolas,monospace;background:#f3f3f3}pre{padding:10px;overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px;vertical-align:top}h1,h2,h3{margin-top:1.4em}'
 for f in HUONG_DAN HUONG_DAN_TAO_BOT NHAT_KY_PHAT_TRIEN; do
