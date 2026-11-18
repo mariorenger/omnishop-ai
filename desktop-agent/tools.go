@@ -1,0 +1,272 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+)
+
+const (
+	maxReadBytes   = 200 * 1024
+	maxOutputBytes = 20 * 1024
+)
+
+// toolDefs are sent to the LLM (OpenAI function-calling format).
+var toolDefs = []map[string]any{
+	fn("list_dir", "List files and folders in a directory of the project (relative path, '.' for root).",
+		props{"path": str("relative directory path")}, "path"),
+	fn("read_file", "Read a text file from the project.",
+		props{"path": str("relative file path")}, "path"),
+	fn("write_file", "Create or overwrite a file in the project with the given content.",
+		props{"path": str("relative file path"), "content": str("full file content")}, "path", "content"),
+	fn("edit_file", "Replace exactly one occurrence of old_string with new_string in a file. old_string must be unique.",
+		props{"path": str("relative file path"), "old_string": str("text to find (must occur exactly once)"), "new_string": str("replacement text")},
+		"path", "old_string", "new_string"),
+	fn("search_files", "Search project files for a regex pattern. Returns file:line: text.",
+		props{"pattern": str("regular expression"), "path": str("relative directory, default '.'")}, "pattern"),
+	fn("run_command", "Run a shell command in the project directory (cmd on Windows, sh elsewhere). Returns combined output.",
+		props{"command": str("command line"), "timeout_sec": map[string]any{"type": "integer", "description": "default 60, max 300"}}, "command"),
+}
+
+type props map[string]any
+
+func str(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+
+func fn(name, desc string, p props, required ...string) map[string]any {
+	return map[string]any{"type": "function", "function": map[string]any{
+		"name": name, "description": desc,
+		"parameters": map[string]any{"type": "object", "properties": p, "required": required},
+	}}
+}
+
+// needsApproval: tools that change state.
+func needsApproval(name string) bool {
+	return name == "write_file" || name == "edit_file" || name == "run_command"
+}
+
+// resolve maps a user/LLM supplied path to an absolute path guaranteed to stay inside root.
+func resolve(root, p string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("no project selected")
+	}
+	if p == "" {
+		p = "."
+	}
+	abs := p
+	if !filepath.IsAbs(p) {
+		abs = filepath.Join(root, p)
+	}
+	abs = filepath.Clean(abs)
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	// resolve symlinks of the deepest existing ancestor
+	probe, tail := abs, ""
+	for {
+		if _, err := os.Lstat(probe); err == nil {
+			break
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			break
+		}
+		tail = filepath.Join(filepath.Base(probe), tail)
+		probe = parent
+	}
+	realProbe, err := filepath.EvalSymlinks(probe)
+	if err != nil {
+		return "", err
+	}
+	real := filepath.Join(realProbe, tail)
+	rel, err := filepath.Rel(realRoot, real)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q is outside the project", p)
+	}
+	return real, nil
+}
+
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + fmt.Sprintf("\n...[truncated %d bytes]", len(s)-n)
+}
+
+// runTool executes one tool call and returns text for the LLM.
+func runTool(ctx context.Context, root, name, rawArgs string) string {
+	var a struct {
+		Path       string `json:"path"`
+		Content    string `json:"content"`
+		OldString  string `json:"old_string"`
+		NewString  string `json:"new_string"`
+		Pattern    string `json:"pattern"`
+		Command    string `json:"command"`
+		TimeoutSec int    `json:"timeout_sec"`
+	}
+	if err := json.Unmarshal([]byte(rawArgs), &a); err != nil {
+		return "error: invalid arguments: " + err.Error()
+	}
+	switch name {
+	case "list_dir":
+		p, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		ents, err := os.ReadDir(p)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		var out []string
+		for _, e := range ents {
+			if e.Name() == ".git" {
+				continue
+			}
+			n := e.Name()
+			if e.IsDir() {
+				n += "/"
+			}
+			out = append(out, n)
+			if len(out) >= 500 {
+				out = append(out, "...[more entries omitted]")
+				break
+			}
+		}
+		if len(out) == 0 {
+			return "(empty directory)"
+		}
+		return strings.Join(out, "\n")
+	case "read_file":
+		p, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 {
+			return "error: binary file"
+		}
+		return clip(string(b), maxReadBytes)
+	case "write_file":
+		p, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return "error: " + err.Error()
+		}
+		if err := os.WriteFile(p, []byte(a.Content), 0o644); err != nil {
+			return "error: " + err.Error()
+		}
+		return fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)
+	case "edit_file":
+		p, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if a.OldString == "" {
+			return "error: old_string is empty"
+		}
+		n := strings.Count(string(b), a.OldString)
+		if n != 1 {
+			return fmt.Sprintf("error: old_string found %d times, must be exactly 1", n)
+		}
+		out := strings.Replace(string(b), a.OldString, a.NewString, 1)
+		if err := os.WriteFile(p, []byte(out), 0o644); err != nil {
+			return "error: " + err.Error()
+		}
+		return "edited " + a.Path
+	case "search_files":
+		re, err := regexp.Compile(a.Pattern)
+		if err != nil {
+			return "error: bad pattern: " + err.Error()
+		}
+		base, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		var hits []string
+		_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || len(hits) >= 200 {
+				return nil
+			}
+			if d.IsDir() {
+				if d.Name() == ".git" || d.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			b, err := os.ReadFile(path)
+			if err != nil || len(b) > maxReadBytes || bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+			for i, line := range strings.Split(string(b), "\n") {
+				if re.MatchString(line) {
+					hits = append(hits, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(clip(line, 200))))
+					if len(hits) >= 200 {
+						break
+					}
+				}
+			}
+			return nil
+		})
+		sort.Strings(hits)
+		if len(hits) == 0 {
+			return "no matches"
+		}
+		return strings.Join(hits, "\n")
+	case "run_command":
+		if root == "" {
+			return "error: no project selected"
+		}
+		t := a.TimeoutSec
+		if t <= 0 {
+			t = 60
+		}
+		if t > 300 {
+			t = 300
+		}
+		cctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
+		defer cancel()
+		var c *exec.Cmd
+		if runtime.GOOS == "windows" {
+			c = exec.CommandContext(cctx, "cmd", "/C", a.Command)
+		} else {
+			c = exec.CommandContext(cctx, "sh", "-c", a.Command)
+		}
+		c.Dir = root
+		hideWindow(c)
+		var buf bytes.Buffer
+		c.Stdout, c.Stderr = &buf, &buf
+		err := c.Run()
+		out := clip(buf.String(), maxOutputBytes)
+		switch {
+		case cctx.Err() == context.DeadlineExceeded:
+			return out + fmt.Sprintf("\n[timed out after %ds]", t)
+		case err != nil:
+			return out + "\n[" + err.Error() + "]"
+		}
+		if out == "" {
+			return "(no output, exit 0)"
+		}
+		return out
+	}
+	return "error: unknown tool " + name
+}
