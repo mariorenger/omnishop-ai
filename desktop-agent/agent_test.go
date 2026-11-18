@@ -427,3 +427,34 @@ func TestEstTokensIsConservative(t *testing.T) {
 		t.Error("empty")
 	}
 }
+
+// The model asks for a slightly wrong name; the tool answers with "did you mean", the model retries.
+func TestAgentRecoversFromWrongFileName(t *testing.T) {
+	f := newFakeLLM(t, func(n int, req map[string]any) (int, any) {
+		switch n {
+		case 1:
+			return 200, chat(toolBlock("read_file", `{"path":"abd_notes.txt"}`)) // typo of docs/abc_notes.txt
+		case 2:
+			last := lastUserText(req)
+			if !strings.Contains(last, "docs/abc_notes.txt") || !strings.Contains(last, "gần giống") {
+				t.Errorf("model must be shown the closest names, got %q", last)
+			}
+			return 200, chat(toolBlock("read_file", `{"path":"docs/abc_notes.txt"}`))
+		default:
+			wantHas(t, lastUserText(req), "hello notes")
+			return 200, chat("Nội dung tệp là: hello notes")
+		}
+	})
+	s, d := newLLMServer(t, f, "text")
+	must(t, os.MkdirAll(filepath.Join(d, "docs"), 0o755))
+	mustWrite(t, filepath.Join(d, "docs", "abc_notes.txt"), "hello notes")
+	r := s.drive("đọc giúp tôi file abd_notes")
+	if len(r.errs) != 0 || len(r.calls) != 2 || !strings.Contains(strings.Join(r.said, " "), "hello notes") {
+		t.Fatalf("%+v", r)
+	}
+	// the system prompt tells the model what to do when unsure about a name
+	sys := f.reqs[0]["messages"].([]any)[0].(map[string]any)["content"].(string)
+	for _, w := range []string{"find_files", "gần giống", "search_files"} {
+		wantHas(t, sys, w)
+	}
+}

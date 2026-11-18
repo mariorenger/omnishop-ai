@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -159,6 +160,16 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 		if rest == "" {
 			emit("assistant", "Đọc file nào? Ví dụ: đọc README.md")
 			return
+		}
+		// typo / no diacritics: if the name does not exist but one file is clearly the closest, open it
+		if p, err := resolve(root, rest); err == nil {
+			if _, e := os.Stat(p); isNotExist(e) {
+				if m := suggestFiles(ctx, root, rest, 5); len(m) > 0 && m[0].Score >= 0.85 && !strings.HasSuffix(m[0].Path, "/") &&
+					(len(m) == 1 || m[1].Score <= m[0].Score-0.1) {
+					emit("assistant", fmt.Sprintf("Không thấy %q – mở tệp gần giống nhất: `%s`", rest, m[0].Path))
+					rest = m[0].Path
+				}
+			}
 		}
 		call("read_file", map[string]any{"path": rest}, true)
 	case verb == "tìm" || verb == "find" || verb == "search" || verb == "grep":

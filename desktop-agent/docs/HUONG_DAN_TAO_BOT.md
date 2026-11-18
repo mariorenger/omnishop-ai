@@ -59,10 +59,12 @@ desktop-agent/
 ├── offline.go        # bộ não if/else (không LLM) – nơi thêm luật/lệnh
 ├── tools.go          # tất cả công cụ + sandbox + runShell + đọc trang (window)
 ├── docs.go           # đọc PDF / DOCX / XLSX / PPTX
+├── fuzzy.go          # so khớp tên tệp gần đúng (bỏ dấu, gõ sai) + gợi ý "có phải ý bạn là…"
 ├── tasks.go           # task định kỳ: lịch, chạy, báo động, lưu JSON, tool create_task…
 ├── web.go            # web_search (DuckDuckGo/Google/SearXNG) + fetch_url
 ├── proc_windows.go   # chạy cmd.exe đúng cách + giết cả cây tiến trình
 ├── proc_other.go     # bản Linux/macOS
+├── desktop-agent.service # mẫu dịch vụ systemd (Linux)
 ├── web/index.html    # toàn bộ giao diện (nhúng vào exe)
 ├── vendor/           # thư viện PDF (đã vendor)
 ├── testdata/         # PDF/DOCX/XLSX mẫu cho test
@@ -325,7 +327,7 @@ DOCX/XLSX/PPTX **là file zip chứa XML** nên chỉ cần `archive/zip` + `enc
 - **DOCX**: `word/document.xml` → gom các thẻ `<w:t>`; `</w:p>` xuống dòng; `<w:tc>` nối ` | `, `</w:tr>` xuống dòng.
 - **XLSX**: `xl/workbook.xml` (tên sheet + id) → `xl/_rels/workbook.xml.rels` (id → tệp) → `xl/sharedStrings.xml` (chuỗi dùng chung) → từng `sheetN.xml`. Ô kiểu `t="s"` tra bảng chuỗi; vị trí cột lấy từ thuộc tính `r="C5"` (nên ô trống ở giữa vẫn giữ đúng cột); ô `<f>` không có giá trị tính sẵn → hiện `=công_thức`.
 - **PPTX**: `ppt/slides/slideN.xml` → các `<a:t>`.
-- **PDF**: giải mã luồng/font phức tạp nên dùng thư viện `ledongthuc/pdf` (`GetPlainText`), bọc `recover()` vì parser có thể panic với tệp hỏng; trang không có chữ → báo "bản scan, cần OCR".
+- **PDF**: giải mã luồng/font phức tạp nên dùng thư viện `ledongthuc/pdf`, bọc `recover()` vì parser có thể panic với tệp hỏng; trang không có chữ → báo "bản scan, cần OCR". **Không dùng** `GetPlainText`/`GetTextByRow` của thư viện: với tiếng Việt xuất từ Word/LibreOffice chúng xếp sai các ký tự dấu ("Hạng mục" → "Hng mcạụ"). Thay vào đó `pageText2` lấy **từng ký tự thô** (`Content().Text`: chữ, X, Y, độ rộng, cỡ chữ), gom theo dòng (cùng Y trong ±0.45×cỡ chữ), sắp theo X, chèn khoảng trắng khi khoảng hở > 0.18×cỡ chữ và 2 khoảng trắng khi > 1.5×cỡ chữ (cột bảng). Giới hạn còn lại: ToUnicode ghép dấu (ê + dấu ngã) bị thư viện giải mã thành U+FFFD → bot **giữ ký tự lỗi và thêm cảnh báo** thay vì đoán. Muốn chính xác tuyệt đối cần tự viết bộ phân tích CMap hoặc dùng công cụ ngoài (MuPDF/pdfium) – đánh đổi là cần cgo/DLL.
 - Giới hạn: 400 KB chữ, 200 trang, 3000 dòng/sheet, mỗi mục zip ≤ 64 MB (chống zip-bomb).
 `read_file` tự nhận đuôi tệp và gọi `readDocument`, nên cả chế độ lệnh lẫn LLM đều đọc được.
 
@@ -349,6 +351,16 @@ type Task struct { ID, Name, Schedule, Command, Dir string; TimeoutSec int
 
 `web_search`: DuckDuckGo (`html.duckduckgo.com/html/?q=`, tách `result__a`/`result__snippet` bằng regex, gỡ lớp chuyển hướng `uddg=`), Google Programmable Search (JSON API), hoặc SearXNG (`format=json`). `fetch_url`: tải (giới hạn 2 MB, timeout 20 giây), bỏ `script/style/nav/footer`, đổi thẻ khối thành xuống dòng, bỏ thẻ còn lại, `html.UnescapeString`, đọc theo trang. Chỉ nhận `http(s)://`. **`fetch_url` cần duyệt** (chống rò dữ liệu qua URL / prompt-injection).
 
+### 4b.5 Tìm tệp gần đúng (`fuzzy.go`)
+
+Vấn đề: người dùng/LLM nói *"đọc bao cao doanh thu q1"* hoặc gõ nhầm `abd_notes.txt` trong khi tệp thật là `báo-cáo/Báo cáo doanh thu Q1.txt`. Giải pháp:
+- `foldName`: hạ chữ thường, **bỏ dấu tiếng Việt** (bảng `strings.NewReplacer`), đổi mọi dấu phân cách thành một khoảng trắng.
+- `nameScore(muốn, ứng_viên)` ∈ [0,1] lấy giá trị lớn nhất của: *chứa nhau* (0.80–0.99 tùy độ dài), *1 − khoảng cách Levenshtein/độ dài* (bắt lỗi gõ sai), và *trùng token* (không phụ thuộc thứ tự từ, cho phép sai 1 ký tự với từ ≥4 chữ).
+- `suggestFiles` đi qua cây thư mục (tối đa 3 giây/50 000 mục, bỏ `.git`, `node_modules`), giữ ứng viên ≥ 0.55, xếp theo điểm.
+- **Nơi dùng:** `read_file`/`list_dir`/`edit_file`/`delete_file` khi *không tồn tại* → trả lỗi kèm `Tệp/thư mục gần giống: …` (LLM đọc được và tự thử lại); `find_files` khi không tên nào chứa chuỗi tìm → trả tên gần giống; lệnh `đọc` ở chế độ offline **tự mở** nếu có đúng một ứng viên ≥ 0.85 hơn hẳn (≥ 0.1) ứng viên thứ hai — còn nhập nhằng thì chỉ liệt kê, **không đoán**.
+- `search_files` còn tìm trong nội dung PDF/DOCX/XLSX/PPTX (qua `readDocument`, tối đa 300 tài liệu, mỗi tệp ≤ 30 MB), không phân biệt hoa thường (`(?i)`), và khớp cả không dấu khi mẫu là chữ thường (không phải regex).
+- Hướng dẫn trong system prompt: *không chắc tên → find_files/list_dir trước; read_file báo không thấy → dùng mục "gần giống"*.
+
 ## 5. Build ra file exe
 
 ### 5.1 Build trên Windows
@@ -365,7 +377,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
   go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/desktop-agent.exe .
 ```
 
-Hoặc chạy `./build.sh` (đã gồm bước copy `config.json`).
+Hoặc chạy `./build.sh`: tạo **cả ba gói** `desktop-agent-win.zip`, `desktop-agent-linux-amd64.tar.gz`, `desktop-agent-linux-arm64.tar.gz` (kèm `config.json`, 2 file hướng dẫn, và `desktop-agent.service` cho Linux). `./build.sh windows` hoặc `./build.sh linux` để build riêng.
 
 | Cờ | Tác dụng |
 |---|---|
@@ -376,6 +388,13 @@ Hoặc chạy `./build.sh` (đã gồm bước copy `config.json`).
 | `-trimpath` | bỏ đường dẫn máy build khỏi binary (build lặp lại được, không lộ tên thư mục) |
 
 Kết quả: `desktop-agent.exe` khoảng 7 MB, chạy được trên Windows 10/11 mà không cần cài gì.
+
+### 5.2b Build cho Linux
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o desktop-agent .   # arm64: GOARCH=arm64
+```
+`CGO_ENABLED=0` cho ra file **liên kết tĩnh** (chạy trên mọi bản phân phối, kể cả Alpine/minimal; kiểm tra bằng `ldd` → "not a dynamic executable"). Không cần cờ `-H=windowsgui` (chỉ của Windows). Phần riêng từng hệ điều hành đã tách bằng *build tag*: `proc_windows.go` (cmd.exe, taskkill, ẩn console) và `proc_other.go` (`sh -c`, process group + `kill(-pgid)`); mở trình duyệt chọn theo `runtime.GOOS` (`rundll32` / `open` / `xdg-open`); thư mục dữ liệu lấy từ `os.UserConfigDir()` (`%AppData%` hoặc `~/.config`). Khi chạy dạng dịch vụ có thể đặt `access_token` cố định trong `config.json`.
 
 ### 5.3 Đặt icon, tên, phiên bản cho exe (tuỳ chọn, nên làm)
 

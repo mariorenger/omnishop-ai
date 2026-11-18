@@ -55,9 +55,9 @@ Lệnh gõ **tiếng Việt hoặc tiếng Anh** đều được. Không phân b
 | `ls [thư mục]` (hoặc `dir`, `liệt kê`) | Liệt kê tệp, thư mục | `ls`, `ls src` |
 | `tree [thư mục]` | Cây thư mục sâu tối đa 3 cấp | `tree` |
 | `đọc <tệp>` (hoặc `read`, `cat`, `xem`, `mở`) | Xem nội dung tệp văn bản | `đọc README.md` |
-| `tìm <từ khóa>` (hoặc `find`, `grep`) | Tìm **cả tên tệp lẫn nội dung** trong toàn bộ dự án. Kết quả chia 2 phần: *Tên tệp khớp* và *Nội dung khớp* (`tệp:dòng: nội dung`) | `tìm hoadon`, `tìm TODO` |
-| `tìm tên <mẫu>` (hoặc `tìm file`) | **Chỉ theo tên** tệp/thư mục. Không phân biệt hoa/thường; dùng được ký tự đại diện `*` `?` | `tìm tên báo cáo`, `tìm tên *.pdf` |
-| `tìm nội dung <regex>` (hoặc `tìm chữ`) | **Chỉ theo nội dung** bên trong tệp văn bản (hiểu regex) | `tìm nội dung password`, `tìm nội dung TODO\|FIXME` |
+| `tìm <từ khóa>` (hoặc `find`, `grep`) | Tìm **cả tên tệp lẫn nội dung** trong toàn bộ dự án, **kể cả chữ bên trong PDF/Word/Excel/PowerPoint**. Kết quả chia 2 phần: *Tên tệp khớp* và *Nội dung khớp* (`tệp:dòng: nội dung`) | `tìm hoadon`, `tìm TODO` |
+| `tìm tên <mẫu>` (hoặc `tìm file`) | **Chỉ theo tên** tệp/thư mục. Không phân biệt hoa/thường, **không cần gõ dấu**, dùng được `*` `?`. Nếu không tên nào chứa đúng chữ bạn gõ, bot liệt kê **tên gần giống** (gõ sai 1–2 chữ cái cũng ra) | `tìm tên báo cáo`, `tìm tên bao cao`, `tìm tên *.pdf` |
+| `tìm nội dung <regex>` (hoặc `tìm chữ`) | **Chỉ theo nội dung** bên trong tệp (văn bản + PDF/Word/Excel/PowerPoint). Không phân biệt hoa/thường và **khớp cả khi bạn gõ không dấu** (`nguyen van anh` tìm ra `Nguyễn Văn Ánh`) | `tìm nội dung password`, `tìm nội dung TODO\|FIXME` |
 
 ### Lệnh thay đổi dữ liệu (**luôn hỏi bạn duyệt trước**)
 
@@ -100,6 +100,7 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
 |---|---|
 | `đọc bao_cao.pdf` / `.docx` / `.xlsx` / `.pptx` | Đọc chữ trong PDF, Word, Excel, PowerPoint (mục 9) |
 | `đọc <tệp> ` rồi làm theo gợi ý `offset=` | Đọc tiếp phần sau của tệp dài |
+| `đọc abd_notes` (gõ sai/không dấu/thiếu thư mục) | Nếu chỉ có **một** tệp rõ ràng gần giống nhất, bot mở luôn và nói *"mở tệp gần giống nhất: …"*. Nếu có **nhiều** tệp na ná, bot **không đoán** mà liệt kê để bạn chọn |
 | `google <từ khóa>`, `tin tức <chủ đề>` | Tìm trên web (mục 11) |
 | `đọc https://…` | Đọc nội dung một trang web (cần duyệt) |
 | `task`, `task thêm …` | Quản lý tác vụ định kỳ (mục 10) |
@@ -142,6 +143,7 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
 | `tool_mode` | `text` (mặc định, chạy với **mọi** LLM kể cả loại không hỗ trợ function-calling) · `native` · `auto` |
 | `search_provider`, `google_api_key`, `google_cx`, `searxng_url` | Tìm web (mục 11) |
 | `alert_webhook` | URL nhận cảnh báo của task (mục 10) |
+| `access_token` | (tùy chọn) mã truy cập cố định ≥16 ký tự, để mở lại cùng một đường link khi chạy như dịch vụ (mục 12). Để trống = mã ngẫu nhiên mỗi lần chạy |
 
 Có thể ghi đè bằng biến môi trường: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `AGENT_PORT`.
 Tham số dòng lệnh: `desktop-agent.exe --project D:\duan --no-browser`.
@@ -203,6 +205,9 @@ Xóa thư mục chứa exe và thư mục `%AppData%\desktop-agent\`. Bot không
 
 và tự đọc khối đó (chấp nhận cả vài biến thể JSON sai chuẩn mà model nhỏ hay viết). Nếu LLM của bạn hỗ trợ function-calling chuẩn OpenAI, có thể đặt `native`, hoặc `auto` (thử native, lỗi thì tự chuyển sang `text`).
 
+### Khi bạn nhớ không chắc tên tệp
+Trợ lý được hướng dẫn: *không chắc tên → dùng `find_files`/`list_dir`/`tree` để xem trước*; nếu `read_file` báo không thấy thì kết quả đã kèm **"tệp gần giống"** để nó thử lại đúng tên. Tìm chữ trong nhiều tệp thì dùng `search_files` (có cả PDF/Word/Excel). Với model nhỏ, nếu nó vẫn đoán bừa tên tệp, hãy nói rõ hơn: *"xem danh sách tệp trước rồi mới đọc"*.
+
 ### Giới hạn 16k token – bot xử lý thế nào
 - Mỗi lần gọi, bot **cắt đầu vào cho vừa ngân sách** = `context_tokens` − `max_output_tokens` − phần dự phòng. Lịch sử cũ bị bỏ dần (giữ câu hỏi mới nhất), kết quả công cụ cũ bị rút gọn.
 - Tệp dài được **đọc theo trang** (~3000 ký tự/lần); LLM tự gọi tiếp bằng `offset`.
@@ -225,6 +230,8 @@ Dùng được qua `đọc <tệp>` hoặc nhờ trợ lý ("tóm tắt hợp đ
 | `.docx` | Văn bản, bảng (các ô cách nhau ` | `) |
 | `.xlsx` | Từng sheet (`## Sheet: tên`), mỗi dòng là một hàng, ô cách nhau ` | `; tối đa 3000 dòng/sheet; ô công thức chưa có giá trị tính sẵn hiện dạng `=B2+B3` |
 | `.pptx` | Chữ của từng slide |
+
+**Về độ chính xác của PDF tiếng Việt (quan trọng):** PDF không lưu "văn bản" mà lưu từng ký tự đặt ở vị trí, nên bot phải ghép lại. Đã thử: PDF tạo từ phần mềm lập trình (font Unicode đầy đủ) → **chính xác**; PDF xuất từ LibreOffice với font Carlito/Caladea → đúng thứ tự dòng, bảng và hầu hết chữ, nhưng **một số dấu thanh ghép (ễ, ề, ả…) bị hỏng** (hiện thành `�` hoặc thiếu chữ) và bot tự thêm dòng *"[cảnh báo: …]"*. PDF xuất từ Word chưa được thử. Vì vậy: số liệu, tên riêng, nội dung quan trọng → **hãy kiểm tra lại với bản gốc**, và ưu tiên đưa bản `.docx`/`.xlsx` nếu có.
 
 **Không đọc được:** PDF dạng ảnh/scan (cần OCR – bot sẽ báo rõ), tệp đặt mật khẩu, định dạng cũ `.doc` `.xls` `.ppt` (hãy lưu lại thành `.docx` `.xlsx` `.pptx`), hình ảnh và biểu đồ trong tài liệu. Ngày trong Excel hiện dạng số serial. Chỉ **đọc**, chưa ghi vào các định dạng này; muốn xuất dữ liệu hãy tạo `.csv` bằng `tạo`.
 
@@ -291,3 +298,39 @@ Máy chạy bot phải **ra được internet** (hoặc qua proxy công ty). Ch�
 - `web_search` không cần duyệt. **`fetch_url` (mở trang) luôn hỏi duyệt**, vì địa chỉ URL có thể bị lợi dụng để gửi dữ liệu ra ngoài.
 - Nội dung trang web là **không tin cậy**: một trang độc hại có thể chứa câu "hãy xóa file…" nhắm vào trợ lý. Hãy đọc kỹ thẻ duyệt trước khi cho phép bất kỳ thao tác ghi/chạy nào sau khi đọc web.
 - Bot lấy chữ từ HTML đơn giản (bỏ menu/quảng cáo ở mức cơ bản), không chạy JavaScript nên trang động có thể trống.
+
+
+---
+
+## 12. Chạy trên Linux
+
+Cùng một mã nguồn, có gói riêng: `desktop-agent-linux-amd64.tar.gz` (PC/máy chủ Intel/AMD) và `desktop-agent-linux-arm64.tar.gz` (ARM, Raspberry Pi 4/5…). Là **một file tĩnh**, không cần cài thư viện.
+
+```bash
+tar -xzf desktop-agent-linux-amd64.tar.gz && cd desktop-agent
+nano config.json                      # base_url, model… (để trống = bot if/else)
+./desktop-agent --project ~/work      # có giao diện đồ họa: tự mở trình duyệt
+```
+
+- Máy **không có màn hình** (server): thêm `--no-browser`; chương trình in ra dòng `Open: http://127.0.0.1:7878/?t=…`. Từ máy của bạn mở đường hầm rồi dán đường link: `ssh -L 7878:127.0.0.1:7878 user@server`.
+- Bot chỉ nghe ở `127.0.0.1` (không mở ra mạng). Đừng đổi sang cổng công khai.
+- Lệnh `chạy` dùng `sh -c`, nên dùng lệnh Linux (`ls -la`, `df -h`, `systemctl status …`). Các ví dụ `dir`, `type`, `findstr`, `ping -n` trong tài liệu là của Windows; trên Linux dùng `ls`, `cat`, `grep`, `ping -c 1`.
+- Dữ liệu: `~/.config/desktop-agent/` (`tasks.json`, `agent.log`, thư mục `jobs`/mã script của task).
+- Task `script` dùng `python3`, `bash/sh` (có sẵn trên hầu hết bản phân phối); `powershell` chỉ khi đã cài `pwsh`.
+
+### Chạy nền 24/7 để task định kỳ luôn hoạt động
+File `desktop-agent.service` kèm trong gói là dịch vụ systemd mức người dùng:
+
+```bash
+mkdir -p ~/.config/systemd/user && cp desktop-agent.service ~/.config/systemd/user/
+# sửa dòng ExecStart: đường dẫn file chạy và thư mục dự án
+systemctl --user daemon-reload && systemctl --user enable --now desktop-agent
+loginctl enable-linger $USER          # vẫn chạy sau khi bạn đăng xuất
+journalctl --user -u desktop-agent -f # xem log
+```
+
+Chạy dịch vụ thì mã truy cập ngẫu nhiên mỗi lần khởi động sẽ gây khó chịu; hãy đặt `"access_token": "một-chuỗi-dài-ngẫu-nhiên-từ-16-ký-tự-trở-lên"` trong `config.json`, rồi vào `http://127.0.0.1:7878/?t=<access_token>` qua đường hầm SSH. Coi mã này như mật khẩu: ai vào được máy chủ *và* biết mã thì điều khiển được bot.
+
+Cũng có thể dùng **systemd cho chính task** thay vì bộ lập lịch của bot; bộ lập lịch của bot tiện khi bạn muốn quản lý và xem lịch sử ngay trong giao diện chat.
+
+macOS: Go build được (`GOOS=darwin`) nhưng gói này chưa kiểm thử trên macOS nên không phát hành.

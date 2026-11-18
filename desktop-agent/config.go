@@ -21,6 +21,7 @@ type Config struct {
 	GoogleAPIKey    string `json:"google_api_key"`
 	GoogleCX        string `json:"google_cx"`
 	SearxngURL      string `json:"searxng_url"`
+	AccessToken     string `json:"access_token"`        // optional fixed URL token (>=16 chars) for running as a service; empty = random each start
 	AlertWebhook    string `json:"alert_webhook"`       // POST {"text":...} on task alerts (Teams/Slack/Zalo bridge)
 	CmdTimeout      int    `json:"command_timeout_sec"` // default timeout of `run_command` (default 60, max 3600)
 }

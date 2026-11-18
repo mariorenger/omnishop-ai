@@ -64,9 +64,16 @@ func main() {
 	}
 	sched.Start()
 	webConf = webCfg{Provider: cfg.SearchProvider, GoogleKey: cfg.GoogleAPIKey, GoogleCX: cfg.GoogleCX, SearxURL: cfg.SearxngURL}
-	tok := make([]byte, 16)
-	_, _ = rand.Read(tok)
-	s := &Server{cfg: cfg, token: hex.EncodeToString(tok), pending: map[string]chan bool{}}
+	tokHex := cfg.AccessToken
+	if len(tokHex) < 16 { // too short/empty → random per start
+		if tokHex != "" {
+			log.Printf("access_token too short (need >=16 chars), using a random one")
+		}
+		tok := make([]byte, 16)
+		_, _ = rand.Read(tok)
+		tokHex = hex.EncodeToString(tok)
+	}
+	s := &Server{cfg: cfg, token: tokHex, pending: map[string]chan bool{}}
 	if *project != "" {
 		if abs, err := filepath.Abs(*project); err == nil {
 			s.project = abs

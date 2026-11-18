@@ -112,7 +112,7 @@ func TestOfflineCommands(t *testing.T) {
 	if b.file("thư mục mới/tệp con.txt") != "ok" {
 		t.Errorf("tạo (dấu/khoảng trắng): %q", b.file("thư mục mới/tệp con.txt"))
 	}
-	b.expect("đọc tệp con.txt", "Không làm được") // phải có đường dẫn đầy đủ
+	b.expect("đọc tệp con.txt", "gần giống nhất", "thư mục mới/tệp con.txt") // thiếu thư mục → vẫn tìm ra
 	b.expect("đọc thư mục mới/tệp con.txt", "ok")
 	b.expect("tạo t.txt : giờ: 10:30", "wrote")
 	if b.file("t.txt") != "giờ: 10:30" {

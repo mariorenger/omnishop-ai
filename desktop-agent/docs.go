@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -79,19 +80,13 @@ func readPDF(p string) (text string, err error) {
 	if n > maxDocPages {
 		n = maxDocPages
 	}
-	empty := 0
 	for i := 1; i <= n; i++ {
 		pg := r.Page(i)
 		if pg.V.IsNull() {
 			continue
 		}
-		t, e := pg.GetPlainText(nil)
-		if e != nil {
-			continue
-		}
-		t = strings.TrimSpace(t)
+		t := strings.TrimSpace(pageText2(pg))
 		if t == "" {
-			empty++
 			continue
 		}
 		fmt.Fprintf(&sb, "--- Trang %d ---\n%s\n\n", i, t)
@@ -102,7 +97,76 @@ func readPDF(p string) (text string, err error) {
 	if strings.TrimSpace(sb.String()) == "" {
 		return "", fmt.Errorf("PDF này không có lớp chữ (có thể là bản scan/ảnh) – cần OCR, bot chưa hỗ trợ")
 	}
-	return sb.String(), nil
+	out := sb.String()
+	if strings.ContainsRune(out, '\uFFFD') {
+		out += "\n[cảnh báo: PDF này có ký tự không giải mã được nên có thể sai dấu/thiếu chữ – nên dùng bản gốc .docx/.xlsx nếu có]"
+	}
+	return out, nil
+}
+
+// pageText2 rebuilds the page text from raw glyph runs: group glyphs into lines by their Y
+// position, order each line by X. The library's own GetPlainText/GetTextByRow mis-orders
+// combining/diacritic glyphs of Vietnamese text produced by Word/LibreOffice.
+func pageText2(pg pdf.Page) string {
+	runs := pg.Content().Text
+	if len(runs) == 0 {
+		return ""
+	}
+	type line struct {
+		y     float64
+		size  float64
+		items []pdf.Text
+	}
+	var lines []*line
+	for _, t := range runs {
+		if t.S == "" {
+			continue
+		}
+		tol := max(t.FontSize*0.45, 1.5)
+		var l *line
+		for _, c := range lines {
+			if math.Abs(c.y-t.Y) <= tol {
+				l = c
+				break
+			}
+		}
+		if l == nil {
+			l = &line{y: t.Y, size: t.FontSize}
+			lines = append(lines, l)
+		}
+		l.items = append(l.items, t)
+		l.size = max(l.size, t.FontSize)
+	}
+	sort.SliceStable(lines, func(i, j int) bool { return lines[i].y > lines[j].y })
+	var sb strings.Builder
+	for _, l := range lines {
+		sort.SliceStable(l.items, func(i, j int) bool { return l.items[i].X < l.items[j].X })
+		prevEnd := math.NaN()
+		var ln strings.Builder
+		for _, t := range l.items {
+			if !math.IsNaN(prevEnd) {
+				gap := t.X - prevEnd
+				switch {
+				case gap > l.size*1.5: // big horizontal gap: table column / tab stop
+					ln.WriteString("  ")
+				case gap > l.size*0.18 && !strings.HasSuffix(ln.String(), " ") && !strings.HasPrefix(t.S, " "):
+					ln.WriteByte(' ')
+				}
+			}
+			ln.WriteString(t.S)
+			w := t.W
+			if w <= 0 {
+				w = t.FontSize * 0.5 * float64(len([]rune(t.S)))
+			}
+			prevEnd = t.X + w
+		}
+		s := strings.TrimRight(ln.String(), " ")
+		if strings.TrimSpace(s) != "" {
+			sb.WriteString(s)
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
 }
 
 // ---------------------------------------------------------------- zip helpers

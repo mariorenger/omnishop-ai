@@ -1,0 +1,19 @@
+# User-level systemd service. Install:
+#   mkdir -p ~/.config/systemd/user && cp desktop-agent.service ~/.config/systemd/user/
+#   (edit ExecStart: path of the binary and your project folder)
+#   systemctl --user daemon-reload && systemctl --user enable --now desktop-agent
+#   loginctl enable-linger $USER      # keep running after you log out (for scheduled tasks)
+# Open the UI from another PC through an SSH tunnel:
+#   ssh -L 7878:127.0.0.1:7878 user@server   then  http://127.0.0.1:7878/?t=<access_token>
+[Unit]
+Description=Desktop Agent (chat + scheduled tasks)
+After=network-online.target
+
+[Service]
+ExecStart=%h/desktop-agent/desktop-agent --no-browser --project %h/work
+WorkingDirectory=%h/desktop-agent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

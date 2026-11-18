@@ -39,12 +39,26 @@ func TestReadPDF(t *testing.T) {
 	if err != nil || !strings.Contains(s, "Invoice 42") {
 		t.Fatalf("en.pdf: %v %q", err, s)
 	}
-	s, err = readDocument("testdata/hd_lo.pdf") // PDF produced by LibreOffice (closer to Word/Office PDFs)
+	// exact lines: no stray characters, correct order
+	s, _ = readDocument("testdata/vi.pdf")
+	wantHas(t, s, "Khách hàng mới: Nguyễn Văn Ánh, Trần Thị Bích\n")
+	wantHas(t, s, "Tổng doanh thu: 1.250.000.000 đồng\n")
+	if strings.Contains(s, "ă\n") || strings.Contains(s, "\uFFFD") {
+		t.Errorf("stray characters in clean PDF: %q", s)
+	}
+	// PDF produced by LibreOffice (Carlito/Caladea fonts): text order and table layout are right;
+	// a few composed tone marks (ễ, ề, ả…) are KNOWN to decode badly → the tool must warn.
+	s, err = readDocument("testdata/hd_lo.pdf")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantHas(t, s, "Hợp đồng")
+	wantHas(t, s, "Hợp đồng dịch vụ")
 	wantHas(t, s, "Công ty ABC")
+	wantHas(t, s, "Hạng mục")
+	wantHas(t, s, "Máy chủ  2  15.000.000") // table row kept on one line
+	if strings.Contains(s, "\uFFFD") && !strings.Contains(s, "cảnh báo") {
+		t.Error("PDF with undecodable characters must carry a warning")
+	}
 	if _, err = readDocument("testdata/scan.pdf"); err == nil || !strings.Contains(err.Error(), "OCR") {
 		t.Fatalf("scan pdf should explain OCR, got %v", err)
 	}

@@ -154,7 +154,7 @@ func (s *Server) systemPrompt(native bool) string {
 		}
 		sb.WriteString("Ví dụ chạy lệnh:\n```tool\n{\"name\":\"run_command\",\"args\":{\"command\":\"dir\"}}\n```\n")
 	}
-	sb.WriteString("Quy tắc: dùng đường dẫn tương đối. Muốn chạy mã: write_file ra tệp rồi run_command (vd python script.py). Việc lặp lại hàng ngày/định kỳ: create_task (schedule như \"every 5m\" hoặc \"daily 08:30\"). Tệp dài đọc theo trang bằng offset. Trả lời ngắn gọn, cùng ngôn ngữ người dùng.")
+	sb.WriteString("Quy tắc: dùng đường dẫn tương đối. Muốn chạy mã: write_file ra tệp rồi run_command (vd python script.py). Việc lặp lại hàng ngày/định kỳ: create_task (schedule như \"every 5m\" hoặc \"daily 08:30\"). Tệp dài đọc theo trang bằng offset. Nếu tên tệp người dùng nói không chắc/gõ gần đúng/không dấu: dùng find_files hoặc list_dir/tree để tìm đúng tên TRƯỚC khi read_file; nếu read_file báo không thấy thì dùng mục \"gần giống\" trong kết quả rồi thử lại. Tìm chữ bên trong nhiều tệp (kể cả PDF/Word/Excel) dùng search_files; tìm tệp theo tên dùng find_files. Trả lời ngắn gọn, cùng ngôn ngữ người dùng.")
 	return sb.String()
 }
 

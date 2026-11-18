@@ -63,7 +63,7 @@ var toolDefs = []map[string]any{
 		props{"query": str("search keywords; add the year or 'tin tức' for news")}, "query"),
 	fn("fetch_url", "Download a web page and return its readable text (paged with offset).",
 		props{"url": str("http(s) URL"), "offset": map[string]any{"type": "integer", "description": "character offset to continue reading"}}, "url"),
-	fn("search_files", "Search project files for a regex pattern. Returns file:line: text.",
+	fn("search_files", "Search INSIDE files for a regex (case-insensitive). Also searches text inside .pdf/.docx/.xlsx/.pptx. Returns file:line: text. To find a file by NAME use find_files.",
 		props{"pattern": str("regular expression"), "path": str("relative directory, default '.'")}, "pattern"),
 	fn("run_command", "Run a shell command in the project directory (cmd on Windows, sh elsewhere). Returns combined output.",
 		props{"command": str("command line"), "timeout_sec": map[string]any{"type": "integer", "description": "seconds before the command is killed (default from config, 60; max 3600)"}}, "command"),
@@ -151,6 +151,9 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		ents, err := os.ReadDir(p)
+		if isNotExist(err) {
+			return "error: " + notFoundMsg(ctx, root, a.str("path"))
+		}
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -179,6 +182,9 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		st, err := os.Stat(p)
+		if isNotExist(err) {
+			return "error: " + notFoundMsg(ctx, root, a.str("path"))
+		}
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -223,6 +229,9 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		b, err := os.ReadFile(p)
+		if isNotExist(err) {
+			return "error: " + notFoundMsg(ctx, root, a.str("path"))
+		}
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -304,6 +313,9 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: cannot delete the project root"
 		}
 		if err := os.Remove(p); err != nil {
+			if isNotExist(err) {
+				return "error: " + notFoundMsg(ctx, root, a.str("path"))
+			}
 			return "error: " + err.Error()
 		}
 		return "deleted " + a.str("path")
@@ -381,11 +393,21 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			found = append(found, "[dừng sau 15 giây, kết quả chưa đầy đủ]")
 		}
 		if len(found) == 0 {
+			if !glob { // nothing contains it: try typos / missing diacritics
+				if m := suggestFiles(ctx, root, a.str("pattern"), 8); len(m) > 0 {
+					var ps []string
+					for _, x := range m {
+						ps = append(ps, x.Path)
+					}
+					return "không có tên nào chứa đúng \"" + a.str("pattern") + "\". Tên gần giống:\n" + strings.Join(ps, "\n")
+				}
+			}
 			return "no matches"
 		}
 		return strings.Join(found, "\n")
 	case "search_files":
-		re, err := regexp.Compile(a.str("pattern"))
+		pat := a.str("pattern")
+		re, err := regexp.Compile("(?i)" + pat)
 		if err != nil {
 			return "error: bad pattern: " + err.Error()
 		}
@@ -393,9 +415,12 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		if err != nil {
 			return "error: " + err.Error()
 		}
+		plain := regexp.QuoteMeta(pat) == pat
+		fp := foldName(pat)
 		var hits []string
 		deadline := time.Now().Add(15 * time.Second)
 		cut := false
+		docsScanned := 0
 		_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
 			if ctx.Err() != nil {
 				return filepath.SkipAll
@@ -413,13 +438,27 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 				}
 				return nil
 			}
-			b, err := os.ReadFile(path)
-			if err != nil || len(b) > maxReadBytes || bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 {
-				return nil
+			var b []byte
+			if isDocExt(path) { // search inside PDF / Word / Excel / PowerPoint too
+				if info, e := d.Info(); e != nil || info.Size() > 30<<20 || docsScanned >= 300 {
+					return nil
+				}
+				docsScanned++
+				txt, e := readDocument(path)
+				if e != nil {
+					return nil
+				}
+				b = []byte(txt)
+			} else {
+				var err error
+				b, err = os.ReadFile(path)
+				if err != nil || len(b) > maxReadBytes || bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 {
+					return nil
+				}
 			}
 			rel, _ := filepath.Rel(root, path)
 			for i, line := range strings.Split(string(b), "\n") {
-				if re.MatchString(line) {
+				if re.MatchString(line) || (plain && fp != "" && strings.Contains(foldName(line), fp)) { // also matches without Vietnamese diacritics
 					hits = append(hits, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(clip(line, 200))))
 					if len(hits) >= 200 {
 						break
