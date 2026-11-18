@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -296,7 +296,16 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		var hits []string
+		deadline := time.Now().Add(15 * time.Second)
+		cut := false
 		_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return filepath.SkipAll
+			}
+			if time.Now().After(deadline) {
+				cut = true
+				return filepath.SkipAll
+			}
 			if err != nil || len(hits) >= 200 {
 				return nil
 			}
@@ -322,8 +331,11 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return nil
 		})
 		sort.Strings(hits)
-		if len(hits) == 0 {
+		if len(hits) == 0 && !cut {
 			return "no matches"
+		}
+		if cut {
+			hits = append(hits, "[dừng sau 15 giây, kết quả chưa đầy đủ – hãy tìm trong thư mục nhỏ hơn]")
 		}
 		return strings.Join(hits, "\n")
 	case "run_command":
@@ -339,26 +351,27 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		}
 		cctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
 		defer cancel()
-		var c *exec.Cmd
-		if runtime.GOOS == "windows" {
-			c = exec.CommandContext(cctx, "cmd", "/C", a.Command)
-		} else {
-			c = exec.CommandContext(cctx, "sh", "-c", a.Command)
-		}
+		c := newShellCmd(cctx, a.Command)
 		c.Dir = root
-		hideWindow(c)
+		// If the command leaves a background/GUI process holding our output pipe
+		// (notepad, `start x`, ping -t ...), don't wait for it forever.
+		c.WaitDelay = 2 * time.Second
 		var buf bytes.Buffer
 		c.Stdout, c.Stderr = &buf, &buf
 		err := c.Run()
 		out := clip(buf.String(), maxOutputBytes)
 		switch {
 		case cctx.Err() == context.DeadlineExceeded:
-			return out + fmt.Sprintf("\n[timed out after %ds]", t)
+			return out + fmt.Sprintf("\n[hết giờ sau %ds, đã dừng lệnh]", t)
+		case ctx.Err() != nil:
+			return out + "\n[đã dừng theo yêu cầu]"
+		case errors.Is(err, exec.ErrWaitDelay):
+			return out + "\n[lệnh đã khởi chạy tiến trình nền, bot không chờ nó kết thúc]"
 		case err != nil:
 			return out + "\n[" + err.Error() + "]"
 		}
 		if out == "" {
-			return "(no output, exit 0)"
+			return "(không có output, exit 0)"
 		}
 		return out
 	}

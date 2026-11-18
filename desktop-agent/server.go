@@ -23,6 +23,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	api("/api/chat", s.handleChat)
 	api("/api/approve", s.handleApprove)
 	api("/api/reset", s.handleReset)
+	api("/api/cancel", s.handleCancel)
 	api("/api/auto", s.handleAuto)
 }
 
@@ -175,6 +176,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	s.mu.Lock()
+	s.cancel = cancel
+	s.mu.Unlock()
 	s.runAgent(ctx, b.Message, emit)
 	emit("done", nil)
 }
@@ -212,4 +216,15 @@ func (s *Server) handleAuto(w http.ResponseWriter, r *http.Request) {
 	s.auto = b.On
 	s.mu.Unlock()
 	jsonOut(w, map[string]bool{"auto": b.On})
+}
+
+// handleCancel stops the running turn immediately (kills the running command, frees the busy flag).
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	c := s.cancel
+	s.mu.Unlock()
+	if c != nil {
+		c()
+	}
+	jsonOut(w, map[string]bool{"ok": c != nil})
 }

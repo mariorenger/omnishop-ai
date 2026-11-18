@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -30,6 +31,7 @@ type Server struct {
 	pending map[string]chan bool
 	auto    bool
 	busy    bool
+	cancel  context.CancelFunc
 }
 
 func (s *Server) isAutoApprove() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.auto }

@@ -124,8 +124,10 @@ Khi có model, mọi thứ giữ nguyên – chỉ khác là bạn nói chuyện
 | `sửa` báo "found 0 times" | Chữ cũ không có trong tệp (kiểm tra hoa/thường, khoảng trắng) |
 | `sửa` báo "found 2 times" | Chữ cũ xuất hiện nhiều lần; gõ dài hơn để duy nhất |
 | `đọc` báo "binary file" | Tệp nhị phân (ảnh, exe…) – bot chỉ đọc văn bản |
-| "agent is busy" | Bot đang xử lý lệnh trước; bấm nút Dừng hoặc đợi |
-| Chữ tiếng Việt lỗi khi `chạy dir` | Console Windows dùng bảng mã cũ; thử `chạy chcp 65001 >nul && dir` |
+| Lệnh cứ ghi "đang chạy… Ns" mãi | Bấm nút **Dừng** (hình vuông ở ô nhập): bot dừng ngay và giết cả tiến trình con. Lệnh tự dừng sau 60 giây nếu bạn không bấm. Lệnh mở ứng dụng (`chạy notepad`) trả về sau ~2 giây và để ứng dụng chạy tiếp |
+| "agent is busy" | Bot đang xử lý lệnh trước; bấm **Dừng** rồi gửi lại. Nếu vẫn báo bận: đóng tab, mở lại trang chat |
+| Thẻ công cụ ghi **chờ bạn duyệt** | Bot đang đợi bạn bấm *Cho phép / Từ chối* ở thẻ vàng bên dưới |
+| Lệnh `chạy` có dấu nháy kép, ví dụ `chạy dir "C:\Program Files"` | Dùng được; bot truyền nguyên văn cho `cmd.exe`. Output tiếng Việt hiển thị đúng (bot tự đặt bảng mã UTF-8) |
 
 **Log** nằm ở: `%AppData%\desktop-agent\agent.log` (gõ đường dẫn này vào thanh địa chỉ File Explorer).
 

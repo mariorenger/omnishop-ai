@@ -108,6 +108,7 @@ func main() {
 | `POST /api/chat` | **gửi tin nhắn; trả về luồng SSE** các sự kiện |
 | `POST /api/approve` | trả lời thẻ xin duyệt |
 | `POST /api/reset`, `/api/auto` | cuộc trò chuyện mới / bật tự duyệt |
+| `POST /api/cancel` | **dừng ngay lượt đang chạy**: hủy context → giết lệnh đang chạy → nhả cờ `busy` |
 
 Hàm `guard` bọc mọi `/api`:
 
@@ -151,7 +152,17 @@ func resolve(root, p string) (string, error) {
 
 Chặn được: `../..`, đường dẫn tuyệt đối ngoài dự án, symlink trỏ ra ngoài, và cả trường hợp file chưa tồn tại (khi `ghi`).
 
-**Chạy lệnh:**
+**Chạy lệnh (phần dễ sai nhất – đọc kỹ):**
+
+Ba lỗi kinh điển khi gọi lệnh shell từ Go, đều đã được xử lý trong `proc_windows.go` / `proc_other.go` (hàm `newShellCmd`):
+
+1. **Treo vì tiến trình con giữ ống output.** `cmd /C notepad`, `start x`, `ping -t`… sinh tiến trình con thừa hưởng ống stdout; `c.Run()` chờ ống đóng nên chờ mãi. Cách sửa: `c.WaitDelay = 2 * time.Second` (Go ≥ 1.20) – sau khi tiến trình chính xong, chờ tối đa 2 giây rồi tự đóng ống và trả về `exec.ErrWaitDelay`.
+2. **Hủy/timeout chỉ giết `cmd.exe`, không giết con của nó.** Cách sửa: gán `c.Cancel` để giết cả **cây tiến trình** – Windows: `taskkill /T /F /PID <pid>`; Linux/macOS: chạy trong process group riêng (`Setpgid: true`) rồi `kill(-pgid, SIGKILL)`.
+3. **Dấu nháy kép bị Go escape sai khi gọi `cmd /C`.** Go bọc tham số theo quy tắc `CommandLineToArgvW`, `cmd.exe` không hiểu. Cách sửa: tự đặt `SysProcAttr.CmdLine = `cmd.exe /S /C "chcp 65001>nul & <lệnh>"``; `/S` giữ nguyên dấu nháy bên trong, `chcp 65001` ép output UTF-8 để tiếng Việt không vỡ chữ.
+
+Và để nút **Dừng** thật sự hiệu quả: `handleChat` lưu `context.CancelFunc` vào `Server.cancel`; `POST /api/cancel` gọi nó. Mọi nơi chờ (chạy lệnh, chờ duyệt, gọi LLM, quét tìm kiếm) đều nhận `ctx` nên thoát ngay, handler return → cờ `busy` được nhả. Ngoài ra `tìm` có giới hạn 15 giây để không quét cả ổ đĩa vô tận.
+
+Code gốc:
 
 ```go
 if runtime.GOOS == "windows" { c = exec.CommandContext(ctx, "cmd", "/C", command) }
