@@ -5,6 +5,8 @@
   "context_tokens": 16000,
   "max_output_tokens": 1500,
   "tool_mode": "text",
+  "stream": true,
+  "auto_exit_seconds": 180,
   "port": 7878,
   "auto_approve": false,
   "command_timeout_sec": 60,

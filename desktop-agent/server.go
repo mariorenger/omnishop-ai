@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,6 +28,10 @@ type App struct {
 	runners map[string]*Server
 	auto    bool
 	ws      *Workspace
+	// lastSeen: when a browser tab last talked to us (UnixNano); drives the auto-exit
+	lastSeen atomic.Int64
+	// cleanup runs before the process ends (removes instance.json)
+	cleanup func()
 }
 
 func (a *App) routes(mux *http.ServeMux) {
@@ -48,6 +54,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	api("/api/approve", a.handleApprove)
 	api("/api/cancel", a.handleCancel)
 	api("/api/auto", a.handleAuto)
+	api("/api/quit", a.handleQuit)
 	api("/api/tasks", a.handleTasks)
 	api("/api/task", a.handleTaskAction)
 }
@@ -60,6 +67,7 @@ func (a *App) guard(h http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		a.lastSeen.Store(time.Now().UnixNano())
 		h(w, r)
 	}
 }
@@ -77,7 +85,8 @@ func (a *App) handleState(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	auto := a.auto || a.cfg.AutoApprove
 	a.mu.Unlock()
-	jsonOut(w, map[string]any{"model": a.cfg.Model, "base_url": a.cfg.BaseURL, "auto": auto, "os": runtime.GOOS})
+	jsonOut(w, map[string]any{"model": a.cfg.Model, "base_url": a.cfg.BaseURL, "auto": auto, "os": runtime.GOOS,
+		"auto_exit_seconds": a.cfg.AutoExitSeconds})
 }
 
 // runner returns (creating if needed) the runner of a session.
@@ -704,3 +713,42 @@ func (a *App) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 }
 
 var _ = mime.TypeByExtension
+
+// exitProcess is replaced in tests.
+var exitProcess = func(code int) { os.Exit(code) }
+
+// handleQuit shuts the program down (closing the browser tab does NOT stop it). Everything that matters
+// is already on disk (workspace.json / tasks.json are written on every change); a running chat turn or
+// shell command is simply abandoned.
+func (a *App) handleQuit(w http.ResponseWriter, r *http.Request) {
+	jsonOut(w, map[string]bool{"ok": true})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond) // let the response reach the browser
+		a.mu.Lock()
+		runs := make([]*Server, 0, len(a.runners))
+		for _, x := range a.runners {
+			runs = append(runs, x)
+		}
+		a.mu.Unlock()
+		for _, x := range runs { // stop running commands so no child process is left behind
+			x.mu.Lock()
+			c := x.cancel
+			x.mu.Unlock()
+			if c != nil {
+				c()
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+		a.ws.mu.Lock()
+		a.ws.saveLocked()
+		a.ws.mu.Unlock()
+		log.Printf("quit requested from the UI")
+		if a.cleanup != nil {
+			a.cleanup()
+		}
+		exitProcess(0)
+	}()
+}

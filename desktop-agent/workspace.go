@@ -312,6 +312,9 @@ func (w *Workspace) record(s *Session, ev string, data any) {
 	defer w.mu.Unlock()
 	switch ev {
 	case "assistant":
+		if strings.TrimSpace(fmt.Sprint(data)) == "" { // only closes a live (streamed) bubble
+			break
+		}
 		s.Log = append(s.Log, LogEntry{T: "assistant", Text: clipRunes(fmt.Sprint(data), 8000)})
 	case "error":
 		s.Log = append(s.Log, LogEntry{T: "error", Text: clipRunes(fmt.Sprint(data), 2000)})

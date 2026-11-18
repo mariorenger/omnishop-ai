@@ -21,13 +21,18 @@ type Config struct {
 	GoogleAPIKey    string `json:"google_api_key"`
 	GoogleCX        string `json:"google_cx"`
 	SearxngURL      string `json:"searxng_url"`
+	Stream          bool   `json:"stream"`              // show the answer as it is being written (default true)
+	AutoExitSeconds int    `json:"auto_exit_seconds"`   // end the program this long after the last browser tab is gone (default 180; 0 = never). Never while a chat turn runs or a task is enabled
 	AccessToken     string `json:"access_token"`        // optional fixed URL token (>=16 chars) for running as a service; empty = random each start
 	AlertWebhook    string `json:"alert_webhook"`       // POST {"text":...} on task alerts (Teams/Slack/Zalo bridge)
 	CmdTimeout      int    `json:"command_timeout_sec"` // default timeout of `run_command` (default 60, max 3600)
 }
 
+// loadConfigWith is loadConfig for tests: returns the defaults merged over base (no file/env access).
+func loadConfigWith(base Config) Config { return base }
+
 func loadConfig() Config {
-	c := Config{BaseURL: "", Model: "", Port: 7878, CmdTimeout: 60}
+	c := Config{BaseURL: "", Model: "", Port: 7878, CmdTimeout: 60, Stream: true, AutoExitSeconds: 180}
 	if exe, err := os.Executable(); err == nil {
 		if b, err := os.ReadFile(filepath.Join(filepath.Dir(exe), "config.json")); err == nil {
 			_ = json.Unmarshal(b, &c)
@@ -55,6 +60,9 @@ func loadConfig() Config {
 	}
 	if c.MaxOutputTokens <= 0 {
 		c.MaxOutputTokens = 1500
+	}
+	if c.AutoExitSeconds < 0 {
+		c.AutoExitSeconds = 0
 	}
 	if c.CmdTimeout <= 0 {
 		c.CmdTimeout = 60

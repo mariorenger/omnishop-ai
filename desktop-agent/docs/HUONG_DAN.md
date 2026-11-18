@@ -26,6 +26,22 @@ Cả hai chế độ dùng chung bộ công cụ, cùng thẻ xin duyệt và c�
 
 ---
 
+### Tắt chương trình và chuyện "chạy ngầm"
+
+Chương trình là **một tiến trình bình thường** (hiện trong Task Manager với tên `desktop-agent.exe`). Nó **không** tự khởi động cùng Windows, **không** cài dịch vụ, **không** ghi vào Registry. Nó chỉ thôi chạy khi bạn tắt nó hoặc khi nó tự tắt theo luật dưới đây.
+
+| Tình huống | Điều xảy ra |
+|---|---|
+| **Đóng tab trình duyệt** | Chưa tắt ngay. Nếu **3 phút** sau không còn tab nào dùng nó (`auto_exit_seconds` trong `config.json`, đặt `0` để không bao giờ tự tắt), chương trình **tự tắt**. Tab đang mở thì không tắt |
+| **Đang có lệnh/chat chạy** hoặc **có task định kỳ đang bật** | **Không tự tắt**, vì việc đang cần chạy (task định kỳ chính là việc chạy nền). Cột trái hiện dòng cam *"● Đang chạy nền: N task…"* để bạn biết |
+| **Muốn tắt ngay** | Bấm **Thoát chương trình** (cột trái, dưới cùng; có hỏi xác nhận và cho biết phiên/task nào sẽ bị dừng), hoặc kết thúc `desktop-agent.exe` trong Task Manager (Linux: Ctrl+C hoặc `pkill desktop-agent`) |
+| **Bấm exe lần thứ hai** | **Không sinh bản mới, không mở cổng khác.** Chỉ mở lại tab của bản đang chạy (kèm `--project` thì mở thêm thư mục đó trong bản đang chạy). Nhờ vậy không bao giờ có hai bản cùng chạy một task hai lần |
+| `--no-browser` (chạy dịch vụ/máy chủ) | Không bao giờ tự tắt |
+
+Muốn biết nó có đang chạy không: Task Manager, tìm `desktop-agent.exe`; hoặc bấm lại exe, nếu tab mở lại tức là nó đang chạy. Nếu cổng 7878 bị một chương trình **khác** chiếm, bản này tự chọn cổng trống khác (địa chỉ in ở dòng `Open:` và trong `%AppData%\desktop-agent\agent.log`).
+
+---
+
 ## 2. Giao diện (3 cột)
 
 ```
@@ -181,6 +197,8 @@ Với lệnh thay đổi dữ liệu, bot hiện thẻ vàng mô tả việc s�
 | `tool_mode` | `text` (mặc định, chạy với **mọi** LLM kể cả loại không hỗ trợ function-calling) · `native` · `auto` |
 | `search_provider`, `google_api_key`, `google_cx`, `searxng_url` | Tìm web (mục 11) |
 | `alert_webhook` | URL nhận cảnh báo của task (mục 10) |
+| `stream` | `true` (mặc định) = câu trả lời của LLM hiện **dần từng chữ**; đặt `false` nếu máy chủ/proxy của bạn không hỗ trợ |
+| `auto_exit_seconds` | Số giây tự tắt sau khi không còn tab (mặc định 180; `0` = không tự tắt). Không áp dụng khi đang chạy việc hoặc có task bật |
 | `access_token` | (tùy chọn) mã truy cập cố định ≥16 ký tự, để mở lại cùng một đường link khi chạy như dịch vụ (mục 12). Để trống = mã ngẫu nhiên mỗi lần chạy |
 
 Có thể ghi đè bằng biến môi trường: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `AGENT_PORT`.
@@ -245,6 +263,15 @@ và tự đọc khối đó (chấp nhận cả vài biến thể JSON sai chu�
 
 ### Khi bạn nhớ không chắc tên tệp
 Trợ lý được hướng dẫn: *không chắc tên → dùng `find_files`/`list_dir`/`tree` để xem trước*; nếu `read_file` báo không thấy thì kết quả đã kèm **"tệp gần giống"** để nó thử lại đúng tên. Tìm chữ trong nhiều tệp thì dùng `search_files` (có cả PDF/Word/Excel). Với model nhỏ, nếu nó vẫn đoán bừa tên tệp, hãy nói rõ hơn: *"xem danh sách tệp trước rồi mới đọc"*.
+
+### Câu trả lời hiện dần (streaming)
+Khi `stream: true`, chữ của LLM hiện ra **từng đoạn khi nó đang viết** (có con trỏ nhấp nháy) thay vì chờ xong mới hiện cả khối. Một số chi tiết:
+- Chế độ `text`: nếu LLM viết một khối ```tool để gọi công cụ, phần khối đó **không hiện lên màn hình**; chỉ hiện phần chữ viết trước nó, rồi thẻ công cụ.
+- Nếu câu trả lời có một khối code ```json bình thường, phần sau khối đó có thể tạm không hiện trong lúc đang viết, nhưng **hiện đủ khi câu trả lời xong**.
+- Bấm **Dừng** giữa chừng: phần đã viết được giữ lại, kèm dòng *"(đã dừng)"*.
+- Nếu máy chủ LLM không hỗ trợ stream (trả JSON một lần), bot vẫn chạy bình thường, chỉ là không hiện dần.
+- Máy chủ im lặng quá 2 phút giữa chừng thì bot báo lỗi *"LLM không phản hồi"* (câu trả lời chậm nhưng đều đặn thì không bị cắt).
+- Nếu bạn chuyển sang phiên chat khác trong lúc đang stream, chữ đang viết dở chỉ hiện lại khi câu trả lời hoàn tất.
 
 ### Giới hạn 16k token – bot xử lý thế nào
 - Mỗi lần gọi, bot **cắt đầu vào cho vừa ngân sách** = `context_tokens` − `max_output_tokens` − phần dự phòng. Lịch sử cũ bị bỏ dần (giữ câu hỏi mới nhất), kết quả công cụ cũ bị rút gọn.

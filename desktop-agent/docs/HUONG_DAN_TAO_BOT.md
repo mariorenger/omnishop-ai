@@ -366,6 +366,22 @@ Vấn đề: người dùng/LLM nói *"đọc bao cao doanh thu q1"* hoặc gõ 
 - `search_files` còn tìm trong nội dung PDF/DOCX/XLSX/PPTX (qua `readDocument`, tối đa 300 tài liệu, mỗi tệp ≤ 30 MB), không phân biệt hoa thường (`(?i)`), và khớp cả không dấu khi mẫu là chữ thường (không phải regex).
 - Hướng dẫn trong system prompt: *không chắc tên → find_files/list_dir trước; read_file báo không thấy → dùng mục "gần giống"*.
 
+### 4b.6 Streaming câu trả lời (`agent.go`)
+
+- `callLLM(ctx, msgs, native, onDelta)` gửi `"stream": true` và đọc luồng SSE kiểu OpenAI (`parseSSE`): các dòng `data: {...}`, kết thúc `data: [DONE]`; bỏ qua dòng chú thích, `event:`, JSON rác; ghép `tool_calls` theo `index` (đối số đến từng mẩu); nhận `content` dạng chuỗi hoặc mảng phần; chunk có `error` thì trả lỗi kèm phần chữ đã nhận.
+- **Tự lùi về JSON thường** nếu máy chủ không stream (kiểm tra `Content-Type`, rồi tiền tố `data:`).
+- `http.Client` **không có timeout tổng** (câu trả lời dài hợp lệ); thay bằng đồng hồ *im lặng* (`llmIdleTimeout`, đặt lại mỗi dòng nhận được) khi stream, và `llmTotalTimeout` khi không stream.
+- **`streamFilter`**: chuyển từng đoạn chữ ra giao diện nhưng **dừng ở dấu hiệu đầu tiên của khối công cụ** (```tool, ```json, `<tool_call>`, `{"name"`…) và giữ lại phần đuôi có thể thành dấu hiệu đó. Nhờ vậy khối JSON thô không bao giờ nháy lên màn hình.
+- Sự kiện SSE mới `delta` (từng đoạn chữ). **Sự kiện `assistant` cuối cùng luôn mang toàn bộ chữ sạch** và thay thế bong bóng đang stream ở phía giao diện (sửa luôn trường hợp bộ lọc ẩn nhầm). `assistant` rỗng chỉ để đóng bong bóng. Nhật ký phiên (`workspace.json`) chỉ ghi `assistant` cuối, **không ghi `delta`**.
+- Khi người dùng bấm **Dừng**: `callLLM` trả phần đã nhận cùng lỗi hủy; `runAgent` phát `assistant` = phần đó + "(đã dừng)", không báo lỗi. Giao diện **không ngắt kết nối ngay** mà để máy chủ tự kết thúc luồng (chỉ ngắt cưỡng chế sau 3 giây), để dòng "(đã dừng)" tới được trình duyệt.
+- Giao diện: bong bóng `.streaming` + con trỏ nhấp nháy, vẽ lại markdown tối đa mỗi khung hình (`requestAnimationFrame`).
+
+### 4b.7 Một bản duy nhất, tự tắt, thoát (`instance.go`, `server.go`)
+
+- **Một bản duy nhất:** sau khi nghe cổng, chương trình ghi `instance.json` (`pid`, `addr`, `token`; quyền **0600**, trong thư mục dữ liệu của chính người dùng). Lần khởi động sau gọi `runningInstance()`: đọc file, thử `GET /api/state` kèm token (1,5 giây); còn trả lời thì **mở tab và thoát**, không tạo bản mới. File sót lại do crash/kill: không ai trả lời nên bị bỏ qua, khởi động bình thường. Cổng bận: chờ tối đa 3 giây để bản kia (đang khởi động) kịp ghi `instance.json`; vẫn không thấy mới chọn cổng trống khác (cổng đang bị chương trình *khác* chiếm). `--project` gửi tới bản đang chạy qua `/api/project/open` và `/api/workspace/active`.
+- **Tự tắt:** `App.lastSeen` được cập nhật mỗi lần có một lời gọi API hợp lệ qua `guard` (trang tự thăm dò `/api/tasks` mỗi 5 giây nên tab mở = "còn sống"). Một goroutine mỗi giây gọi `shouldAutoExit`: đủ `auto_exit_seconds` không có tab **và** không có phiên đang chạy **và** không có task nào `Enabled` thì xóa `instance.json` rồi thoát. Không áp dụng với `--no-browser`.
+- **Thoát từ giao diện:** `POST /api/quit` trả lời, hủy mọi lệnh đang chạy (không để tiến trình con mồ côi), ghi `workspace.json`, xóa `instance.json`, `os.Exit(0)`. `SIGINT/SIGTERM` cũng dọn `instance.json`. (`exitProcess` là biến để test thay thế.)
+
 ## 5. Build ra file exe
 
 ### 5.1 Build trên Windows
@@ -400,6 +416,10 @@ Kết quả: `desktop-agent.exe` khoảng 7 MB, chạy được trên Windows 10
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o desktop-agent .   # arm64: GOARCH=arm64
 ```
 `CGO_ENABLED=0` cho ra file **liên kết tĩnh** (chạy trên mọi bản phân phối, kể cả Alpine/minimal; kiểm tra bằng `ldd` → "not a dynamic executable"). Không cần cờ `-H=windowsgui` (chỉ của Windows). Phần riêng từng hệ điều hành đã tách bằng *build tag*: `proc_windows.go` (cmd.exe, taskkill, ẩn console) và `proc_other.go` (`sh -c`, process group + `kill(-pgid)`); mở trình duyệt chọn theo `runtime.GOOS` (`rundll32` / `open` / `xdg-open`); thư mục dữ liệu lấy từ `os.UserConfigDir()` (`%AppData%` hoặc `~/.config`). Khi chạy dạng dịch vụ có thể đặt `access_token` cố định trong `config.json`.
+
+### 5.2c Icon của file exe (đã làm)
+
+Logo là **con vịt cao su** vẽ bằng SVG (`assets/duck.svg`, tự vẽ). Từ đó sinh `assets/app.ico` (7 cỡ 16 đến 256, PNG trong suốt), rồi `assets/make_syso.py` (Python thuần, **không dùng công cụ bên ngoài**) ghi `resource_windows_amd64.syso`: một đối tượng COFF chứa cây tài nguyên `RT_ICON` và `RT_GROUP_ICON`. Go tự liên kết mọi tệp `*_windows_amd64.syso` trong thư mục gói khi build cho Windows; Linux/macOS bỏ qua. **Đổi logo:** sửa `assets/duck.svg` (và `web/duck.svg`, symbol `i-duck` trong `web/index.html`), tạo lại PNG/ICO (xem NHAT_KY mục 6.5), chạy `python3 assets/make_syso.py`, build lại. Đã kiểm tra bằng `pefile`: exe chứa đúng 7 ảnh giống từng byte với `app.ico`. **Chưa xem được trong Windows Explorer thật** (có thể cần xóa cache icon).
 
 ### 5.3 Đặt icon, tên, phiên bản cho exe (tuỳ chọn, nên làm)
 

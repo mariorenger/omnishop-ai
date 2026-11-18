@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>Rubber duck</title>
+  <defs><clipPath id="duckclip"><rect width="64" height="64" rx="14"/></clipPath></defs>
+  <!-- water -->
+  <g clip-path="url(#duckclip)">
+  <rect x="0" y="0" width="64" height="64" fill="#DDF1FF"/>
+  <path d="M0 50c6-4 12-4 18 0s12 4 18 0 12-4 18 0 7 3 10 2v12H0z" fill="#8FD3FF"/>
+  <path d="M0 55c6-3 12-3 18 0s12 3 18 0 12-3 18 0 7 2 10 1v8H0z" fill="#5BB8F5"/>
+  </g>
+  <!-- tail -->
+  <path d="M9 40c-4-5-4-10 1-12 1 5 4 8 9 9z" fill="#FFC21A"/>
+  <!-- body -->
+  <ellipse cx="29" cy="43" rx="21" ry="14" fill="#FFD43B"/>
+  <path d="M10 46c4 8 14 11 25 10 9-1 14-5 15-11-4 6-13 9-22 8-8-1-14-3-18-7z" fill="#FFC21A" opacity=".75"/>
+  <!-- wing -->
+  <path d="M19 41c5-6 14-6 20 0-3 8-14 10-20 0z" fill="#FFB700"/>
+  <path d="M23 42c3-3 8-3 12 0" fill="none" stroke="#E69F00" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- head -->
+  <circle cx="41" cy="22" r="12.5" fill="#FFD43B"/>
+  <path d="M33 15c3-4 9-5 13-2" fill="none" stroke="#FFF3BF" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- beak -->
+  <path d="M50 22c5-1 10 0 11 3 0 3-5 4-11 3z" fill="#FF8A1F"/>
+  <path d="M50 26c4 0 8 0 11-1 0 3-5 4-11 3z" fill="#E8590C"/>
+  <!-- eye + cheek -->
+  <circle cx="44.5" cy="19" r="2.3" fill="#1F2933"/>
+  <circle cx="45.2" cy="18.2" r=".8" fill="#fff"/>
+  <circle cx="47" cy="26" r="2.6" fill="#FF8787" opacity=".55"/>
+</svg>

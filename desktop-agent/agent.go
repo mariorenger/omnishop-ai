@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -29,7 +30,13 @@ type Msg struct {
 	Meta       string     `json:"-"` // "result": synthetic tool-result message (text protocol)
 }
 
-var llmClient = &http.Client{Timeout: 3 * time.Minute}
+// No overall http.Client timeout: a streamed answer from a slow local model can legitimately take
+// minutes. Instead callLLM watches for silence (llmIdleTimeout while streaming, llmTotalTimeout otherwise).
+var (
+	llmClient       = &http.Client{}
+	llmIdleTimeout  = 120 * time.Second
+	llmTotalTimeout = 5 * time.Minute
+)
 
 type llmError struct {
 	Status int
@@ -49,7 +56,11 @@ func (s *Server) toolMode() string {
 	return "text"
 }
 
-func (s *Server) callLLM(ctx context.Context, msgs []Msg, native bool) (Msg, error) {
+// callLLM asks the model once. With streaming on (and onDelta != nil) the text is passed to onDelta
+// piece by piece as it arrives. If the server ignores "stream" and answers with plain JSON, that
+// works too. On an interrupted stream the text received so far is returned together with the error.
+func (s *Server) callLLM(ctx context.Context, msgs []Msg, native bool, onDelta func(string)) (Msg, error) {
+	stream := s.cfg.Stream && onDelta != nil
 	req := map[string]any{"model": s.cfg.Model, "messages": msgs, "temperature": 0.2}
 	if s.cfg.MaxOutputTokens > 0 {
 		req["max_tokens"] = s.cfg.MaxOutputTokens
@@ -57,22 +68,103 @@ func (s *Server) callLLM(ctx context.Context, msgs []Msg, native bool) (Msg, err
 	if native {
 		req["tools"] = toolDefs
 	}
+	if stream {
+		req["stream"] = true
+	}
 	body, _ := json.Marshal(req)
 	url := strings.TrimRight(s.cfg.BaseURL, "/") + "/chat/completions"
-	hreq, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+
+	rctx, rcancel := context.WithCancel(ctx)
+	defer rcancel()
+	limit := llmTotalTimeout
+	if stream {
+		limit = llmIdleTimeout
+	}
+	idle := time.AfterFunc(limit, rcancel)
+	defer idle.Stop()
+	silent := func(err error) error { // our watchdog fired (not the user pressing Stop)
+		if err != nil && ctx.Err() == nil && rctx.Err() != nil {
+			return fmt.Errorf("LLM không phản hồi trong %v", limit)
+		}
+		return err
+	}
+
+	hreq, _ := http.NewRequestWithContext(rctx, "POST", url, bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
+	if stream {
+		hreq.Header.Set("Accept", "text/event-stream")
+	}
 	if s.cfg.APIKey != "" {
 		hreq.Header.Set("Authorization", "Bearer "+s.cfg.APIKey)
 	}
 	resp, err := llmClient.Do(hreq)
 	if err != nil {
-		return Msg{}, err
+		return Msg{}, silent(err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != 200 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return Msg{}, &llmError{resp.StatusCode, string(raw)}
 	}
+	if stream {
+		idle.Reset(limit)
+		if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "event-stream") {
+			m, err := parseSSE(resp.Body, onDelta, func() { idle.Reset(limit) })
+			if err != nil {
+				return m, silent(err)
+			}
+			return finishMsg(m), nil
+		}
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return Msg{}, silent(err)
+	}
+	if stream && bytes.HasPrefix(bytes.TrimSpace(raw), []byte("data:")) { // SSE without the proper header
+		m, err := parseSSE(bytes.NewReader(raw), onDelta, nil)
+		if err != nil {
+			return m, err
+		}
+		return finishMsg(m), nil
+	}
+	m, err := parseCompletionJSON(raw)
+	if err != nil {
+		return Msg{}, err
+	}
+	return finishMsg(m), nil
+}
+
+func finishMsg(m Msg) Msg {
+	for i := range m.ToolCalls {
+		if m.ToolCalls[i].Type == "" {
+			m.ToolCalls[i].Type = "function"
+		}
+		if m.ToolCalls[i].ID == "" {
+			m.ToolCalls[i].ID = fmt.Sprintf("call_%d", i)
+		}
+	}
+	return m
+}
+
+func partsText(v any) string {
+	switch c := v.(type) {
+	case string:
+		return c
+	case []any: // some servers return content parts
+		var sb strings.Builder
+		for _, p := range c {
+			if pm, ok := p.(map[string]any); ok {
+				if t, ok := pm["text"].(string); ok {
+					sb.WriteString(t)
+				}
+			}
+		}
+		return sb.String()
+	}
+	return ""
+}
+
+func parseCompletionJSON(raw []byte) (Msg, error) {
 	var r struct {
 		Choices []struct {
 			Message struct {
@@ -85,31 +177,153 @@ func (s *Server) callLLM(ctx context.Context, msgs []Msg, native bool) (Msg, err
 	if err := json.Unmarshal(raw, &r); err != nil || len(r.Choices) == 0 {
 		return Msg{}, fmt.Errorf("phản hồi LLM không hợp lệ: %s", clip(string(raw), 300))
 	}
-	m := Msg{Role: "assistant", ToolCalls: r.Choices[0].Message.ToolCalls}
-	switch c := r.Choices[0].Message.Content.(type) {
-	case string:
-		m.Content = c
-	case []any: // some servers return content parts
-		for _, p := range c {
-			if pm, ok := p.(map[string]any); ok {
-				if t, ok := pm["text"].(string); ok {
-					m.Content += t
-				}
-			}
-		}
-	}
+	m := Msg{Role: "assistant", ToolCalls: r.Choices[0].Message.ToolCalls, Content: partsText(r.Choices[0].Message.Content)}
 	if m.Content == "" {
 		m.Content = r.Choices[0].Text
 	}
-	for i := range m.ToolCalls {
-		if m.ToolCalls[i].Type == "" {
-			m.ToolCalls[i].Type = "function"
+	return m, nil
+}
+
+// parseSSE reads an OpenAI-style event stream ("data: {...}" lines, "data: [DONE]").
+// Text deltas go to onDelta immediately; tool-call fragments are merged by index.
+func parseSSE(r io.Reader, onDelta func(string), tick func()) (Msg, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	var content strings.Builder
+	calls := map[int]*ToolCall{}
+	var order []int
+	build := func() Msg {
+		m := Msg{Role: "assistant", Content: content.String()}
+		for _, i := range order {
+			m.ToolCalls = append(m.ToolCalls, *calls[i])
 		}
-		if m.ToolCalls[i].ID == "" {
-			m.ToolCalls[i].ID = fmt.Sprintf("call_%d", i)
+		return m
+	}
+	for sc.Scan() {
+		if tick != nil {
+			tick()
+		}
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "data:") { // comments (": keep-alive"), "event:", blank lines
+			continue
+		}
+		payload := strings.TrimSpace(line[5:])
+		if payload == "" {
+			continue
+		}
+		if payload == "[DONE]" {
+			break
+		}
+		var ch struct {
+			Error   any `json:"error"`
+			Choices []struct {
+				Delta struct {
+					Content   any `json:"content"`
+					ToolCalls []struct {
+						Index    *int   `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				Text string `json:"text"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(payload), &ch) != nil {
+			continue // tolerate junk lines
+		}
+		if ch.Error != nil {
+			return build(), fmt.Errorf("LLM báo lỗi giữa chừng: %v", ch.Error)
+		}
+		for _, c := range ch.Choices {
+			d := partsText(c.Delta.Content)
+			if d == "" {
+				d = c.Text
+			}
+			if d != "" {
+				content.WriteString(d)
+				if onDelta != nil {
+					onDelta(d)
+				}
+			}
+			for _, tc := range c.Delta.ToolCalls {
+				idx := 0
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				t := calls[idx]
+				if t == nil {
+					t = &ToolCall{Type: "function"}
+					calls[idx] = t
+					order = append(order, idx)
+				}
+				if tc.ID != "" && t.ID == "" {
+					t.ID = tc.ID
+				}
+				if tc.Function.Name != "" && t.Function.Name == "" { // some servers repeat the name in every fragment
+					t.Function.Name = tc.Function.Name
+				}
+				t.Function.Arguments += tc.Function.Arguments
+			}
 		}
 	}
-	return m, nil
+	if err := sc.Err(); err != nil {
+		return build(), err
+	}
+	return build(), nil
+}
+
+// streamFilter forwards text deltas to the UI but stops at the first sign of a tool block, so the
+// raw ```tool {...} never flashes on screen. It also holds back a tail that could still turn into
+// such a marker. (The final "assistant" event always carries the complete clean text, so a wrongly
+// suppressed code block is corrected at the end.)
+type streamFilter struct {
+	buf     strings.Builder
+	emitted int
+	stopped bool
+	emit    func(string)
+}
+
+var toolMarkers = []string{"```tool", "```json", "<tool_call>", `{"name"`, `{ "name"`, `{"tool"`, `{ "tool"`}
+
+func (f *streamFilter) feed(d string) {
+	if f.stopped || d == "" {
+		return
+	}
+	f.buf.WriteString(d)
+	s := f.buf.String()
+	cut := -1
+	for _, m := range toolMarkers {
+		if i := strings.Index(s, m); i >= 0 && (cut < 0 || i < cut) {
+			cut = i
+		}
+	}
+	end := len(s)
+	if cut >= 0 {
+		end, f.stopped = cut, true
+	} else {
+		for k := min(len(s), 11); k > 0; k-- { // longest marker is 11 bytes
+			tail := s[len(s)-k:]
+			held := false
+			for _, m := range toolMarkers {
+				if strings.HasPrefix(m, tail) {
+					held = true
+					break
+				}
+			}
+			if held {
+				end = len(s) - k
+				break
+			}
+		}
+	}
+	if end > f.emitted {
+		f.emit(s[f.emitted:end])
+		f.emitted = end
+	}
 }
 
 // ------------------------------------------------------------------ prompts
@@ -330,8 +544,29 @@ func (s *Server) runAgent(ctx context.Context, userMsg string, emit emitFn) {
 		msgs := fitContext(s.systemPrompt(native), s.history, int(float64(s.inputBudget())*scale))
 		s.mu.Unlock()
 
-		m, err := s.callLLM(ctx, msgs, native)
+		sf := &streamFilter{emit: func(d string) { emit("delta", d) }}
+		streamed := false
+		m, err := s.callLLM(ctx, msgs, native, func(d string) { streamed = true; sf.feed(d) })
 		if err != nil {
+			if ctx.Err() != nil { // the user pressed Stop: keep what was already written, no error banner
+				partial := strings.TrimSpace(m.Content)
+				if _, _, rest, ok := parseToolText(partial); ok {
+					partial = strings.TrimSpace(rest)
+				}
+				if partial != "" {
+					emit("assistant", partial+"\n\n(đã dừng)")
+				} else if streamed {
+					emit("assistant", "")
+				}
+				return
+			}
+			if streamed { // close the half-written bubble before showing why it stopped
+				partial := strings.TrimSpace(m.Content)
+				if _, _, rest, ok := parseToolText(partial); ok {
+					partial = strings.TrimSpace(rest)
+				}
+				emit("assistant", partial)
+			}
 			if le, ok := err.(*llmError); ok {
 				low := strings.ToLower(le.Body)
 				switch {
@@ -367,7 +602,7 @@ func (s *Server) runAgent(ctx context.Context, userMsg string, emit emitFn) {
 		s.mu.Lock()
 		s.history = append(s.history, m)
 		s.mu.Unlock()
-		if strings.TrimSpace(text) != "" {
+		if strings.TrimSpace(text) != "" || streamed { // (empty text just closes the live bubble)
 			emit("assistant", text)
 		}
 		if len(calls) == 0 {

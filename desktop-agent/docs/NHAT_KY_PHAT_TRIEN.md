@@ -14,7 +14,7 @@ Tài liệu này ghi lại **quy trình đã code ra dự án**, từng chặng 
 - **task định kỳ** (monitor, lịch hàng ngày) có báo động; tìm web + đọc trang; xem PDF/ảnh gốc ngay trong giao diện;
 - mọi thao tác ghi/chạy đều qua **thẻ xin duyệt**; mọi đường dẫn bị khóa trong thư mục dự án.
 
-**Quy mô (lúc bàn giao):** ~7.700 dòng (Go ≈ 6.000 gồm cả test, `web/index.html` ≈ 590), **59 test**, 1 thư viện ngoài (`ledongthuc/pdf`, đã vendor), exe ≈ 8 MB.
+**Quy mô (lúc bàn giao):** ~9019 dòng (Go gồm cả test + `web/index.html`), **77 test**, 1 thư viện ngoài (`ledongthuc/pdf`, đã vendor), exe ≈ 8 MB.
 
 **Đọc theo thứ tự này khi tiếp quản:** mục 1 (bản đồ mã) → mục 5 (quyết định thiết kế) → mục 4 (lỗi đã gặp) → mục 9 (kiểm thử) → mục 11 (việc nên làm).
 
@@ -26,6 +26,8 @@ Tài liệu này ghi lại **quy trình đã code ra dự án**, từng chặng 
 |---|---|---|
 | `main.go` | Khởi động: đọc config, tạo `App`, nghe `127.0.0.1`, nhúng UI (`go:embed web`), mở trình duyệt, cờ `--project` `--no-browser` `--selftest`. Định nghĩa `Server` = *bộ chạy của MỘT phiên chat* | — |
 | `config.go` | `config.json` cạnh exe + biến môi trường (`LLM_BASE_URL`…) | — |
+| `instance.go` | **Một bản duy nhất** (`instance.json`), tự tắt khi không còn tab, `/api/quit` | `instance_test.go`, `workspace_test.go` |
+| `assets/` | Logo con vịt (`duck.svg`), `app.ico`, `make_syso.py` (nhúng icon vào exe) | kiểm bằng `pefile` |
 | `server.go` | `App` (HTTP): xác thực token + Host, workspace/phiên/project, `/api/chat` (SSE), duyệt, dừng, xem tệp (`/api/file`, `/api/raw`, `/api/open`), tasks | `workspace_test.go` |
 | `workspace.go` | `Workspace`→`Project`→`Session`; lưu `workspace.json`; ghi lại log để vẽ lại hội thoại; chuyển lịch sử LLM ⇄ đĩa | `workspace_test.go` |
 | `agent.go` | **Vòng lặp agent** cho LLM: giao thức khối ```` ```tool ````, native/auto, parse khoan dung, chặn lặp, `execTool` + xin duyệt | `agent_test.go`, `agentic_test.go` |
@@ -106,6 +108,15 @@ Giao thức khối ```` ```tool ```` (chạy với mọi LLM), parse khoan dung,
 ### 3.10 Linux
 Build tĩnh `CGO_ENABLED=0`; gói `.tar.gz`; `desktop-agent.service`; `access_token` cố định cho chế độ dịch vụ.
 
+### 3.12 Streaming câu trả lời
+`callLLM` đọc SSE, `streamFilter` ẩn khối công cụ thô, sự kiện `delta` + `assistant` cuối thay bong bóng, Dừng giữ phần đã viết. Chi tiết: `HUONG_DAN_TAO_BOT.md` mục 4b.6.
+
+### 3.13 Chạy ngầm, bấm lần hai, thoát
+Người dùng hỏi "đóng trình duyệt có tắt không, bấm lần hai có ra cổng khác không". Kiểm tra lại thì **có lỗi thật**: cổng bận thì tự chọn cổng khác và chạy **bản thứ hai** (chung `workspace.json`, **task chạy hai lần**). Sửa: một bản duy nhất, tự tắt khi hết tab, nút Thoát, dòng báo "đang chạy nền". Chi tiết: mục 4b.7.
+
+### 3.14 Logo con vịt
+Theo yêu cầu: vịt cao su vàng trên nền nước. Dùng cho logo, avatar bot, favicon và icon exe (mục 6.5).
+
 ### 3.11 Nhiều project, nhiều phiên chat (chặng cuối)
 Tách `App` (HTTP + workspace) khỏi `Server` (một phiên). Lưu `workspace.json` (project, phiên, log hiển thị, lịch sử LLM). Giao diện 3 cột: **tệp (trái) · chat (giữa) · dự án & phiên (phải)**. Viewer: PDF/ảnh xem **bản gốc** (blob + `<object>`), Word/Excel xem chữ trích xuất + nút "Mở bằng ứng dụng", tệp văn bản xem **toàn bộ** (không bị cắt trang như LLM).
 
@@ -128,6 +139,9 @@ Tách `App` (HTTP + workspace) khỏi `Server` (một phiên). Lưu `workspace.j
 | 11 | Test treo 10 phút | Goroutine giả lập "bấm Từ chối" chạy xong trước khi thẻ duyệt xuất hiện | `denyAll()` thăm dò lặp đến khi dừng | `agent_test.go`, `offline_test.go` |
 | 12 | Viewer tệp dài hiện cả chuỗi `[... còn N ký tự … offset=…]` | Viewer dùng `read_file` (đã phân trang cho LLM) | `/api/file` trả **toàn bộ** (≤2 MB) | `TestFileViewerEndpoints` |
 | 13 | Khung PDF trắng | Chromium headless không có bộ xem PDF | `<object>` + nội dung dự phòng (mở tab mới / mở bằng ứng dụng / xem chữ) | kiểm bằng Playwright |
+| 15 | Bấm exe lần hai → **chạy bản thứ hai** ở cổng khác; task định kỳ chạy hai lần, hai bản ghi đè `workspace.json` | `net.Listen` thất bại thì tự chọn cổng ngẫu nhiên, không kiểm tra bản đang chạy | `instance.json` + thăm dò token; chờ 3 giây trước khi chọn cổng khác; bản thứ hai chỉ mở tab rồi thoát | `TestSingleInstanceDiscovery`, `TestSecondLaunchOpensProject…`; kiểm tay: 3 bản khởi động cùng lúc chỉ còn 1 |
+| 16 | Bấm Dừng giữa lúc stream: giữ chữ đã viết nhưng **mất dòng "(đã dừng)"** | Giao diện ngắt kết nối ngay nên không nhận được sự kiện cuối | Giao diện chỉ gọi `/api/cancel` và để máy chủ tự đóng luồng (ngắt cưỡng chế sau 3 giây) | `TestAgentStreamStopKeepsPartialText` + kiểm bằng Playwright (58 ms) |
+| 17 | Lần chạy `go run` công cụ bên thứ ba để nhúng icon bị hệ thống chặn | Tải và chạy mã lạ | Tự viết `assets/make_syso.py` (không tải gì) và kiểm bằng `pefile` | — |
 | 14 | PDF thật có ký tự thừa cuối dòng (`…đồngă`) | `GetPlainText` | Thay bằng `pageText2` | `TestReadPDF` (so khớp dòng chính xác) |
 
 ---
@@ -144,6 +158,7 @@ Tách `App` (HTTP + workspace) khỏi `Server` (một phiên). Lưu `workspace.j
 8. **Parse khoan dung ở mọi nơi LLM chạm vào** (khối tool, khóa JSON, kiểu số, bí danh tên công cụ), nhưng **nghiêm ngặt ở nơi quyết định hành động** (chỉ chạy tên công cụ có thật; JSON thường không bị coi là lệnh).
 9. **Không đoán khi nhập nhằng** (tên tệp na ná → liệt kê, không tự mở).
 10. **Task chỉ báo khi trạng thái đổi** (ổn→lỗi, lỗi→ổn) để khỏi spam; không chạy bù khi mở lại.
+11b. **Một bản duy nhất** + **tự tắt khi hết tab** (trừ khi có việc/task bật): chương trình không âm thầm nằm lại, nhưng không phá việc chạy nền mà người dùng chủ động bật.
 11. **Phiên chat = runner riêng** (`Server`): chạy song song nhiều phiên, `busy`/`cancel` theo phiên, thẻ duyệt tra theo ID toàn cục.
 12. **Lưu log hiển thị riêng với lịch sử LLM.** Log (để vẽ lại UI) có thể cắt/rút gọn; lịch sử LLM giữ `Meta` ("result") qua `pMsg` để khôi phục đúng lượt.
 13. **PDF/ảnh phục vụ qua `blob:` URL lấy bằng `fetch` + header token** (không đưa token lên URL); chỉ cho phép danh sách đuôi an toàn (không SVG vì có thể chứa script); `nosniff`.
@@ -196,7 +211,20 @@ Dịch vụ nền: xem `desktop-agent.service` (đầu file có hướng dẫn c
 ### 6.4 macOS (chưa kiểm thử)
 `GOOS=darwin GOARCH=arm64 go build …` (hoặc `amd64`) build được vì code có nhánh `open`; **chưa chạy thử trên máy Mac** nên không phát hành. Nếu cần: thêm vào `build.sh`, ký bằng `codesign` + notarize.
 
-### 6.5 Icon, tên, phiên bản cho `.exe` (nên làm trước khi phát hành)
+### 6.5 Icon cho `.exe` (ĐÃ LÀM) và phiên bản (chưa)
+
+Icon con vịt đã được nhúng: `resource_windows_amd64.syso` nằm trong thư mục gói nên `go build` cho Windows tự liên kết (xem `HUONG_DAN_TAO_BOT.md` mục 5.2c). Tạo lại ảnh khi đổi logo:
+```bash
+# 1) vẽ PNG trong suốt các cỡ 16,24,32,48,64,128,256 từ assets/duck.svg (đã dùng Playwright: đặt SVG vào trang, screenshot với omitBackground)
+# 2) gói ICO bằng Pillow:
+python3 -c "from PIL import Image; ims=[Image.open(f'duck-{n}.png').convert('RGBA') for n in (16,24,32,48,64,128,256)]; ims[-1].save('assets/app.ico', format='ICO', sizes=[(n,n) for n in (16,24,32,48,64,128,256)], append_images=ims[:-1])"
+# 3) nhúng:
+python3 assets/make_syso.py
+# 4) kiểm: pip install pefile; mở exe, duyệt DIRECTORY_ENTRY_RESOURCE, so các RT_ICON với app.ico
+```
+Phần **thông tin phiên bản/công ty** (ProductName, FileVersion) vẫn dùng `goversioninfo` như bên dưới (chưa làm).
+
+#### (Chưa làm) Tên, phiên bản cho `.exe`
 ```bash
 go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
 ```
@@ -309,11 +337,13 @@ Không dùng `upx` (nén exe) — antivirus rất hay báo nhầm. Kích thướ
 | `search_provider`, `google_api_key`, `google_cx`, `searxng_url` | duckduckgo | tìm web |
 | `alert_webhook` | rỗng | POST `{"text","content"}` khi task báo động |
 | `access_token` | rỗng | token cố định (≥16 ký tự) cho dịch vụ |
+| `stream` | true | câu trả lời LLM hiện dần |
+| `auto_exit_seconds` | 180 | tự tắt sau ngần này giây không còn tab (0 = không); không áp dụng khi đang có việc/task bật hoặc `--no-browser` |
 
 Biến môi trường: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `AGENT_PORT`.
 
 ### 8.2 Dữ liệu người dùng
-`%AppData%\desktop-agent\` (Windows) hoặc `~/.config/desktop-agent/` (Linux): `workspace.json` (project + phiên + log + lịch sử LLM), `tasks.json`, `agent.log`, `jobs/` (mã script của task). Ghi bằng tệp tạm + `rename` (không hỏng nửa chừng). Tệp hỏng → nạp rỗng, không sập.
+`%AppData%\desktop-agent\` (Windows) hoặc `~/.config/desktop-agent/` (Linux): `workspace.json` (project + phiên + log + lịch sử LLM), `instance.json` (địa chỉ + token của bản đang chạy, 0600), `tasks.json`, `agent.log`, `jobs/` (mã script của task). Ghi bằng tệp tạm + `rename` (không hỏng nửa chừng). Tệp hỏng → nạp rỗng, không sập.
 
 `workspace.json` (rút gọn):
 ```json
@@ -328,12 +358,13 @@ Giới hạn: log ≤ 300 mục, lịch sử LLM lưu ≤ 60 tin (mỗi tin ≤ 
 ### 8.3 API (mọi đường dẫn cần header `X-Token`, và `Host` đúng)
 | Phương thức · đường dẫn | Việc |
 |---|---|
-| `GET /api/state` | chế độ (offline/LLM), model, tự duyệt |
+| `GET /api/state` | chế độ (offline/LLM), model, tự duyệt, `auto_exit_seconds` |
+| `POST /api/quit` | tắt hẳn chương trình (hủy lệnh đang chạy, lưu dữ liệu, xóa `instance.json`) |
 | `GET /api/workspace` · `POST /api/workspace/active` | danh sách project/phiên · đặt phiên đang mở |
 | `POST /api/project/open` · `/remove` | mở (dùng lại nếu trùng đường dẫn) · bỏ project |
 | `GET /api/session?project_id&id` | log để vẽ lại + thẻ duyệt đang chờ + `busy` |
 | `POST /api/session/new` · `/delete` · `/rename` | phiên mới (dùng lại phiên trống) · xóa · đổi tên |
-| `POST /api/chat` | gửi tin; trả **SSE** (`assistant`, `tool_call`, `tool_result`, `approval`, `error`, `done`); 409 nếu phiên đang bận |
+| `POST /api/chat` | gửi tin; trả **SSE** (`delta` = từng đoạn chữ đang viết, `assistant` = câu cuối sạch, `tool_call`, `tool_result`, `approval`, `error`, `done`); 409 nếu phiên đang bận |
 | `POST /api/approve` · `/api/cancel` · `/api/auto` | duyệt · dừng một phiên · bật tự duyệt |
 | `GET /api/browse` | chọn thư mục (chỉ thư mục con; có danh sách ổ đĩa trên Windows) |
 | `GET /api/tree` | cây tệp (qua sandbox) |
@@ -349,7 +380,7 @@ Giới hạn: log ≤ 300 mục, lịch sử LLM lưu ≤ 60 tin (mỗi tin ≤ 
 ### 9.1 Chạy
 ```bash
 go vet ./... && GOOS=windows go vet ./...      # biên dịch cả hai hệ điều hành
-go test -race -timeout 200s ./...              # ~14 giây, 59 test
+go test -race -timeout 200s ./...              # ~45 giây, 77 test
 ```
 
 ### 9.2 Có gì

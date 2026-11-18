@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Trợ lý</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%234b6bfb'/%3E%3Cpath d='M16 7l2.2 6.8L25 16l-6.8 2.2L16 25l-2.2-6.8L7 16l6.8-2.2z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="duck.svg">
+<link rel="alternate icon" href="favicon.ico">
 <style>
 :root{
   --bg:#ffffff;--side:#f9f9f9;--fg:#0d0d0d;--mut:#6e6e80;--bd:#e5e5e5;--hover:#ececec;--sel:#e8ecff;
@@ -32,8 +33,9 @@ svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 #files{width:260px;background:var(--side);display:flex;flex-direction:column;flex:none;border-right:1px solid var(--bd);transition:margin .2s ease}
 body.nofiles #files{margin-left:-260px}
 .fh{display:flex;align-items:center;gap:8px;padding:10px 8px 8px 14px;min-height:52px}
-.logo{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--g1),var(--g2));display:grid;place-items:center;color:#fff;flex:none}
-.logo svg{width:15px;height:15px;stroke:none;fill:#fff}
+svg.duck{stroke:none;fill:initial}
+.logo{width:32px;height:32px;display:grid;place-items:center;flex:none}
+.logo svg{width:32px;height:32px}
 .fh .tt{min-width:0;flex:1}.fh .tt b{display:block;font-size:14px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fh .tt small{display:block;color:var(--mut);font-size:11.5px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sec{padding:6px 16px 4px;font-size:11.5px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
@@ -59,6 +61,8 @@ body.norail #rail{margin-right:-290px}
 .rh{display:flex;align-items:center;gap:6px;padding:10px 8px 8px 14px;min-height:52px}
 .rh b{flex:1;font-size:14px}
 #openproj{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--btn);color:var(--btnfg);font-weight:600;font-size:13px}
+#newchat2{margin:0 10px 8px;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 12px;border-radius:12px;border:1px solid var(--bd);background:var(--bg);font-weight:600;font-size:13.5px}
+#newchat2:hover{border-color:var(--acc);color:var(--acc)}
 #plist{flex:1;overflow:auto;padding:0 8px 12px}
 .proj{margin:2px 0 6px}
 .ph{display:flex;align-items:center;gap:4px;padding:5px 4px 5px 2px;border-radius:9px;cursor:pointer}
@@ -67,7 +71,7 @@ body.norail #rail{margin-right:-290px}
 .proj.closed .chev{transform:rotate(-90deg)}
 .ph .pn{flex:1;min-width:0;font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .proj.activep .ph .pn{color:var(--acc)}
-.ph .mini{opacity:0}.ph:hover .mini{opacity:1}
+.ph .mini{opacity:.55}.ph:hover .mini{opacity:1}
 .proj.missing .pn{color:#dc2626;text-decoration:line-through}
 .sl{padding-left:22px}.proj.closed .sl{display:none}
 .srow{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border-radius:9px;cursor:pointer;font-size:13.5px}
@@ -103,8 +107,8 @@ body.norail #rail{margin-right:-290px}
 @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .msg.user{justify-content:flex-end}
 .bubble{background:var(--user);padding:10px 18px;border-radius:22px;max-width:80%;white-space:pre-wrap;word-break:break-word}
-.av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--g1),var(--g2));display:grid;place-items:center;flex:none;margin-top:2px}
-.av svg{width:16px;height:16px;fill:#fff;stroke:none}
+.av{width:32px;height:32px;display:grid;place-items:center;flex:none;margin-top:0}
+.av svg{width:32px;height:32px}
 .body{min-width:0;flex:1;word-break:break-word}
 .body ul{margin:6px 0 10px;padding-left:22px}.body li{margin:3px 0}
 .body code{background:var(--comp);padding:2px 6px;border-radius:6px;font:13px/1.4 Consolas,"Cascadia Mono",monospace}
@@ -184,7 +188,15 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
 #taskhint{font-size:12.5px;color:var(--mut);padding:10px 14px;border-top:1px solid var(--bd)}
 #toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--btn);color:var(--btnfg);padding:8px 16px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:.2s;z-index:30}
 #toast.on{opacity:1}
-#scrim{display:none}
+.streaming .md::after{content:"";display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:caret 1s steps(2) infinite}
+@keyframes caret{50%{opacity:0}}
+.streaming .acts{visibility:hidden}
+#bgnote{font-size:12px;line-height:1.4;color:var(--mut);padding:2px 8px 4px}
+#bgnote.on{color:#b45309}
+#quitbtn{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:10px;font-weight:500;width:100%;text-align:left;color:var(--mut)}
+#quitbtn:hover{background:var(--hover);color:#dc2626}
+#dead{position:fixed;inset:0;background:var(--bg);z-index:100;display:none;align-items:center;justify-content:center;text-align:center;padding:30px}
+#dead b{display:block;font-size:22px;margin-bottom:8px}#dead span{color:var(--mut)}
 
 @media(max-width:1100px){
   #files,#rail{position:fixed;z-index:12;top:0;bottom:0;box-shadow:var(--shadow)}
@@ -208,6 +220,33 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
   <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.4 2.4-2.6-.6-.6-2.6z"/></symbol>
+  <symbol id="i-duck" viewBox="0 0 64 64">
+  <defs><clipPath id="duckclip"><rect width="64" height="64" rx="14"/></clipPath></defs>
+  <!-- water -->
+  <g clip-path="url(#duckclip)">
+  <rect x="0" y="0" width="64" height="64" fill="#DDF1FF"/>
+  <path d="M0 50c6-4 12-4 18 0s12 4 18 0 12-4 18 0 7 3 10 2v12H0z" fill="#8FD3FF"/>
+  <path d="M0 55c6-3 12-3 18 0s12 3 18 0 12-3 18 0 7 2 10 1v8H0z" fill="#5BB8F5"/>
+  </g>
+  <!-- tail -->
+  <path d="M9 40c-4-5-4-10 1-12 1 5 4 8 9 9z" fill="#FFC21A"/>
+  <!-- body -->
+  <ellipse cx="29" cy="43" rx="21" ry="14" fill="#FFD43B"/>
+  <path d="M10 46c4 8 14 11 25 10 9-1 14-5 15-11-4 6-13 9-22 8-8-1-14-3-18-7z" fill="#FFC21A" opacity=".75"/>
+  <!-- wing -->
+  <path d="M19 41c5-6 14-6 20 0-3 8-14 10-20 0z" fill="#FFB700"/>
+  <path d="M23 42c3-3 8-3 12 0" fill="none" stroke="#E69F00" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- head -->
+  <circle cx="41" cy="22" r="12.5" fill="#FFD43B"/>
+  <path d="M33 15c3-4 9-5 13-2" fill="none" stroke="#FFF3BF" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- beak -->
+  <path d="M50 22c5-1 10 0 11 3 0 3-5 4-11 3z" fill="#FF8A1F"/>
+  <path d="M50 26c4 0 8 0 11-1 0 3-5 4-11 3z" fill="#E8590C"/>
+  <!-- eye + cheek -->
+  <circle cx="44.5" cy="19" r="2.3" fill="#1F2933"/>
+  <circle cx="45.2" cy="18.2" r=".8" fill="#fff"/>
+  <circle cx="47" cy="26" r="2.6" fill="#FF8787" opacity=".55"/>
+</symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-term" viewBox="0 0 24 24"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
@@ -218,13 +257,14 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
   <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
   <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
 </defs></svg>
 
 <!-- LEFT: file list of the active project -->
 <aside id="files">
   <div class="fh">
-    <span class="logo"><svg><use href="#i-spark"/></svg></span>
+    <span class="logo"><svg class="duck"><use href="#i-duck"/></svg></span>
     <div class="tt"><b id="pname">Chưa chọn dự án</b><small id="ppath"></small></div>
     <button class="ic" id="refresh" title="Tải lại danh sách tệp"><svg><use href="#i-refresh"/></svg></button>
     <button class="ic" id="hidefiles" title="Ẩn danh sách tệp"><svg><use href="#i-menu"/></svg></button>
@@ -235,6 +275,8 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
     <button id="tasksbtn"><svg><use href="#i-clock"/></svg>Tasks định kỳ<span id="tasksbadge"></span></button>
     <div class="row"><span style="display:flex;gap:8px;align-items:center"><svg style="width:16px;height:16px"><use href="#i-shield"/></svg>Tự duyệt thao tác</span>
       <label class="sw"><input type="checkbox" id="auto"><i></i></label></div>
+    <div id="bgnote"></div>
+    <button id="quitbtn" title="Tắt hẳn chương trình (đóng tab trình duyệt KHÔNG tắt chương trình)"><svg><use href="#i-power"/></svg>Thoát chương trình</button>
     <div class="row"><span class="pill" id="mode"></span>
       <button class="ic" id="theme" title="Đổi giao diện sáng/tối" style="width:30px;height:30px"><svg id="themeic"><use href="#i-moon"/></svg></button></div>
   </div>
@@ -244,7 +286,7 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <div id="top">
     <button class="ic" id="showfiles" title="Danh sách tệp"><svg><use href="#i-folder"/></svg></button>
     <div id="ttl"><span id="stitle">Trợ lý</span><span id="msub"></span></div>
-    <button class="ic" id="newtop" title="Phiên chat mới trong dự án này"><svg><use href="#i-edit"/></svg></button>
+    <button class="b" id="newtop" title="Cuộc trò chuyện mới trong dự án này (Ctrl+Shift+O)" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px"><svg style="width:16px;height:16px"><use href="#i-edit"/></svg>Chat mới</button>
     <button class="ic" id="showrail" title="Dự án và phiên chat"><svg><use href="#i-panel"/></svg></button>
   </div>
 
@@ -290,6 +332,7 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <div class="rh"><b>Dự án &amp; phiên chat</b>
     <button id="openproj"><svg style="width:14px;height:14px"><use href="#i-plus"/></svg>Mở dự án</button>
     <button class="ic" id="hiderail" title="Ẩn cột này"><svg><use href="#i-x"/></svg></button></div>
+  <button id="newchat2" title="Cuộc trò chuyện mới trong dự án đang mở (Ctrl+Shift+O)"><svg style="width:16px;height:16px"><use href="#i-plus"/></svg>Cuộc trò chuyện mới</button>
   <div id="plist"></div>
 </aside>
 
@@ -298,6 +341,7 @@ kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:
   <div id="taskhint">Tạo task: nhắn trong chat, ví dụ <code>task thêm kiểm tra log | mỗi 5 phút | type app.log báo nếu có ERROR</code> hoặc nhờ trợ lý (khi đã kết nối LLM). Task chạy khi chương trình đang mở.</div></aside>
 <div id="modal"><div id="box"><h3>Chọn thư mục dự án</h3><div id="cur"></div><div id="list"></div>
   <div class="acts2"><button class="b" id="mcancel">Huỷ</button><button class="b p" id="mok">Mở thư mục này</button></div></div></div>
+<div id="dead"><div><b>Đã tắt chương trình</b><span>Bạn có thể đóng tab này. Muốn dùng lại, hãy mở lại chương trình.</span></div></div>
 <div id="toast"></div>
 
 <script>
@@ -356,11 +400,21 @@ document.addEventListener('click',e=>{const b=e.target.closest('.cp');if(b)copy(
 /* ---------- drawing the conversation ---------- */
 const scrollDown=()=>{const s=$('scroll');s.scrollTop=s.scrollHeight};
 function addUser(t){showWelcome(false);const d=document.createElement('div');d.className='msg user';d.innerHTML='<div class="bubble"></div>';d.firstChild.textContent=t;$('msgs').appendChild(d);scrollDown()}
-function addBot(t){showWelcome(false);const d=document.createElement('div');d.className='msg';
-  d.innerHTML=`<div class="av">${ic('spark')}</div><div class="body"><div class="md"></div><div class="acts"><button class="ic" title="Sao chép">${ic('copy')}</button></div></div>`;
-  d.querySelector('.md').innerHTML=md(t);d.querySelector('.acts button').onclick=()=>copy(t);$('msgs').appendChild(d);scrollDown()}
+function makeBot(){showWelcome(false);const d=document.createElement('div');d.className='msg';
+  d.innerHTML=`<div class="av"><svg class="duck"><use href="#i-duck"/></svg></div><div class="body"><div class="md"></div><div class="acts"><button class="ic" title="Sao chép">${ic('copy')}</button></div></div>`;
+  $('msgs').appendChild(d);return d}
+function addBot(t){const d=makeBot();d.querySelector('.md').innerHTML=md(t);d.querySelector('.acts button').onclick=()=>copy(t);scrollDown()}
+/* streaming: the answer grows while the model writes; the final "assistant" event replaces it with the clean text */
+let sbub=null,sbuf='',sraf=0;
+function streamDelta(t){hideTyping();if(!sbub){sbub=makeBot();sbub.classList.add('streaming');sbuf=''}sbuf+=t;
+  if(!sraf)sraf=requestAnimationFrame(()=>{sraf=0;if(sbub){sbub.querySelector('.md').innerHTML=md(sbuf);scrollDown()}})}
+function closeStream(text){if(sraf){cancelAnimationFrame(sraf);sraf=0}
+  if(!sbub)return false;const fin=(text===undefined)?sbuf:text;
+  if(fin&&fin.trim()){sbub.classList.remove('streaming');sbub.querySelector('.md').innerHTML=md(fin);sbub.querySelector('.acts button').onclick=()=>copy(fin);scrollDown()}else sbub.remove();
+  sbub=null;sbuf='';return true}
+function dropStream(){if(sraf){cancelAnimationFrame(sraf);sraf=0}sbub=null;sbuf=''}
 let typing=null;
-function showTyping(){if(typing)return;typing=document.createElement('div');typing.className='msg';typing.innerHTML=`<div class="av">${ic('spark')}</div><div class="body"><div class="dots"><i></i><i></i><i></i></div></div>`;$('msgs').appendChild(typing);scrollDown()}
+function showTyping(){if(typing)return;typing=document.createElement('div');typing.className='msg';typing.innerHTML=`<div class="av"><svg class="duck"><use href="#i-duck"/></svg></div><div class="body"><div class="dots"><i></i><i></i><i></i></div></div>`;$('msgs').appendChild(typing);scrollDown()}
 function hideTyping(){if(typing){typing.remove();typing=null}}
 function fmtArgs(a){try{const o=JSON.parse(a);return Object.entries(o).map(([k,v])=>k+': '+v).join('\n')}catch{return a}}
 function brief(a){try{const o=JSON.parse(a);return o.path||o.command||o.pattern||o.from||o.query||o.url||o.name||''}catch{return ''}}
@@ -385,11 +439,12 @@ function drawEntry(e,busy){
   if(e.t==='user')addUser(e.text);else if(e.t==='assistant')addBot(e.text);else if(e.t==='error')addBot('⚠️ '+e.text);
   else if(e.t==='tool'){toolCard(e.id,e.name,e.args);if(e.done)toolDone(e.id,e.result||'');else if(!busy){const em=calls[e.id].querySelector('em');em.className='bad';em.textContent='đã dừng';delete calls[e.id].dataset.t0}}}
 function onEvent(e){const d=e.data;
-  if(e.event==='assistant'){hideTyping();addBot(d)}
+  if(e.event==='delta')streamDelta(d);
+  else if(e.event==='assistant'){hideTyping();if(!closeStream(d)&&d&&d.trim())addBot(d)}
   else if(e.event==='tool_call')toolCard(d.id,d.name,d.args,d.timeout);
-  else if(e.event==='tool_result')toolDone(d.id,d.result);
+  else if(e.event==='tool_result'){toolDone(d.id,d.result);showTyping()}
   else if(e.event==='approval')approval(d);
-  else if(e.event==='error'){hideTyping();addBot('⚠️ '+d)}}
+  else if(e.event==='error'){hideTyping();closeStream();addBot('⚠️ '+d)}}
 setInterval(()=>{document.querySelectorAll('.tool[data-t0]').forEach(d=>{const em=d.querySelector('em');const n=Math.floor((Date.now()-d.dataset.t0)/1000);if(em.className==='run')em.textContent='đang chạy… '+n+'s'+(d.dataset.lim?' / tối đa '+d.dataset.lim+'s':'')})},1000);
 
 /* ---------- workspace: projects → sessions (right panel) ---------- */
@@ -432,7 +487,7 @@ let watching=null;
 async function renderSession(){const sid=S,pid=P;if(!sid)return resetView();
   const r=await api('/api/session?project_id='+enc(pid)+'&id='+enc(sid));if(!r.ok){toast(await r.text());return}
   const d=await r.json();if(sid!==S)return;
-  $('msgs').innerHTML='';calls={};hideTyping();
+  $('msgs').innerHTML='';calls={};hideTyping();dropStream();
   for(const e of d.log)drawEntry(e,d.busy||!!streams[sid]);
   for(const a of d.pending)approval(a);
   showWelcome(d.log.length===0);
@@ -455,11 +510,13 @@ async function send(){const t=$('msg').value.trim();const sid=S,pid=P;if(!t||!si
         let i;while((i=buf.indexOf('\n\n'))>=0){const ch=buf.slice(0,i);buf=buf.slice(i+2);if(ch.startsWith('data: ')&&live())onEvent(JSON.parse(ch.slice(6)))}}}}
   catch(e){if(live()){hideTyping();if(e.name!=='AbortError')addBot('⚠️ '+e)}}
   delete streams[sid];
-  if(live()){hideTyping();document.querySelectorAll('.ap').forEach(e=>e.remove());
+  if(live()){hideTyping();closeStream();document.querySelectorAll('.ap').forEach(e=>e.remove());
     document.querySelectorAll('.tool em').forEach(e=>{if(e.textContent.startsWith('đang')||e.textContent.startsWith('chờ')){e.className='bad';e.textContent='đã dừng'}});syncComposer();$('msg').focus()}
   loadWorkspace()}
 $('send').onclick=send;
-$('stop').onclick=async()=>{try{await post('/api/cancel',{session_id:S})}catch{}if(streams[S])streams[S].abort()};
+$('stop').onclick=async()=>{const sid=S;try{await post('/api/cancel',{session_id:sid})}catch{}
+  // the server stops within a moment and ends the stream itself (so the "(đã dừng)" note arrives); force-close only as a fallback
+  setTimeout(()=>{if(streams[sid])streams[sid].abort()},3000)};
 $('msg').addEventListener('input',autosize);
 $('msg').addEventListener('keydown',e=>{
   if($('cmds').style.display==='block'){
@@ -468,7 +525,8 @@ $('msg').addEventListener('keydown',e=>{
     if(e.key==='Escape'){hideCmds();return}}
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}});
 async function newSession(){if(!P)return openPicker();const r=await post('/api/session/new',{project_id:P});if(r.ok){const j=await r.json();await loadWorkspace();selectSession(P,j.session_id);$('msg').focus()}else toast(await r.text())}
-$('newtop').onclick=newSession;
+$('newtop').onclick=newSession;$('newchat2').onclick=newSession;
+addEventListener('keydown',e=>{if(e.ctrlKey&&e.shiftKey&&(e.key==='O'||e.key==='o')){e.preventDefault();newSession()}});
 $('auto').onchange=e=>post('/api/auto',{on:e.target.checked});
 
 /* ---------- slash menu ---------- */
@@ -551,12 +609,15 @@ $('mok').onclick=async()=>{const r=await post('/api/project/open',{path:browsePa
 addEventListener('keydown',e=>{if(e.key==='Escape'){$('modal').style.display='none';$('tasks').style.display='none';if($('viewer').style.display==='flex')closeViewer()}});
 
 /* ---------- scheduled tasks ---------- */
-let modelName='',lastSeq=null,openHist={};
+let modelName='',lastSeq=null,openHist={},enabledTasks=0,autoExit=0;
+function bgNote(){const n=$('bgnote');if(enabledTasks>0){n.className='on';n.textContent='● Đang chạy nền: '+enabledTasks+' task định kỳ. Đóng tab KHÔNG tắt chương trình.'}
+  else if(autoExit>0){n.className='';n.textContent='Tự tắt sau '+Math.max(1,Math.round(autoExit/60))+' phút kể từ khi đóng hết tab.'}else{n.className='';n.textContent='Đóng tab không tắt chương trình – dùng nút Thoát bên dưới.'}}
 const fmtT=s=>{const d=new Date(s);return isNaN(d)?'':d.toLocaleString('vi-VN',{hour12:false,day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})};
 const ST={ok:['good','ok'],alert:['bad','báo động'],timeout:['bad','hết giờ'],error:['bad','lỗi']};
 async function pollTasks(){let j;try{const r=await api('/api/tasks');if(!r.ok)return;j=await r.json()}catch{return}
   const bad=j.tasks.filter(x=>x.enabled&&x.last&&x.last.status!=='ok').length;
   const bd=$('tasksbadge');bd.textContent=bad;bd.classList.toggle('on',bad>0);
+  enabledTasks=j.tasks.filter(x=>x.enabled).length;bgNote();
   if(lastSeq!==null&&j.seq>lastSeq){const a=j.alerts.filter(x=>x.seq>lastSeq).pop();if(a){toast((a.kind==='alert'?'⚠️ ':'✅ ')+a.task_name+': '+a.message.split('\n')[0].replace(/^[^ ]+ /,''))}}
   lastSeq=j.seq;if($('tasks').style.display==='flex')renderTasks(j.tasks)}
 function renderTasks(tasks){const l=$('taskslist');
@@ -581,8 +642,19 @@ function renderTasks(tasks){const l=$('taskslist');
 $('tasksbtn').onclick=()=>{$('tasks').style.display='flex';pollTasks()};$('tasksclose').onclick=()=>$('tasks').style.display='none';
 setInterval(pollTasks,5000);setTimeout(pollTasks,800);setInterval(()=>{if(!document.hidden)loadWorkspace()},15000);
 
+/* ---------- quit ---------- */
+$('quitbtn').onclick=async()=>{
+  const busy=W.projects.reduce((n,p)=>n+p.sessions.filter(s=>s.busy||streams[s.id]).length,0);
+  let tasks=0;try{const j=await(await api('/api/tasks')).json();tasks=j.tasks.filter(t=>t.enabled).length}catch{}
+  let msg='Thoát chương trình?\n\nChương trình sẽ tắt hẳn (đóng tab trình duyệt KHÔNG tắt chương trình).';
+  if(busy)msg+='\n• '+busy+' phiên chat đang chạy sẽ bị dừng.';
+  if(tasks)msg+='\n• '+tasks+' task định kỳ đang bật sẽ ngừng chạy cho tới khi bạn mở lại chương trình.';
+  if(!confirm(msg))return;
+  try{await post('/api/quit',{})}catch{}
+  $('dead').style.display='flex';try{window.close()}catch{}};
+
 /* ---------- start ---------- */
-(async()=>{const s=await(await api('/api/state')).json();offline=!s.base_url;modelName=s.model||'';
+(async()=>{const s=await(await api('/api/state')).json();offline=!s.base_url;modelName=s.model||'';autoExit=s.auto_exit_seconds||0;bgNote();
   $('mode').textContent=offline?'Bot offline (if/else)':(s.model||'LLM');$('auto').checked=s.auto;
   await loadWorkspace();showWelcome(true);updateGate();
   if(P&&S){await selectSession(P,S)}else resetView()})();

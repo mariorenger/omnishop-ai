@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -530,5 +531,47 @@ func TestEmptyListsAreArraysNotNull(t *testing.T) {
 	_, b = a.req("GET", "/api/tasks", nil)
 	if strings.Contains(string(b), `"tasks":null`) {
 		t.Errorf("tasks must be []: %s", b)
+	}
+}
+
+func TestQuitEndpoint(t *testing.T) {
+	exited := make(chan int, 1)
+	old := exitProcess
+	exitProcess = func(code int) { exited <- code }
+	defer func() { exitProcess = old }()
+	d := mkProject(t, map[string]string{"a.txt": "x"})
+	a := newTestApp(t, "")
+	a.app.auto, a.app.cfg.AutoApprove = true, true
+	pid, sid := a.openProject(d)
+	// a long command is running when the user quits: it must be stopped (no orphan process)
+	go a.chat(pid, sid, "chạy sleep 30", nil)
+	time.Sleep(600 * time.Millisecond)
+	// no token → refused, process keeps running
+	r, _ := http.Post(a.srv.URL+"/api/quit", "application/json", nil)
+	if r.StatusCode != 403 {
+		t.Fatalf("quit without token must be 403, got %d", r.StatusCode)
+	}
+	select {
+	case <-exited:
+		t.Fatal("exited without authorisation")
+	case <-time.After(500 * time.Millisecond):
+	}
+	if st := a.post("/api/quit", map[string]bool{}, nil); st != 200 {
+		t.Fatalf("quit: %d", st)
+	}
+	select {
+	case code := <-exited:
+		if code != 0 {
+			t.Errorf("exit code %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("process did not exit")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if out, _ := exec.Command("pgrep", "-f", "sleep 30").Output(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("the running command was left behind: %s", out)
+	}
+	if _, err := os.Stat(a.wsPath); err != nil {
+		t.Error("workspace must be saved on quit")
 	}
 }
