@@ -87,9 +87,21 @@ func TestOfflineCommands(t *testing.T) {
 	// --- tìm
 	b.expect("tìm TODO", "a.txt:1:")
 	b.expect("find TODO", "a.txt:1:")
-	b.expect("tìm zzz", "no matches")
+	b.expect("tìm zzz", "không có kết quả")
 	b.expect("tìm", "Tìm gì")
-	b.expect("tìm (", "bad pattern")
+	// tìm theo TÊN và theo NỘI DUNG
+	b.expect("tìm b.py", "Tên tệp khớp", "sub/b.py", "Nội dung khớp", "không có kết quả")
+	b.expect("tìm B.PY", "sub/b.py") // không phân biệt hoa/thường
+	b.expect("tìm tên sub", "sub/")
+	b.expect("tìm tên *.py", "sub/b.py") // glob
+	b.expect("tìm file a.txt", "a.txt")
+	b.expect("tìm tên TODO", "không có kết quả") // TODO chỉ có trong nội dung, không phải tên
+	b.expect("tìm nội dung TODO", "a.txt:1:")
+	b.expect("tìm chữ TODO", "a.txt:1:")
+	b.expect("tìm TODO", "Nội dung khớp", "a.txt:1:", "Tên tệp khớp", "không có kết quả")
+	b.expect("tìm *.py", "sub/b.py", "bỏ qua") // glob hợp lệ cho tên, không phải regex cho nội dung
+	b.expect("tìm tên", "Tìm gì")
+	b.expect("tìm (", "bỏ qua")
 
 	// --- tạo (có dấu, khoảng trắng, thư mục lồng, ghi đè, nội dung có dấu ':')
 	b.expect("tạo moi.txt : nội dung mới", "wrote")

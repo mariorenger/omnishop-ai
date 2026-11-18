@@ -45,6 +45,8 @@ var toolDefs = []map[string]any{
 		props{"path": str("relative path")}, "path"),
 	fn("move_file", "Rename or move a file/directory inside the project.",
 		props{"from": str("relative source path"), "to": str("relative destination path")}, "from", "to"),
+	fn("find_files", "Find files/folders by NAME (case-insensitive substring, or a glob like *.py). Returns relative paths.",
+		props{"pattern": str("name substring or glob"), "path": str("relative directory, default '.'")}, "pattern"),
 	fn("search_files", "Search project files for a regex pattern. Returns file:line: text.",
 		props{"pattern": str("regular expression"), "path": str("relative directory, default '.'")}, "pattern"),
 	fn("run_command", "Run a shell command in the project directory (cmd on Windows, sh elsewhere). Returns combined output.",
@@ -299,6 +301,64 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		return fmt.Sprintf("moved %s -> %s", a.From, a.To)
+	case "find_files":
+		pat := strings.ToLower(strings.TrimSpace(a.Pattern))
+		if pat == "" {
+			return "error: empty pattern"
+		}
+		base, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		glob := strings.ContainsAny(pat, "*?[")
+		deadline := time.Now().Add(15 * time.Second)
+		var found []string
+		cut := false
+		_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return filepath.SkipAll
+			}
+			if time.Now().After(deadline) {
+				cut = true
+				return filepath.SkipAll
+			}
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules") {
+				return filepath.SkipDir
+			}
+			if path == base {
+				return nil
+			}
+			name := strings.ToLower(d.Name())
+			ok := false
+			if glob {
+				ok, _ = filepath.Match(pat, name)
+			} else {
+				ok = strings.Contains(name, pat)
+			}
+			if ok {
+				rel, _ := filepath.Rel(root, path)
+				rel = filepath.ToSlash(rel)
+				if d.IsDir() {
+					rel += "/"
+				}
+				found = append(found, rel)
+				if len(found) >= 200 {
+					return filepath.SkipAll
+				}
+			}
+			return nil
+		})
+		sort.Strings(found)
+		if cut {
+			found = append(found, "[dừng sau 15 giây, kết quả chưa đầy đủ]")
+		}
+		if len(found) == 0 {
+			return "no matches"
+		}
+		return strings.Join(found, "\n")
 	case "search_files":
 		re, err := regexp.Compile(a.Pattern)
 		if err != nil {

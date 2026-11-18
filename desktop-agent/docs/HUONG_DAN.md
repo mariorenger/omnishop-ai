@@ -49,7 +49,9 @@ Lệnh gõ **tiếng Việt hoặc tiếng Anh** đều được. Không phân b
 | `ls [thư mục]` (hoặc `dir`, `liệt kê`) | Liệt kê tệp, thư mục | `ls`, `ls src` |
 | `tree [thư mục]` | Cây thư mục sâu tối đa 3 cấp | `tree` |
 | `đọc <tệp>` (hoặc `read`, `cat`, `xem`, `mở`) | Xem nội dung tệp văn bản | `đọc README.md` |
-| `tìm <regex>` (hoặc `find`, `grep`) | Tìm trong toàn bộ dự án, trả về `tệp:dòng: nội dung` | `tìm TODO` |
+| `tìm <từ khóa>` (hoặc `find`, `grep`) | Tìm **cả tên tệp lẫn nội dung** trong toàn bộ dự án. Kết quả chia 2 phần: *Tên tệp khớp* và *Nội dung khớp* (`tệp:dòng: nội dung`) | `tìm hoadon`, `tìm TODO` |
+| `tìm tên <mẫu>` (hoặc `tìm file`) | **Chỉ theo tên** tệp/thư mục. Không phân biệt hoa/thường; dùng được ký tự đại diện `*` `?` | `tìm tên báo cáo`, `tìm tên *.pdf` |
+| `tìm nội dung <regex>` (hoặc `tìm chữ`) | **Chỉ theo nội dung** bên trong tệp văn bản (hiểu regex) | `tìm nội dung password`, `tìm nội dung TODO\|FIXME` |
 
 ### Lệnh thay đổi dữ liệu (**luôn hỏi bạn duyệt trước**)
 
@@ -62,6 +64,8 @@ Lệnh gõ **tiếng Việt hoặc tiếng Anh** đều được. Không phân b
 | `xóa <tệp>` (`rm`, `delete`) | Xóa tệp hoặc **thư mục rỗng** | `xóa b.txt` |
 | `chạy <lệnh>` (`run`, `cmd`) | Chạy lệnh terminal (Windows: `cmd`) tại thư mục dự án. **Tự dừng sau 60 giây** | `chạy dir`, `chạy git status` |
 | `chạy -t <giây> <lệnh>` | Như trên nhưng đặt giới hạn thời gian riêng (tối đa 3600 giây) | `chạy -t 300 npm install` |
+
+Ghi chú về `tìm`: tối đa 200 kết quả mỗi phần và dừng sau 15 giây nếu thư mục quá lớn (sẽ có dòng báo "kết quả chưa đầy đủ" – hãy tìm trong thư mục con: `tìm` không có tham số đường dẫn, nên chọn lại dự án là thư mục nhỏ hơn).
 
 Cách nhớ cú pháp: **dấu `:`** ngăn *tên tệp* với *nội dung*, **dấu `=>`** ngăn *cũ* với *mới*.
 
@@ -133,6 +137,7 @@ Khi có model, mọi thứ giữ nguyên – chỉ khác là bạn nói chuyện
 | Trình duyệt báo "Không thể truy cập" | Bot không chạy hoặc cổng đã đổi. Mở Task Manager đóng `desktop-agent.exe` rồi chạy lại |
 | Cảnh báo SmartScreen / Defender | Exe chưa ký số. *More info → Run anyway*. Nếu Defender xóa file: thêm thư mục vào *Exclusions* (hoặc nhờ IT) |
 | "Chưa hiểu …" | Gõ `help` hoặc `/` xem cú pháp đúng |
+| `tìm` không thấy tệp nhị phân/ảnh/PDF | Tìm theo **tên** thì thấy; tìm theo **nội dung** chỉ áp dụng cho tệp văn bản (≤ 200 KB, bỏ qua `.git`, `node_modules`) |
 | `sửa` báo "found 0 times" | Chữ cũ không có trong tệp (kiểm tra hoa/thường, khoảng trắng) |
 | `sửa` báo "found 2 times" | Chữ cũ xuất hiện nhiều lần; gõ dài hơn để duy nhất |
 | `đọc` báo "binary file" | Tệp nhị phân (ảnh, exe…) – bot chỉ đọc văn bản |

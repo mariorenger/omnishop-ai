@@ -14,7 +14,7 @@ const offlineHelp = `Mình là **bot if/else** (chế độ offline, không dùn
 - **ls** [thư mục] – liệt kê file (vd: ls src)
 - **tree** [thư mục] – xem cây thư mục
 - **đọc** <file> – xem nội dung file (vd: đọc README.md)
-- **tìm** <regex> – tìm trong toàn bộ project (vd: tìm TODO)
+- **tìm** <từ khóa> – tìm cả **tên tệp** lẫn **nội dung** trong project (vd: tìm hoadon). Chỉ theo tên: **tìm tên** *.pdf · chỉ nội dung: **tìm nội dung** TODO
 - **tạo** <file> : <nội dung> – tạo hoặc ghi đè file
 - **thêm** <file> : <dòng> – thêm một dòng vào cuối file
 - **sửa** <file> : <cũ> => <mới> – thay chữ trong file
@@ -65,7 +65,7 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 		}
 	}
 
-	call := func(name string, args map[string]any, showOutput bool) {
+	exec1 := func(name string, args map[string]any) string {
 		b, _ := json.Marshal(args)
 		tc := ToolCall{ID: fmt.Sprintf("off_%d", time.Now().UnixNano()), Type: "function"}
 		tc.Function.Name, tc.Function.Arguments = name, string(b)
@@ -73,6 +73,10 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 		s.mu.Lock()
 		s.history = append(s.history, Msg{Role: "tool", ToolCallID: tc.ID, Content: res})
 		s.mu.Unlock()
+		return res
+	}
+	call := func(name string, args map[string]any, showOutput bool) {
+		res := exec1(name, args)
 		switch {
 		case strings.HasPrefix(res, "error:"):
 			emit("assistant", "⚠️ Không làm được: "+strings.TrimSpace(strings.TrimPrefix(res, "error:")))
@@ -137,7 +141,48 @@ func (s *Server) runOffline(ctx context.Context, msg string, emit emitFn) {
 			emit("assistant", "Tìm gì? Ví dụ: tìm TODO")
 			return
 		}
-		call("search_files", map[string]any{"pattern": rest}, true)
+		mode, q := "both", rest
+		low := strings.ToLower(rest)
+		switch low { // chỉ gõ từ khóa chế độ mà quên nội dung cần tìm
+		case "tên", "ten", "file", "tệp", "name", "nội dung", "noi dung", "chữ", "content", "text":
+			emit("assistant", "Tìm gì? Ví dụ: tìm tên báo cáo · tìm nội dung password")
+			return
+		}
+		for _, p := range []string{"tên", "ten", "file", "tệp", "name"} {
+			if strings.HasPrefix(low, p+" ") {
+				mode, q = "name", strings.TrimSpace(rest[len(p):])
+				break
+			}
+		}
+		for _, p := range []string{"nội dung", "noi dung", "chữ", "trong", "content", "text"} {
+			if strings.HasPrefix(low, p+" ") {
+				mode, q = "content", strings.TrimSpace(rest[len(p):])
+				break
+			}
+		}
+		if q == "" {
+			emit("assistant", "Tìm gì? Ví dụ: tìm TODO · tìm tên báo cáo · tìm nội dung password")
+			return
+		}
+		section := func(title, res string) string {
+			switch {
+			case strings.HasPrefix(res, "error: bad pattern"):
+				return title + "\nbỏ qua (mẫu không phải regex hợp lệ)"
+			case strings.HasPrefix(res, "error:"):
+				return title + "\n⚠️ " + strings.TrimSpace(strings.TrimPrefix(res, "error:"))
+			case res == "no matches":
+				return title + "\nkhông có kết quả"
+			}
+			return title + "\n```\n" + clip(strings.TrimRight(res, "\n"), 6000) + "\n```"
+		}
+		var parts []string
+		if mode != "content" {
+			parts = append(parts, section("**📄 Tên tệp khớp**", exec1("find_files", map[string]any{"pattern": q})))
+		}
+		if mode != "name" {
+			parts = append(parts, section("**🔎 Nội dung khớp**", exec1("search_files", map[string]any{"pattern": q})))
+		}
+		emit("assistant", strings.Join(parts, "\n\n"))
 	case verb == "tạo" || verb == "write" || verb == "ghi" || verb == "new":
 		path, content, ok := strings.Cut(rest, ":")
 		if !ok || strings.TrimSpace(path) == "" {

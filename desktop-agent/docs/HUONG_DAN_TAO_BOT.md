@@ -174,7 +174,9 @@ hideWindow(c)                     // Windows: CREATE_NO_WINDOW, không nháy c�
 
 `proc_windows.go` dùng build tag `//go:build windows` để chỉ biên dịch trên Windows (cờ `0x08000000` = `CREATE_NO_WINDOW`).
 
-**Giới hạn an toàn có sẵn:** đọc tối đa 200 KB/tệp, từ chối tệp nhị phân (phát hiện byte `\x00`), tìm kiếm tối đa 200 kết quả, bỏ qua `.git` và `node_modules`, `sửa` chỉ khi chuỗi cũ xuất hiện **đúng 1 lần**.
+**Công cụ tìm kiếm:** `find_files` so khớp theo *tên* (chuỗi con không phân biệt hoa/thường, hoặc glob `*.py` qua `filepath.Match`); `search_files` so khớp theo *nội dung* từng dòng bằng `regexp`. Lệnh `tìm x` trong `offline.go` gọi cả hai và ghép thành một câu trả lời hai phần.
+
+**Giới hạn an toàn có sẵn:** đọc tối đa 200 KB/tệp, từ chối tệp nhị phân (phát hiện byte `\x00`), tìm kiếm (theo tên và theo nội dung) tối đa 200 kết quả, 15 giây, bỏ qua `.git` và `node_modules`, `sửa` chỉ khi chuỗi cũ xuất hiện **đúng 1 lần**.
 
 ### 4.4 `agent.go` – cổng duyệt dùng chung
 

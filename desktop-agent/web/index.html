@@ -253,7 +253,7 @@ const hr=new Date().getHours();
 $('hello').textContent=hr<11?'Chào buổi sáng!':hr<14?'Chào buổi trưa!':hr<18?'Chào buổi chiều!':'Chào buổi tối!';
 const SUGGEST=[
   {i:'folder',t:'Liệt kê các tệp trong dự án',v:'ls'},
-  {i:'search',t:'Tìm chữ trong toàn bộ dự án',v:'tìm ',cur:1},
+  {i:'search',t:'Tìm tệp theo tên hoặc nội dung',v:'tìm ',cur:1},
   {i:'file',t:'Đọc nội dung một tệp',v:'đọc ',cur:1},
   {i:'term',t:'Chạy một lệnh terminal',v:'chạy ',cur:1},
 ];
@@ -335,7 +335,7 @@ $('auto').onchange=e=>post('/api/auto',{on:e.target.checked});
 
 /* ---------- slash menu ---------- */
 const CMDS=[
-  ['ls','liệt kê tệp','ls '],['tree','xem cây thư mục','tree '],['đọc','xem nội dung tệp','đọc '],['tìm','tìm trong dự án','tìm '],
+  ['ls','liệt kê tệp','ls '],['tree','xem cây thư mục','tree '],['đọc','xem nội dung tệp','đọc '],['tìm','tìm theo tên tệp và nội dung','tìm '],['tìm tên','chỉ tìm theo tên tệp','tìm tên *.pdf'],['tìm nội dung','chỉ tìm trong nội dung','tìm nội dung '],
   ['tạo','tạo / ghi tệp','tạo tên.txt : nội dung'],['thêm','thêm dòng vào cuối tệp','thêm tên.txt : dòng mới'],
   ['sửa','thay chữ trong tệp','sửa tên.txt : cũ => mới'],['đổi tên','đổi tên / di chuyển','đổi tên cũ.txt => mới.txt'],
   ['xóa','xóa tệp','xóa '],['chạy','chạy lệnh terminal','chạy '],['project','thư mục đang làm việc','project'],['help','xem hướng dẫn','help']];
