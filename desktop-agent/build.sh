@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 what="${1:-all}"
 rm -rf dist && mkdir -p dist
 ver="$(date +%Y%m%d)"
-common() { cp docs/HUONG_DAN.md docs/HUONG_DAN_TAO_BOT.md "$1/"; cp config.example.json "$1/config.json"; }
+common() { cp docs/HUONG_DAN.md docs/HUONG_DAN_TAO_BOT.md docs/NHAT_KY_PHAT_TRIEN.md "$1/"; cp config.example.json "$1/config.json"; }
 
 if [[ "$what" == all || "$what" == windows ]]; then
   d=dist/windows; mkdir -p $d
@@ -16,7 +16,7 @@ if [[ "$what" == all || "$what" == windows ]]; then
   common $d
   (cd $d && python3 -c "
 import zipfile,sys;z=zipfile.ZipFile('../../desktop-agent-win.zip','w',zipfile.ZIP_DEFLATED)
-[z.write(f) for f in ('desktop-agent.exe','config.json','HUONG_DAN.md','HUONG_DAN_TAO_BOT.md')]")
+[z.write(f) for f in ('desktop-agent.exe','config.json','HUONG_DAN.md','HUONG_DAN_TAO_BOT.md','NHAT_KY_PHAT_TRIEN.md')]")
 fi
 if [[ "$what" == all || "$what" == linux ]]; then
   for arch in amd64 arm64; do

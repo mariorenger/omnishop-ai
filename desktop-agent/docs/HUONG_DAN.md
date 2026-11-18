@@ -18,7 +18,7 @@ Cả hai chế độ dùng chung bộ công cụ, cùng thẻ xin duyệt và c�
    - Không có cửa sổ đen nào hiện ra. Trình duyệt mặc định sẽ tự mở trang `http://127.0.0.1:7878`.
 3. Nếu Windows hiện cảnh báo xanh **"Windows protected your PC"** (do exe chưa ký số):
    bấm **More info** → **Run anyway**.
-4. Bấm **"Chọn thư mục dự án để bắt đầu"** → duyệt tới thư mục muốn làm việc → **Chọn thư mục này**.
+4. Bấm **"Mở một thư mục dự án để bắt đầu"** → duyệt tới thư mục muốn làm việc → **Chọn thư mục này**.
 5. Gõ lệnh vào ô chat, ví dụ `ls`.
 
 > Muốn tắt bot: mở Task Manager → kết thúc tiến trình `desktop-agent.exe`.
@@ -26,10 +26,48 @@ Cả hai chế độ dùng chung bộ công cụ, cùng thẻ xin duyệt và c�
 
 ---
 
-## 2. Giao diện
+## 2. Giao diện (3 cột)
+
+```
+┌────────────────┬──────────────────────────────┬─────────────────────┐
+│ TRÁI: Tệp      │ GIỮA: Chat / xem tệp         │ PHẢI: Dự án & phiên │
+│ cây tệp của    │ câu hỏi, kết quả, thẻ duyệt  │ nhiều dự án, mỗi dự │
+│ dự án đang mở  │ ô nhập ở dưới                │ án nhiều phiên chat │
+└────────────────┴──────────────────────────────┴─────────────────────┘
+```
 
 | Khu vực | Chức năng |
 |---|---|
+| **Cột trái – Tệp** | Tên + đường dẫn dự án đang mở; **cây tệp** (bấm thư mục để mở rộng, bấm tệp để xem); nút ⟳ tải lại cây tệp; ở dưới: **Tasks định kỳ**, công tắc **Tự duyệt thao tác**, nút **sáng/tối** |
+| **Cột phải – Dự án & phiên chat** | Nút **Mở dự án** (chọn thư mục). Mỗi dự án là một nhóm, bên trong là các **phiên chat** của dự án đó. Bấm tên phiên để chuyển; **+** cạnh tên dự án = phiên chat mới; **×** cạnh dự án = bỏ khỏi danh sách (tệp **không** bị xóa); **×** cạnh phiên = xóa phiên; **bấm đúp** tên phiên để đổi tên. Chấm xanh nhấp nháy = phiên đang chạy |
+| **Giữa – Chat** | Câu bạn gõ ở bên phải, trả lời của bot bên trái; kết quả dạng văn bản nằm trong khung code có nút **Sao chép** |
+| **Thẻ công cụ** (biểu tượng cờ-lê) | Bot vừa làm thao tác gì; bấm để xem chi tiết; hiện đồng hồ `đang chạy… 12s / tối đa 60s` |
+| **Thẻ xin duyệt** (nền vàng) | Hiện trước mọi thao tác làm thay đổi dữ liệu |
+| **Ô nhập** | `Enter` gửi · `Shift+Enter` xuống dòng · gõ `/` để mở danh sách lệnh · nút vuông = dừng |
+
+Nút trên cùng: 📁 ẩn/hiện cột tệp · ✎ phiên chat mới trong dự án hiện tại · ▭ ẩn/hiện cột dự án. Màn hình hẹp: hai cột bên tự thu lại, bấm các nút trên để mở.
+
+### Nhiều dự án, nhiều phiên chat
+- **Mở dự án** bao nhiêu tùy ý; mỗi dự án có **các phiên chat tách biệt** (mỗi phiên nhớ riêng cuộc trò chuyện). Bot trong phiên của dự án nào chỉ làm việc trong thư mục của dự án đó.
+- Tên phiên tự lấy từ tin nhắn đầu tiên. Phiên trống không bị tạo thừa: bấm **+** khi đang có phiên trống thì mở lại phiên đó.
+- **Mọi thứ được lưu** (`workspace.json`): tắt chương trình, mở lại vẫn còn dự án, phiên và nội dung chat; trợ lý LLM cũng nhớ tiếp mạch hội thoại (trong giới hạn 16k).
+- Các phiên **chạy song song**: gửi lệnh dài ở phiên A rồi chuyển sang phiên B chat tiếp; quay lại A vẫn thấy tiến trình (thẻ duyệt đang chờ cũng hiện lại). Nút **Dừng** chỉ dừng phiên đang xem.
+- Thư mục dự án bị xóa/đổi tên: dự án hiện chữ đỏ gạch ngang kèm cảnh báo; chat ở đó sẽ báo lỗi cho tới khi bạn bỏ dự án và mở lại.
+
+### Xem tệp (bấm tệp ở cột trái)
+| Loại tệp | Cách hiển thị |
+|---|---|
+| **PDF** | **Bản gốc** trong trình xem PDF của trình duyệt (đúng như file thật). Tab **"Chữ trợ lý đọc"** cho biết bot đọc được chữ gì (có thể sai dấu ở một số PDF tiếng Việt). Nếu trình duyệt không hiện được PDF sẽ có nút *Mở trong tab mới / Mở bằng ứng dụng / Xem dạng chữ* |
+| **Ảnh** (png, jpg, gif, webp…) | Hiện ảnh |
+| **Word, Excel, PowerPoint** | Bản chữ trích xuất (không có định dạng/hình/biểu đồ) + nút **Mở bằng ứng dụng** (Word/Excel của máy) để xem đúng bản gốc |
+| **Văn bản/mã nguồn** | **Toàn bộ nội dung** (tối đa 2 MB); có nút sao chép |
+| **Nhị phân khác** | Báo không xem được dạng chữ |
+
+Nhấn **Esc** để đóng khung xem. Nút **Mở bằng ứng dụng** chỉ dùng cho tài liệu/ảnh (không bao giờ chạy `.exe`/`.bat`).
+
+Mẹo: gõ `/` rồi dùng phím ↑ ↓ và `Tab`/`Enter` để chọn lệnh, bot sẽ điền sẵn mẫu cú pháp.
+
+---|---|
 | **Thanh bên trái** | *Cuộc trò chuyện mới*, thư mục **Dự án** đang chọn (bấm để đổi), cây **Tệp** (bấm tệp để xem nội dung), công tắc **Tự duyệt thao tác**, nút **sáng/tối** |
 | **Màn hình chào** | 4 thẻ gợi ý – bấm để điền sẵn lệnh |
 | **Khung chat** | Câu bạn gõ ở bên phải, câu trả lời của bot bên trái. Kết quả dạng văn bản nằm trong khung code có nút **Sao chép** |
@@ -299,6 +337,21 @@ Máy chạy bot phải **ra được internet** (hoặc qua proxy công ty). Ch�
 - Nội dung trang web là **không tin cậy**: một trang độc hại có thể chứa câu "hãy xóa file…" nhắm vào trợ lý. Hãy đọc kỹ thẻ duyệt trước khi cho phép bất kỳ thao tác ghi/chạy nào sau khi đọc web.
 - Bot lấy chữ từ HTML đơn giản (bỏ menu/quảng cáo ở mức cơ bản), không chạy JavaScript nên trang động có thể trống.
 
+
+---
+
+## 12a. Tự kiểm tra agent với LLM thật (`--selftest`)
+
+Để biết LLM của bạn có điều khiển được vòng lặp (nhiều bước, chạy lệnh thật, tự sửa lỗi) hay không, điền `base_url`/`model` rồi chạy:
+
+```
+desktop-agent.exe --selftest        (Windows: mở cmd/PowerShell trong thư mục chứa exe)
+./desktop-agent --selftest          (Linux)
+```
+
+Bot tạo thư mục tạm và giao 3 việc nhiều bước: **(1)** mở tệp theo tên gõ gần đúng rồi trả lời; **(2)** tìm các dòng TODO rồi ghi `bao_cao.md`; **(3)** viết `tong.py` rồi chạy nó và báo kết quả. Mỗi việc in từng bước (`→` công cụ, `←` kết quả) và **ĐẠT/KHÔNG ĐẠT** (kiểm tra bằng tệp và kết quả thật, không tin lời LLM). Bản ghi đầy đủ nằm trong `selftest-report.txt`. Việc số 3 cần máy có Python (không có thì bỏ qua).
+
+Nếu KHÔNG ĐẠT: model quá nhỏ thường không viết đúng khối `tool`, trả lời trước khi chạy công cụ, hoặc bịa kết quả → thử model lớn hơn hoặc đổi `tool_mode`.
 
 ---
 

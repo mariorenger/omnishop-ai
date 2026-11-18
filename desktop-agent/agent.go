@@ -442,6 +442,13 @@ func (s *Server) askApproval(ctx context.Context, id, name, args string, emit em
 	s.pending[id] = ch
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); delete(s.pending, id); s.mu.Unlock() }()
+	s.mu.Lock()
+	if s.pendInfo == nil {
+		s.pendInfo = map[string]map[string]any{}
+	}
+	s.pendInfo[id] = map[string]any{"id": id, "name": name, "args": args}
+	s.mu.Unlock()
+	defer func() { s.mu.Lock(); delete(s.pendInfo, id); s.mu.Unlock() }()
 	emit("approval", map[string]any{"id": id, "name": name, "args": args})
 	select {
 	case ok := <-ch:

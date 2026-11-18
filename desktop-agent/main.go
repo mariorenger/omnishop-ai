@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -22,14 +23,15 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Server is the runner of ONE chat session: its project folder, LLM history, pending approvals.
+// The App below owns many of them (one per session).
 type Server struct {
 	cfg       Config
-	token     string
-	addr      string
 	mu        sync.Mutex
 	project   string
 	history   []Msg
 	pending   map[string]chan bool
+	pendInfo  map[string]map[string]any // what the approval card shows (for redrawing after a session switch)
 	auto      bool
 	busy      bool
 	cancel    context.CancelFunc
@@ -42,6 +44,7 @@ func (s *Server) isAutoApprove() bool { s.mu.Lock(); defer s.mu.Unlock(); return
 func main() {
 	noBrowser := flag.Bool("no-browser", false, "do not open the browser")
 	project := flag.String("project", "", "initial project directory")
+	selftest := flag.Bool("selftest", false, "run 3 multi-step goals against the configured LLM and print PASS/FAIL, then exit")
 	flag.Parse()
 
 	if dir, err := os.UserConfigDir(); err == nil {
@@ -53,6 +56,9 @@ func main() {
 	}
 
 	cfg := loadConfig()
+	if *selftest {
+		os.Exit(selftestMain(cfg))
+	}
 	defaultCmdTimeout = cfg.CmdTimeout
 	if strings.TrimSpace(cfg.BaseURL) != "" { // small-context LLM: page file reads to fit
 		readChunkChars = min(8000, max(1500, cfg.ContextTokens/5))
@@ -73,10 +79,17 @@ func main() {
 		_, _ = rand.Read(tok)
 		tokHex = hex.EncodeToString(tok)
 	}
-	s := &Server{cfg: cfg, token: tokHex, pending: map[string]chan bool{}}
+	wsPath := ""
+	if dir, err := os.UserConfigDir(); err == nil {
+		wsPath = filepath.Join(dir, "desktop-agent", "workspace.json")
+	}
+	app := &App{cfg: cfg, token: tokHex, runners: map[string]*Server{}, ws: loadWorkspace(wsPath)}
+	app.ws.mu.Lock()
+	app.ws.pickActiveLocked()
+	app.ws.mu.Unlock()
 	if *project != "" {
-		if abs, err := filepath.Abs(*project); err == nil {
-			s.project = abs
+		if _, _, err := app.ws.OpenProject(*project); err != nil {
+			log.Printf("--project: %v", err)
 		}
 	}
 
@@ -87,15 +100,15 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	s.addr = ln.Addr().String()
-	url := fmt.Sprintf("http://%s/?t=%s", s.addr, s.token)
-	log.Printf("listening on %s model=%s base=%s", s.addr, cfg.Model, cfg.BaseURL)
+	app.addr = ln.Addr().String()
+	url := fmt.Sprintf("http://%s/?t=%s", app.addr, app.token)
+	log.Printf("listening on %s model=%s base=%s", app.addr, cfg.Model, cfg.BaseURL)
 	fmt.Println("Open:", url)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServerFS(sub))
-	s.routes(mux)
+	app.routes(mux)
 	if !*noBrowser {
 		go openBrowser(url)
 	}
@@ -116,3 +129,13 @@ func openBrowser(url string) {
 }
 
 func osName() string { return runtime.GOOS }
+
+// selftestMain prints to stdout AND to selftest-report.txt (a GUI-subsystem Windows exe has no console).
+func selftestMain(cfg Config) int {
+	var w io.Writer = os.Stdout
+	if f, err := os.Create("selftest-report.txt"); err == nil {
+		defer f.Close()
+		w = io.MultiWriter(os.Stdout, f)
+	}
+	return runSelfTest(cfg, w)
+}

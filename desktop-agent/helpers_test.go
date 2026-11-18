@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"strconv"
@@ -50,3 +51,5 @@ func denyAll(s *Server) (stop func()) {
 	}()
 	return func() { close(done) }
 }
+
+func jsonMarshalImpl(v any) ([]byte, error) { return json.Marshal(v) }

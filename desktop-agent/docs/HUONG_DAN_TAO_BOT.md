@@ -4,6 +4,8 @@ Tài liệu giải thích **toàn bộ cách làm**: kiến trúc, từng file c
 
 ---
 
+> **Muốn phát triển tiếp?** Đọc `NHAT_KY_PHAT_TRIEN.md` (bản đồ mã, quy trình, lỗi đã gặp, cách xuất mọi định dạng, việc nên làm). File này đi sâu vào *cách từng phần hoạt động*.
+
 ## 1. Ý tưởng tổng thể
 
 ```
@@ -53,7 +55,10 @@ Cài Go: https://go.dev/dl/ (Windows: file `.msi`). Kiểm tra `go version`.
 desktop-agent/
 ├── main.go           # khởi động: config, mở cổng, nhúng UI, khởi động bộ lập lịch, mở trình duyệt
 ├── config.go         # config.json + biến môi trường
-├── server.go         # /api/*: chat (SSE), duyệt, dừng, tasks; bảo vệ token + Host
+├── server.go         # App: /api/* (workspace, phiên, chat SSE, duyệt, dừng, xem tệp, tasks); bảo vệ token + Host
+├── workspace.go      # Workspace→Project→Session, lưu workspace.json (nhiều dự án, nhiều phiên chat)
+├── selftest.go       # --selftest: 3 mục tiêu nhiều bước với LLM thật
+├── docs/NHAT_KY_PHAT_TRIEN.md # NHẬT KÝ & BÀN GIAO: quy trình code, lỗi đã gặp, cách xuất mọi định dạng, backlog
 ├── agent.go          # VÒNG LẶP AGENT cho LLM (giao thức khối ```tool, native, auto) + execTool/xin duyệt
 ├── context.go        # ngân sách token, cắt lịch sử cho LLM 16k (fitContext)
 ├── offline.go        # bộ não if/else (không LLM) – nơi thêm luật/lệnh
