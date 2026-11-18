@@ -28,3 +28,7 @@ go run . --project .   # chạy thử trên máy dev
 
 ## Gắn RAG của bạn
 Thêm tool mới trong `tools.go` (`toolDefs` + `runTool`), ví dụ `rag_search` gọi API RAG nội bộ.
+
+## Tài liệu
+- `docs/HUONG_DAN.md` – hướng dẫn sử dụng cho người dùng cuối
+- `docs/HUONG_DAN_TAO_BOT.md` – kỹ thuật: kiến trúc, thêm lệnh/công cụ, nối LLM/RAG, build exe, ký số, đóng gói

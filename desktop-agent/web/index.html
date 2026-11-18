@@ -1,133 +1,386 @@
 <!doctype html>
-<html lang="vi">
+<html lang="vi" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Desktop Agent</title>
+<title>Trợ lý</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%234b6bfb'/%3E%3Cpath d='M16 7l2.2 6.8L25 16l-6.8 2.2L16 25l-2.2-6.8L7 16l6.8-2.2z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--bd:#e5e7eb;--side:#f6f7f9;--acc:#2563eb;--usr:#e8f0fe;--code:#f3f4f6;--warn:#fff7e0}
-@media(prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e6e6e6;--mut:#9aa0aa;--bd:#2c3038;--side:#1d2025;--acc:#5b8def;--usr:#22324f;--code:#23272e;--warn:#3a3220}}
-*{box-sizing:border-box}body{margin:0;height:100vh;display:flex;font:14px/1.5 system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
-#side{width:270px;background:var(--side);border-right:1px solid var(--bd);display:flex;flex-direction:column;min-width:0}
-#side h3{margin:0;padding:12px;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-#proj{padding:0 12px 12px;border-bottom:1px solid var(--bd)}
-#projname{font-weight:600;word-break:break-all;margin-bottom:6px}
-button{font:inherit;border:1px solid var(--bd);background:var(--bg);color:var(--fg);padding:5px 10px;border-radius:6px;cursor:pointer}
-button.p{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.5;cursor:default}
-#tree{flex:1;overflow:auto;padding:4px 6px;font-size:13px}
-.n{padding:2px 6px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.n:hover{background:var(--bd)}
-#main{flex:1;display:flex;flex-direction:column;min-width:0}
-#bar{display:flex;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--bd);color:var(--mut);font-size:12px}
-#bar .sp{flex:1}
-#log{flex:1;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:10px}
-.m{max-width:820px;white-space:pre-wrap;word-break:break-word;padding:8px 12px;border-radius:10px}
-.u{align-self:flex-end;background:var(--usr)}.a{align-self:flex-start;border:1px solid var(--bd)}
-.t{align-self:flex-start;max-width:820px;width:100%;font-size:12px;border:1px solid var(--bd);border-radius:8px;background:var(--code)}
-.t summary{cursor:pointer;padding:5px 10px;color:var(--mut)}.t pre{margin:0;padding:8px 10px;overflow:auto;max-height:260px;white-space:pre-wrap;border-top:1px solid var(--bd)}
-.ap{align-self:flex-start;max-width:820px;background:var(--warn);border:1px solid var(--bd);border-radius:8px;padding:8px 12px}
-.ap pre{margin:6px 0;white-space:pre-wrap;max-height:200px;overflow:auto;font-size:12px}.ap button{margin-right:6px}
-.err{color:#dc2626}
-#in{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--bd)}
-textarea{flex:1;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--fg);resize:none;height:56px}
-#modal{position:fixed;inset:0;background:#0006;display:none;align-items:center;justify-content:center}
-#box{background:var(--bg);width:min(560px,92vw);max-height:80vh;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px}
-#list{overflow:auto;border:1px solid var(--bd);border-radius:6px;min-height:200px}
-#cur{font-size:12px;color:var(--mut);word-break:break-all}
-#viewer{display:none;position:fixed;right:0;top:0;bottom:0;width:min(560px,60vw);background:var(--bg);border-left:1px solid var(--bd);flex-direction:column}
-#viewer pre{margin:0;padding:12px;overflow:auto;flex:1;font-size:12px;white-space:pre-wrap}
+:root{
+  --bg:#ffffff;--side:#f9f9f9;--fg:#0d0d0d;--mut:#6e6e80;--bd:#e5e5e5;--hover:#ececec;
+  --comp:#f4f4f4;--user:#f4f4f4;--btn:#0d0d0d;--btnfg:#fff;--code:#0d1117;--codebar:#161b22;
+  --card:#ffffff;--shadow:0 1px 2px #0000000d,0 4px 16px #00000010;--acc:#4b6bfb;--warn:#fff8e6;--warnbd:#f1d48a;
+  --g1:#4b6bfb;--g2:#a35bf5;--g3:#f2615a;
+}
+html[data-theme=dark]{
+  --bg:#212121;--side:#171717;--fg:#ececec;--mut:#a1a1aa;--bd:#383838;--hover:#2a2a2a;
+  --comp:#2f2f2f;--user:#2f2f2f;--btn:#ececec;--btnfg:#171717;--code:#0d0d0d;--codebar:#2a2a2a;
+  --card:#2a2a2a;--shadow:0 1px 2px #0006,0 4px 16px #0004;--acc:#7b93ff;--warn:#3a321f;--warnbd:#6b5a2a;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;display:flex;background:var(--bg);color:var(--fg);font:15px/1.65 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ic{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;color:var(--mut)}
+.ic:hover{background:var(--hover);color:var(--fg)}
+
+/* ---------- sidebar ---------- */
+#side{width:268px;background:var(--side);display:flex;flex-direction:column;transition:margin .2s ease;flex:none;border-right:1px solid var(--bd)}
+body.collapsed #side{margin-left:-268px}
+.s-top{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 4px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;padding-left:6px}
+.logo{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--g1),var(--g2));display:grid;place-items:center;color:#fff}
+.logo svg{width:15px;height:15px;stroke:none;fill:#fff}
+#newchat{margin:8px 10px;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;font-weight:500}
+#newchat:hover{background:var(--hover)}
+.s-sec{padding:12px 16px 4px;font-size:12px;font-weight:600;color:var(--mut)}
+#projbox{margin:2px 10px;padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--bd);display:flex;gap:10px;align-items:center;cursor:pointer;text-align:left;width:calc(100% - 20px)}
+#projbox:hover{border-color:var(--acc)}
+#projname{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#projpath{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+#projtxt{min-width:0;flex:1}
+#tree{flex:1;overflow:auto;padding:2px 8px 8px;font-size:13.5px}
+.n{display:flex;gap:6px;align-items:center;padding:4px 8px;border-radius:8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.n:hover{background:var(--hover)}.n svg{width:15px;height:15px;color:var(--mut)}
+.s-foot{border-top:1px solid var(--bd);padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sw{position:relative;width:34px;height:20px;flex:none}
+.sw input{opacity:0;position:absolute;inset:0;margin:0;cursor:pointer;z-index:1}
+.sw i{position:absolute;inset:0;border-radius:20px;background:var(--bd);transition:.2s}
+.sw i:after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
+.sw input:checked+i{background:var(--acc)}.sw input:checked+i:after{transform:translateX(14px)}
+.pill{font-size:12px;padding:2px 10px;border-radius:20px;background:var(--hover);color:var(--mut)}
+
+/* ---------- main ---------- */
+#main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+#top{display:flex;align-items:center;gap:6px;padding:8px 12px;min-height:52px}
+#modelpill{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:12px;font-weight:600;font-size:16px}
+#modelpill small{font-weight:400;color:var(--mut);font-size:12.5px}
+#top .sp{flex:1}
+#scroll{flex:1;overflow-y:auto;scroll-behavior:smooth}
+.col{max-width:768px;margin:0 auto;padding:0 20px}
+
+/* welcome */
+#welcome{min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:20px 0 60px}
+#hello{font-size:44px;line-height:1.2;font-weight:600;letter-spacing:-.02em;margin:0 0 6px;background:linear-gradient(90deg,var(--g1),var(--g2) 55%,var(--g3));-webkit-background-clip:text;background-clip:text;color:transparent}
+#sub{font-size:30px;line-height:1.25;font-weight:500;color:var(--mut);margin:0 0 34px;letter-spacing:-.01em}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{background:var(--comp);border-radius:16px;padding:14px;min-height:140px;display:flex;flex-direction:column;justify-content:space-between;text-align:left;transition:.15s;border:1px solid transparent}
+.card:hover{background:var(--hover);border-color:var(--bd);transform:translateY(-1px)}
+.card b{font-weight:500;font-size:14.5px;line-height:1.4}
+.card span{align-self:flex-end;width:34px;height:34px;border-radius:50%;background:var(--bg);display:grid;place-items:center;color:var(--acc)}
+.pickbtn{margin-top:22px;align-self:flex-start;background:var(--btn);color:var(--btnfg);padding:11px 20px;border-radius:24px;font-weight:600;display:inline-flex;gap:8px;align-items:center}
+
+/* messages */
+#msgs{padding:8px 0 24px}
+.msg{display:flex;gap:14px;padding:12px 0;animation:in .25s ease}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msg.user{justify-content:flex-end}
+.bubble{background:var(--user);padding:10px 18px;border-radius:22px;max-width:80%;white-space:pre-wrap;word-break:break-word}
+.av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--g1),var(--g2));display:grid;place-items:center;flex:none;margin-top:2px}
+.av svg{width:16px;height:16px;fill:#fff;stroke:none}
+.body{min-width:0;flex:1;word-break:break-word}
+.body p{margin:0 0 10px}.body ul{margin:6px 0 10px;padding-left:22px}.body li{margin:3px 0}
+.body code{background:var(--comp);padding:2px 6px;border-radius:6px;font:13px/1.4 Consolas,"Cascadia Mono",monospace}
+.code{margin:10px 0;border-radius:12px;overflow:hidden;background:var(--code);color:#e6edf3}
+.ch{display:flex;justify-content:space-between;align-items:center;background:var(--codebar);padding:6px 12px;font-size:12px;color:#9da7b3}
+.cp{display:flex;gap:6px;align-items:center;font-size:12px;color:#9da7b3;padding:2px 6px;border-radius:6px}.cp:hover{color:#fff;background:#ffffff1a}
+.code pre{margin:0;padding:12px 14px;overflow:auto;max-height:420px}
+.code code{background:none;padding:0;color:inherit;font:13px/1.55 Consolas,"Cascadia Mono",monospace}
+.acts{display:flex;gap:2px;margin-top:2px}.acts .ic{width:30px;height:30px}.acts svg{width:16px;height:16px}
+
+/* tool cards */
+.tool{margin:2px 0 2px 44px;border:1px solid var(--bd);border-radius:12px;background:var(--card);font-size:13px;overflow:hidden}
+.tool summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;color:var(--mut)}
+.tool summary::-webkit-details-marker{display:none}
+.tool summary svg{width:15px;height:15px}.tool summary b{color:var(--fg);font-weight:600}
+.tool summary em{margin-left:auto;font-style:normal;font-size:11.5px}
+.tool pre{margin:0;padding:8px 12px;border-top:1px solid var(--bd);max-height:220px;overflow:auto;white-space:pre-wrap;font:12px/1.5 Consolas,monospace}
+.ok{color:#16a34a}.run{color:var(--acc)}.bad{color:#dc2626}
+
+/* approval */
+.ap{margin:6px 0 6px 44px;border:1px solid var(--warnbd);background:var(--warn);border-radius:14px;padding:12px 14px}
+.ap h4{margin:0 0 6px;font-size:14px;display:flex;gap:8px;align-items:center}
+.ap pre{margin:6px 0 10px;white-space:pre-wrap;font:12.5px/1.5 Consolas,monospace;max-height:180px;overflow:auto;background:var(--bg);padding:8px 10px;border-radius:8px}
+.ap .btns{display:flex;gap:8px;flex-wrap:wrap}
+.b{padding:7px 16px;border-radius:20px;border:1px solid var(--bd);background:var(--bg);font-weight:500;font-size:13.5px}
+.b:hover{background:var(--hover)}.b.p{background:var(--btn);color:var(--btnfg);border-color:var(--btn)}
+.dots{display:inline-flex;gap:4px;padding:10px 0}.dots i{width:7px;height:7px;border-radius:50%;background:var(--mut);animation:bl 1.2s infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes bl{0%,60%,100%{opacity:.25;transform:none}30%{opacity:1;transform:translateY(-3px)}}
+
+/* composer */
+#dock{padding:0 16px 14px;background:linear-gradient(transparent,var(--bg) 24%)}
+#wrap{max-width:768px;margin:0 auto;position:relative}
+#cmds{position:absolute;bottom:calc(100% + 8px);left:0;right:0;background:var(--card);border:1px solid var(--bd);border-radius:16px;box-shadow:var(--shadow);padding:6px;display:none;max-height:300px;overflow:auto}
+.cmd{display:flex;gap:12px;align-items:baseline;width:100%;text-align:left;padding:8px 12px;border-radius:10px}
+.cmd:hover,.cmd.sel{background:var(--hover)}.cmd b{min-width:92px;font:600 13.5px Consolas,monospace}.cmd span{color:var(--mut);font-size:13px}
+#comp{background:var(--comp);border-radius:28px;padding:10px 10px 10px 20px;display:flex;align-items:flex-end;gap:8px;border:1px solid transparent;transition:.15s}
+#comp:focus-within{border-color:var(--bd);box-shadow:var(--shadow)}
+#msg{flex:1;border:0;outline:0;background:none;color:var(--fg);font:inherit;resize:none;max-height:200px;padding:6px 0;line-height:1.55}
+#msg::placeholder{color:var(--mut)}
+#send,#stop{width:36px;height:36px;border-radius:50%;background:var(--btn);color:var(--btnfg);display:grid;place-items:center;flex:none}
+#send:disabled{opacity:.25;cursor:default}
+#stop{display:none}
+#foot{text-align:center;font-size:12px;color:var(--mut);padding-top:8px}
+kbd{background:var(--comp);border:1px solid var(--bd);border-radius:5px;padding:0 5px;font:12px Consolas,monospace}
+
+/* modal + viewer */
+#modal{position:fixed;inset:0;background:#0007;display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+#box{background:var(--bg);width:min(580px,100%);max-height:84vh;border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow)}
+#box h3{margin:0;font-size:18px}
+#cur{font-size:12.5px;color:var(--mut);word-break:break-all;background:var(--comp);padding:8px 12px;border-radius:10px}
+#list{overflow:auto;border:1px solid var(--bd);border-radius:12px;min-height:240px;padding:4px}
+#box .acts2{display:flex;gap:8px;justify-content:flex-end}
+#viewer{position:fixed;right:0;top:0;bottom:0;width:min(600px,100%);background:var(--bg);border-left:1px solid var(--bd);box-shadow:var(--shadow);display:none;flex-direction:column;z-index:15}
+#viewer header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--bd)}
+#viewer header b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#vbody{margin:0;padding:14px;overflow:auto;flex:1;font:13px/1.6 Consolas,"Cascadia Mono",monospace;white-space:pre-wrap;word-break:break-word}
+#toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--btn);color:var(--btnfg);padding:8px 16px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:.2s;z-index:30}
+#toast.on{opacity:1}
+
+@media(max-width:860px){
+  #side{position:fixed;z-index:12;inset:0 auto 0 0;margin-left:-268px;box-shadow:var(--shadow)}
+  body:not(.collapsed) #side{margin-left:0}
+  .cards{grid-template-columns:repeat(2,1fr)}#hello{font-size:34px}#sub{font-size:24px}
+}
 </style>
 </head>
-<body>
-<div id="side">
-  <h3>Project</h3>
-  <div id="proj"><div id="projname">Chưa chọn</div><button class="p" id="pick">Chọn thư mục…</button></div>
-  <h3>Files</h3><div id="tree"></div>
-</div>
-<div id="main">
-  <div id="bar"><span id="model"></span><span class="sp"></span>
-    <label><input type="checkbox" id="auto"> Tự duyệt ghi file / chạy lệnh</label>
-    <button id="reset">Cuộc trò chuyện mới</button></div>
-  <div id="log"></div>
-  <div id="in"><textarea id="msg" placeholder="Nhập yêu cầu… (Enter gửi, Shift+Enter xuống dòng)"></textarea>
-    <button class="p" id="send">Gửi</button><button id="stop" style="display:none">Dừng</button></div>
-</div>
-<div id="viewer"><div style="display:flex;padding:8px 12px;border-bottom:1px solid var(--bd)"><b id="vname" style="flex:1"></b><button id="vclose">×</button></div><pre id="vbody"></pre></div>
-<div id="modal"><div id="box"><b>Chọn thư mục project</b><div id="cur"></div><div id="list"></div>
-  <div style="display:flex;gap:8px;justify-content:flex-end"><button id="mcancel">Huỷ</button><button class="p" id="mok">Chọn thư mục này</button></div></div></div>
+<body class="">
+
+<!-- icons -->
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.4 2.4-2.6-.6-.6-2.6z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+</defs></svg>
+
+<aside id="side">
+  <div class="s-top">
+    <div class="brand"><span class="logo"><svg><use href="#i-spark"/></svg></span>Trợ lý</div>
+    <button class="ic" id="hide" title="Ẩn thanh bên"><svg><use href="#i-menu"/></svg></button>
+  </div>
+  <button id="newchat"><svg><use href="#i-edit"/></svg>Cuộc trò chuyện mới</button>
+  <div class="s-sec">Dự án</div>
+  <button id="projbox" title="Đổi thư mục dự án"><svg><use href="#i-folder"/></svg>
+    <div id="projtxt"><div id="projname">Chưa chọn</div><div id="projpath"></div></div></button>
+  <div class="s-sec">Tệp</div>
+  <div id="tree"></div>
+  <div class="s-foot">
+    <div class="row"><span style="display:flex;gap:8px;align-items:center"><svg style="width:16px;height:16px"><use href="#i-shield"/></svg>Tự duyệt thao tác</span>
+      <label class="sw"><input type="checkbox" id="auto"><i></i></label></div>
+    <div class="row"><span class="pill" id="mode"></span>
+      <button class="ic" id="theme" title="Đổi giao diện sáng/tối" style="width:30px;height:30px"><svg id="themeic"><use href="#i-moon"/></svg></button></div>
+  </div>
+</aside>
+
+<section id="main">
+  <div id="top">
+    <button class="ic" id="show" title="Mở thanh bên"><svg><use href="#i-menu"/></svg></button>
+    <div id="modelpill"><span id="mtitle">Trợ lý</span><small id="msub"></small></div>
+    <span class="sp"></span>
+    <button class="ic" id="newtop" title="Cuộc trò chuyện mới"><svg><use href="#i-edit"/></svg></button>
+  </div>
+
+  <div id="scroll">
+    <div class="col">
+      <div id="welcome">
+        <h1 id="hello">Xin chào!</h1>
+        <p id="sub">Hôm nay mình giúp gì cho bạn?</p>
+        <div class="cards" id="cards"></div>
+        <button class="pickbtn" id="pickbig" style="display:none"><svg><use href="#i-folder"/></svg>Chọn thư mục dự án để bắt đầu</button>
+      </div>
+      <div id="msgs"></div>
+    </div>
+  </div>
+
+  <div id="dock">
+    <div id="wrap">
+      <div id="cmds"></div>
+      <div id="comp">
+        <textarea id="msg" rows="1" placeholder="Nhắn cho trợ lý…  (gõ / để xem lệnh)"></textarea>
+        <button id="send" disabled title="Gửi"><svg><use href="#i-send"/></svg></button>
+        <button id="stop" title="Dừng"><svg><use href="#i-stop"/></svg></button>
+      </div>
+      <div id="foot"><kbd>Enter</kbd> gửi · <kbd>Shift</kbd>+<kbd>Enter</kbd> xuống dòng · <kbd>/</kbd> xem danh sách lệnh</div>
+    </div>
+  </div>
+</section>
+
+<aside id="viewer"><header><svg><use href="#i-file"/></svg><b id="vname"></b><button class="ic" id="vcopy" title="Sao chép"><svg><use href="#i-copy"/></svg></button><button class="ic" id="vclose"><svg><use href="#i-x"/></svg></button></header><pre id="vbody"></pre></aside>
+
+<div id="modal"><div id="box"><h3>Chọn thư mục dự án</h3><div id="cur"></div><div id="list"></div>
+  <div class="acts2"><button class="b" id="mcancel">Huỷ</button><button class="b p" id="mok">Chọn thư mục này</button></div></div></div>
+<div id="toast"></div>
+
 <script>
 const $=id=>document.getElementById(id);
-const T=new URLSearchParams(location.search).get('t')||sessionStorage.t||'';
-if(T){sessionStorage.t=T;history.replaceState(null,'',location.pathname)}
+const T=new URLSearchParams(location.search).get('t')||(()=>{try{return sessionStorage.t}catch{return ''}})()||'';
+try{if(T){sessionStorage.t=T}}catch{}
+if(location.search)history.replaceState(null,'',location.pathname);
 const api=(p,o={})=>fetch(p,{...o,headers:{'X-Token':T,'Content-Type':'application/json'}});
 const post=(p,b)=>api(p,{method:'POST',body:JSON.stringify(b)});
-let ctl=null,browsePath='';
+const ic=n=>`<svg><use href="#i-${n}"/></svg>`;
+let ctl=null,browsePath='',project='',offline=true;
 
-async function state(){const s=await(await api('/api/state')).json();
-  $('model').textContent=s.base_url?(s.model+' · '+s.base_url):'Offline · bot if/else (không dùng model)';$('auto').checked=s.auto;setProject(s.project)}
-function setProject(p){$('projname').textContent=p||'Chưa chọn';$('tree').innerHTML='';if(p)loadTree('.',$('tree'),0)}
-async function loadTree(path,el,depth){
-  const r=await api('/api/tree?path='+encodeURIComponent(path));if(!r.ok)return;
-  for(const e of (await r.json()).entries){
-    const rel=path==='.'?e.name:path+'/'+e.name;
-    const d=document.createElement('div');d.className='n';d.style.paddingLeft=(6+depth*14)+'px';
-    d.textContent=(e.dir?'▸ ':'· ')+e.name;el.appendChild(d);
-    if(e.dir){let open=false,box=document.createElement('div');el.appendChild(box);
-      d.onclick=async()=>{open=!open;d.textContent=(open?'▾ ':'▸ ')+e.name;box.innerHTML='';if(open)await loadTree(rel,box,depth+1)}}
+/* ---------- theme / sidebar ---------- */
+function setTheme(t){document.documentElement.dataset.theme=t;$('themeic').innerHTML=`<use href="#i-${t==='dark'?'sun':'moon'}"/>`;try{localStorage.theme=t}catch{}}
+let saved='';try{saved=localStorage.theme}catch{}
+setTheme(saved||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'));
+$('theme').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+const toggleSide=()=>document.body.classList.toggle('collapsed');
+$('hide').onclick=toggleSide;$('show').onclick=toggleSide;
+if(innerWidth<=860)document.body.classList.add('collapsed');
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),1600)}
+async function copy(t){try{await navigator.clipboard.writeText(t)}catch{const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove()}toast('Đã sao chép')}
+
+/* ---------- welcome ---------- */
+const hr=new Date().getHours();
+$('hello').textContent=hr<11?'Chào buổi sáng!':hr<14?'Chào buổi trưa!':hr<18?'Chào buổi chiều!':'Chào buổi tối!';
+const SUGGEST=[
+  {i:'folder',t:'Liệt kê các tệp trong dự án',v:'ls'},
+  {i:'search',t:'Tìm chữ trong toàn bộ dự án',v:'tìm ',cur:1},
+  {i:'file',t:'Đọc nội dung một tệp',v:'đọc ',cur:1},
+  {i:'term',t:'Chạy một lệnh terminal',v:'chạy ',cur:1},
+];
+$('cards').innerHTML=SUGGEST.map((s,i)=>`<button class="card" data-i="${i}"><b>${s.t}</b><span>${ic(s.i)}</span></button>`).join('');
+$('cards').onclick=e=>{const c=e.target.closest('.card');if(!c)return;const s=SUGGEST[c.dataset.i];$('msg').value=s.v;autosize();$('msg').focus();if(!s.cur)send()};
+function updateGate(){const has=!!project;$('cards').style.display=has?'':'none';$('pickbig').style.display=has?'none':'';
+  $('msg').disabled=!has;$('msg').placeholder=has?'Nhắn cho trợ lý…  (gõ / để xem lệnh)':'Hãy chọn thư mục dự án trước';
+  $('sub').textContent=has?'Hôm nay mình giúp gì cho bạn?':'Chọn một thư mục dự án để bắt đầu.';sendState()}
+function showWelcome(on){$('welcome').style.display=on?'':'none'}
+
+/* ---------- markdown (tối giản) ---------- */
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function md(t){return t.split('```').map((p,i)=>{
+  if(i%2){const nl=p.indexOf('\n');const lang=nl>=0?p.slice(0,nl).trim():'';const code=nl>=0?p.slice(nl+1):p;
+    return `<div class="code"><div class="ch"><span>${esc(lang)||'văn bản'}</span><button class="cp">${ic('copy')}Sao chép</button></div><pre><code>${esc(code.replace(/\n$/,''))}</code></pre></div>`}
+  let h=esc(p).replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+  h=h.replace(/(?:^|\n)((?:[-*•] [^\n]*(?:\n|$))+)/g,(m,b)=>'\n<ul>'+b.trim().split('\n').map(l=>'<li>'+l.replace(/^[-*•] /,'')+'</li>').join('')+'</ul>\n');
+  return h.trim().replace(/\n/g,'<br>').replace(/<br>(<\/?ul>)/g,'$1').replace(/(<\/ul>)<br>/g,'$1')}).join('')}
+document.addEventListener('click',e=>{const b=e.target.closest('.cp');if(b)copy(b.closest('.code').querySelector('code').innerText)});
+
+/* ---------- messages ---------- */
+const scrollDown=()=>{const s=$('scroll');s.scrollTop=s.scrollHeight};
+function addUser(t){showWelcome(false);const d=document.createElement('div');d.className='msg user';d.innerHTML='<div class="bubble"></div>';d.firstChild.textContent=t;$('msgs').appendChild(d);scrollDown()}
+function addBot(t){const d=document.createElement('div');d.className='msg';
+  d.innerHTML=`<div class="av">${ic('spark')}</div><div class="body"><div class="md"></div><div class="acts"><button class="ic" title="Sao chép">${ic('copy')}</button></div></div>`;
+  d.querySelector('.md').innerHTML=md(t);d.querySelector('.acts button').onclick=()=>copy(t);$('msgs').appendChild(d);scrollDown()}
+let typing=null;
+function showTyping(){if(typing)return;typing=document.createElement('div');typing.className='msg';typing.innerHTML=`<div class="av">${ic('spark')}</div><div class="body"><div class="dots"><i></i><i></i><i></i></div></div>`;$('msgs').appendChild(typing);scrollDown()}
+function hideTyping(){if(typing){typing.remove();typing=null}}
+const calls={};
+function fmtArgs(a){try{const o=JSON.parse(a);return Object.entries(o).map(([k,v])=>k+': '+v).join('\n')}catch{return a}}
+function brief(a){try{const o=JSON.parse(a);return o.path||o.command||o.pattern||o.from||''}catch{return ''}}
+function toolCard(id,name,args){hideTyping();const d=document.createElement('details');d.className='tool';
+  d.innerHTML=`<summary>${ic('wrench')}<b></b><span></span><em class="run">đang chạy…</em></summary><pre></pre>`;
+  d.querySelector('b').textContent=name;d.querySelector('span').textContent=brief(args);d.querySelector('pre').textContent=fmtArgs(args);
+  $('msgs').appendChild(d);calls[id]=d;scrollDown()}
+function toolDone(id,res){const d=calls[id];if(!d)return;const em=d.querySelector('em');const bad=res.startsWith('error:');
+  em.className=bad?'bad':'ok';em.textContent=bad?'lỗi':'xong';const p=document.createElement('pre');p.textContent=res;d.appendChild(p);
+  if(/^(write|edit|append|delete|move|run)/.test(d.querySelector('b').textContent))refreshTree()}
+function approval(c){hideTyping();const d=document.createElement('div');d.className='ap';
+  d.innerHTML=`<h4>${ic('shield')}Trợ lý muốn thực hiện: <b></b></h4><pre></pre><div class="btns"><button class="b p">Cho phép</button><button class="b">Từ chối</button><button class="b">Luôn cho phép</button></div>`;
+  d.querySelector('b').textContent=c.name;d.querySelector('pre').textContent=fmtArgs(c.args);
+  const [y,n,al]=d.querySelectorAll('button');
+  const done=(allow,always)=>{post('/api/approve',{id:c.id,allow,always});d.remove();if(always)$('auto').checked=true;if(allow)showTyping()};
+  y.onclick=()=>done(true);n.onclick=()=>done(false);al.onclick=()=>done(true,true);
+  $('msgs').appendChild(d);scrollDown()}
+function onEvent(e){const d=e.data;
+  if(e.event==='assistant'){hideTyping();addBot(d)}
+  else if(e.event==='tool_call')toolCard(d.id,d.name,d.args);
+  else if(e.event==='tool_result')toolDone(d.id,d.result);
+  else if(e.event==='approval')approval(d);
+  else if(e.event==='error'){hideTyping();addBot('⚠️ '+d)}}
+
+/* ---------- send ---------- */
+function sendState(){$('send').disabled=!$('msg').value.trim()||!project||!!ctl}
+function autosize(){const t=$('msg');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,200)+'px';sendState();cmdMenu()}
+async function send(){const t=$('msg').value.trim();if(!t||ctl||!project)return;$('msg').value='';autosize();hideCmds();addUser(t);
+  ctl=new AbortController();$('send').style.display='none';$('stop').style.display='grid';showTyping();
+  try{const r=await fetch('/api/chat',{method:'POST',signal:ctl.signal,headers:{'X-Token':T,'Content-Type':'application/json'},body:JSON.stringify({message:t})});
+    if(!r.ok){hideTyping();addBot('⚠️ '+await r.text())}else{
+      const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+      for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+        let i;while((i=buf.indexOf('\n\n'))>=0){const ch=buf.slice(0,i);buf=buf.slice(i+2);if(ch.startsWith('data: '))onEvent(JSON.parse(ch.slice(6)))}}}}
+  catch(e){hideTyping();if(e.name!=='AbortError')addBot('⚠️ '+e)}
+  hideTyping();ctl=null;$('send').style.display='';$('stop').style.display='none';sendState();$('msg').focus()}
+$('send').onclick=send;$('stop').onclick=()=>ctl&&ctl.abort();
+$('msg').addEventListener('input',autosize);
+$('msg').addEventListener('keydown',e=>{
+  if($('cmds').style.display==='block'){
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();moveSel(e.key==='ArrowDown'?1:-1);return}
+    if(e.key==='Tab'||(e.key==='Enter'&&selCmd>=0)){e.preventDefault();pickCmd(selCmd<0?0:selCmd);return}
+    if(e.key==='Escape'){hideCmds();return}}
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}});
+function newChat(){if(ctl)ctl.abort();post('/api/reset',{});$('msgs').innerHTML='';showWelcome(true);$('msg').focus()}
+$('newchat').onclick=newChat;$('newtop').onclick=newChat;
+$('auto').onchange=e=>post('/api/auto',{on:e.target.checked});
+
+/* ---------- slash menu ---------- */
+const CMDS=[
+  ['ls','liệt kê tệp','ls '],['tree','xem cây thư mục','tree '],['đọc','xem nội dung tệp','đọc '],['tìm','tìm trong dự án','tìm '],
+  ['tạo','tạo / ghi tệp','tạo tên.txt : nội dung'],['thêm','thêm dòng vào cuối tệp','thêm tên.txt : dòng mới'],
+  ['sửa','thay chữ trong tệp','sửa tên.txt : cũ => mới'],['đổi tên','đổi tên / di chuyển','đổi tên cũ.txt => mới.txt'],
+  ['xóa','xóa tệp','xóa '],['chạy','chạy lệnh terminal','chạy '],['project','thư mục đang làm việc','project'],['help','xem hướng dẫn','help']];
+let selCmd=-1,shown=[];
+function hideCmds(){$('cmds').style.display='none';selCmd=-1}
+function cmdMenu(){const v=$('msg').value;if(!v.startsWith('/')||v.includes('\n')){hideCmds();return}
+  const q=v.slice(1).toLowerCase();shown=CMDS.filter(c=>c[0].startsWith(q)||q==='');
+  if(!shown.length||(shown.length===1&&q===shown[0][0])){hideCmds();return}
+  $('cmds').innerHTML=shown.map((c,i)=>`<button class="cmd" data-i="${i}"><b>/${c[0]}</b><span>${c[1]}</span></button>`).join('');
+  $('cmds').style.display='block';selCmd=0;paintSel()}
+function paintSel(){[...$('cmds').children].forEach((b,i)=>b.classList.toggle('sel',i===selCmd))}
+function moveSel(d){selCmd=(selCmd+d+shown.length)%shown.length;paintSel()}
+function pickCmd(i){const c=shown[i];$('msg').value=c[2];hideCmds();autosize();$('msg').focus();}
+$('cmds').onclick=e=>{const b=e.target.closest('.cmd');if(b)pickCmd(+b.dataset.i)};
+
+/* ---------- project / files ---------- */
+async function state(){const s=await(await api('/api/state')).json();offline=!s.base_url;
+  $('mode').textContent=offline?'Bot offline':'LLM';
+  $('mtitle').textContent=offline?'Bot if/else':(s.model||'Mô hình');
+  $('msub').textContent=offline?'không cần mô hình':s.base_url;
+  $('auto').checked=s.auto;setProject(s.project)}
+function setProject(p){project=p||'';$('projname').textContent=p?p.split(/[\\/]/).filter(Boolean).pop():'Chưa chọn';
+  $('projpath').textContent=p||'Bấm để chọn thư mục';$('tree').innerHTML='';if(p)loadTree('.',$('tree'),0);updateGate()}
+function refreshTree(){$('tree').innerHTML='';loadTree('.',$('tree'),0)}
+async function loadTree(path,el,depth){const r=await api('/api/tree?path='+encodeURIComponent(path));if(!r.ok)return;
+  for(const e of (await r.json()).entries){const rel=path==='.'?e.name:path+'/'+e.name;
+    const d=document.createElement('div');d.className='n';d.style.paddingLeft=(8+depth*14)+'px';
+    d.innerHTML=ic(e.dir?'folder':'file')+'<span></span>';d.lastChild.textContent=e.name;el.appendChild(d);
+    if(e.dir){let open=false;const box=document.createElement('div');el.appendChild(box);
+      d.onclick=async()=>{open=!open;box.innerHTML='';if(open)await loadTree(rel,box,depth+1)}}
     else d.onclick=()=>viewFile(rel)}}
 async function viewFile(p){const r=await(await api('/api/file?path='+encodeURIComponent(p))).json();
   $('vname').textContent=p;$('vbody').textContent=r.content;$('viewer').style.display='flex'}
-$('vclose').onclick=()=>$('viewer').style.display='none';
+$('vclose').onclick=()=>$('viewer').style.display='none';$('vcopy').onclick=()=>copy($('vbody').textContent);
 
-// folder picker
 async function browse(p){const r=await api('/api/browse?path='+encodeURIComponent(p||''));
-  if(!r.ok){alert(await r.text());return}const j=await r.json();browsePath=j.path;$('cur').textContent=j.path;
-  const l=$('list');l.innerHTML='';
-  const add=(t,pp)=>{const d=document.createElement('div');d.className='n';d.textContent=t;d.onclick=()=>browse(pp);l.appendChild(d)};
-  if(j.parent)add('⬆ ..',j.parent);(j.drives||[]).forEach(d=>add('💽 '+d,d));j.dirs.forEach(e=>add('📁 '+e.name,j.path+(j.path.endsWith('/')||j.path.endsWith('\\')?'':(j.path.includes('\\')?'\\':'/'))+e.name))}
-$('pick').onclick=()=>{$('modal').style.display='flex';browse('')};
+  if(!r.ok){toast(await r.text());return}const j=await r.json();browsePath=j.path;$('cur').textContent=j.path;
+  const l=$('list');l.innerHTML='';const sep=j.path.includes('\\')?'\\':'/';
+  const add=(t,pp,i)=>{const d=document.createElement('div');d.className='n';d.innerHTML=ic(i)+'<span></span>';d.lastChild.textContent=t;d.onclick=()=>browse(pp);l.appendChild(d)};
+  if(j.parent)add('.. (lên một cấp)',j.parent,'folder');(j.drives||[]).forEach(d=>add(d,d,'folder'));
+  j.dirs.forEach(e=>add(e.name,j.path+(/[\\/]$/.test(j.path)?'':sep)+e.name,'folder'))}
+const openPicker=()=>{$('modal').style.display='flex';browse(project||'')};
+$('projbox').onclick=openPicker;$('pickbig').onclick=openPicker;
 $('mcancel').onclick=()=>$('modal').style.display='none';
 $('mok').onclick=async()=>{const r=await post('/api/project',{path:browsePath});
-  if(r.ok){$('modal').style.display='none';$('log').innerHTML='';setProject((await r.json()).project)}else alert(await r.text())};
-
-// chat
-function add(cls,text){const d=document.createElement('div');d.className=cls;d.textContent=text;$('log').appendChild(d);$('log').scrollTop=1e9;return d}
-const calls={};
-function toolBox(id,name,args){const d=document.createElement('details');d.className='t';
-  let a=args;try{const o=JSON.parse(args);a=Object.entries(o).map(([k,v])=>k+': '+v).join('\n')}catch{}
-  d.innerHTML='<summary></summary><pre></pre>';
-  let brief='';try{const o=JSON.parse(args);brief=o.path||o.command||o.pattern||''}catch{}
-  d.querySelector('summary').textContent='🔧 '+name+' '+brief;d.querySelector('pre').textContent=a;
-  $('log').appendChild(d);calls[id]=d;$('log').scrollTop=1e9}
-function approval(c){const d=document.createElement('div');d.className='ap';
-  let a=c.args;try{const o=JSON.parse(c.args);a=Object.entries(o).map(([k,v])=>k+': '+v).join('\n')}catch{}
-  d.innerHTML='<b></b><pre></pre><button class="p">Cho phép</button><button>Từ chối</button><button>Luôn cho phép</button>';
-  d.querySelector('b').textContent='Agent muốn chạy: '+c.name;d.querySelector('pre').textContent=a;
-  const [y,n,al]=d.querySelectorAll('button');
-  const done=(allow,always)=>{post('/api/approve',{id:c.id,allow,always});d.remove();if(always)$('auto').checked=true};
-  y.onclick=()=>done(true);n.onclick=()=>done(false);al.onclick=()=>done(true,true);
-  $('log').appendChild(d);$('log').scrollTop=1e9}
-function onEvent(e){const d=e.data;
-  if(e.event==='assistant')add('m a',d);
-  else if(e.event==='tool_call')toolBox(d.id,d.name,d.args);
-  else if(e.event==='tool_result'){const b=calls[d.id];if(b){const p=document.createElement('pre');p.textContent=d.result;b.appendChild(p)}
-    if(b&&/^(write|edit)/.test(b.querySelector('summary').textContent.slice(3)))loadTreeRoot()}
-  else if(e.event==='approval')approval(d);
-  else if(e.event==='error')add('m a err','⚠ '+d)}
-function loadTreeRoot(){$('tree').innerHTML='';loadTree('.',$('tree'),0)}
-async function send(){const t=$('msg').value.trim();if(!t||ctl)return;$('msg').value='';add('m u',t);
-  ctl=new AbortController();$('send').style.display='none';$('stop').style.display='';
-  try{const r=await fetch('/api/chat',{method:'POST',signal:ctl.signal,headers:{'X-Token':T,'Content-Type':'application/json'},body:JSON.stringify({message:t})});
-    if(!r.ok){add('m a err',await r.text())}else{
-    const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
-    for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
-      let i;while((i=buf.indexOf('\n\n'))>=0){const ch=buf.slice(0,i);buf=buf.slice(i+2);
-        if(ch.startsWith('data: '))onEvent(JSON.parse(ch.slice(6)))}}}}
-  catch(e){if(e.name!=='AbortError')add('m a err','⚠ '+e)}
-  ctl=null;$('send').style.display='';$('stop').style.display='none';$('msg').focus()}
-$('send').onclick=send;$('stop').onclick=()=>ctl&&ctl.abort();
-$('msg').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};
-$('reset').onclick=async()=>{await post('/api/reset',{});$('log').innerHTML=''};
-$('auto').onchange=e=>post('/api/auto',{on:e.target.checked});
+  if(r.ok){$('modal').style.display='none';$('msgs').innerHTML='';showWelcome(true);setProject((await r.json()).project)}else toast(await r.text())};
+addEventListener('keydown',e=>{if(e.key==='Escape'){$('modal').style.display='none';$('viewer').style.display='none'}});
 state();
 </script>
 </body>

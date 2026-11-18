@@ -32,6 +32,14 @@ var toolDefs = []map[string]any{
 	fn("edit_file", "Replace exactly one occurrence of old_string with new_string in a file. old_string must be unique.",
 		props{"path": str("relative file path"), "old_string": str("text to find (must occur exactly once)"), "new_string": str("replacement text")},
 		"path", "old_string", "new_string"),
+	fn("tree", "Show a directory tree (max depth 3).",
+		props{"path": str("relative directory, default '.'")}),
+	fn("append_file", "Append text to the end of a file (creates it if missing).",
+		props{"path": str("relative file path"), "content": str("text to append")}, "path", "content"),
+	fn("delete_file", "Delete a file or an empty directory.",
+		props{"path": str("relative path")}, "path"),
+	fn("move_file", "Rename or move a file/directory inside the project.",
+		props{"from": str("relative source path"), "to": str("relative destination path")}, "from", "to"),
 	fn("search_files", "Search project files for a regex pattern. Returns file:line: text.",
 		props{"pattern": str("regular expression"), "path": str("relative directory, default '.'")}, "pattern"),
 	fn("run_command", "Run a shell command in the project directory (cmd on Windows, sh elsewhere). Returns combined output.",
@@ -51,7 +59,11 @@ func fn(name, desc string, p props, required ...string) map[string]any {
 
 // needsApproval: tools that change state.
 func needsApproval(name string) bool {
-	return name == "write_file" || name == "edit_file" || name == "run_command"
+	switch name {
+	case "write_file", "edit_file", "run_command", "append_file", "delete_file", "move_file":
+		return true
+	}
+	return false
 }
 
 // resolve maps a user/LLM supplied path to an absolute path guaranteed to stay inside root.
@@ -113,6 +125,8 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 		Pattern    string `json:"pattern"`
 		Command    string `json:"command"`
 		TimeoutSec int    `json:"timeout_sec"`
+		From       string `json:"from"`
+		To         string `json:"to"`
 	}
 	if err := json.Unmarshal([]byte(rawArgs), &a); err != nil {
 		return "error: invalid arguments: " + err.Error()
@@ -192,6 +206,86 @@ func runTool(ctx context.Context, root, name, rawArgs string) string {
 			return "error: " + err.Error()
 		}
 		return "edited " + a.Path
+	case "tree":
+		base, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		var lines []string
+		var walk func(dir, prefix string, depth int)
+		walk = func(dir, prefix string, depth int) {
+			ents, _ := os.ReadDir(dir)
+			for i, e := range ents {
+				if e.Name() == ".git" || e.Name() == "node_modules" || len(lines) >= 300 {
+					continue
+				}
+				branch, next := "├── ", "│   "
+				if i == len(ents)-1 {
+					branch, next = "└── ", "    "
+				}
+				n := e.Name()
+				if e.IsDir() {
+					n += "/"
+				}
+				lines = append(lines, prefix+branch+n)
+				if e.IsDir() && depth < 3 {
+					walk(filepath.Join(dir, e.Name()), prefix+next, depth+1)
+				}
+			}
+		}
+		walk(base, "", 1)
+		if len(lines) == 0 {
+			return "(empty)"
+		}
+		return strings.Join(lines, "\n")
+	case "append_file":
+		p, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return "error: " + err.Error()
+		}
+		f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		defer f.Close()
+		if _, err := f.WriteString(a.Content + "\n"); err != nil {
+			return "error: " + err.Error()
+		}
+		return "appended to " + a.Path
+	case "delete_file":
+		p, err := resolve(root, a.Path)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if r, _ := filepath.EvalSymlinks(root); p == r {
+			return "error: cannot delete the project root"
+		}
+		if err := os.Remove(p); err != nil {
+			return "error: " + err.Error()
+		}
+		return "deleted " + a.Path
+	case "move_file":
+		src, err := resolve(root, a.From)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		dst, err := resolve(root, a.To)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if _, err := os.Stat(dst); err == nil {
+			return "error: destination already exists"
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return "error: " + err.Error()
+		}
+		if err := os.Rename(src, dst); err != nil {
+			return "error: " + err.Error()
+		}
+		return fmt.Sprintf("moved %s -> %s", a.From, a.To)
 	case "search_files":
 		re, err := regexp.Compile(a.Pattern)
 		if err != nil {
